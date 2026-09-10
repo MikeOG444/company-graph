@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-super-graph/contracts",
+  "title": "Shared edge contracts — every arrow in the graph carries one of these shapes",
+  "$defs": {
+
+    "Method": {
+      "type": "string",
+      "enum": ["dark_factory", "hotl", "hitl", "direct_driver", "human"]
+    },
+    "Executor": {
+      "type": "string",
+      "enum": ["human_employee", "ai_agent", "human_client"]
+    },
+    "Severity": { "type": "string", "enum": ["high", "medium", "low"] },
+
+    "Provenance": {
+      "description": "Every artifact says who made it and under what method. Required on all top-level contracts.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node":      { "type": "string" },
+        "executor":  { "$ref": "#/$defs/Executor" },
+        "method":    { "$ref": "#/$defs/Method" },
+        "model":     { "type": "string" },
+        "run_id":    { "type": "string" },
+        "created_at":{ "type": "string", "format": "date-time" },
+        "tokens":    { "type": "integer", "minimum": 0 }
+      },
+      "required": ["node", "executor", "method", "run_id", "created_at"]
+    },
+
+    "Surface": {
+      "description": "A thing a change can touch. Used for conflict detection, blast radius, and security scoping.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["path", "module", "api", "schema", "config", "infra"] },
+        "ref":  { "type": "string" }
+      },
+      "required": ["kind", "ref"]
+    },
+
+    "WorkItem": {
+      "description": "What enters Build. Produced by Project Create (first pass) and Build Re-entry (after launch).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":        { "type": "string" },
+        "project_id":{ "type": "string" },
+        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix"] },
+        "title":     { "type": "string" },
+        "intent":    { "type": "string", "description": "One paragraph. Why this exists." },
+        "priority":  { "type": "integer", "minimum": 1 },
+        "deferred_iterations": { "type": "integer", "minimum": 0 },
+        "budget":    { "type": "object", "additionalProperties": false,
+                       "properties": { "tokens": {"type":"integer"}, "wall_clock_min": {"type":"integer"} } },
+        "provenance":{ "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "project_id", "source", "title", "intent", "priority", "provenance"]
+    },
+
+    "AcceptanceCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":        { "type": "string" },
+        "given":     { "type": "string" },
+        "when":      { "type": "string" },
+        "then":      { "type": "string" },
+        "testable":  { "type": "boolean" }
+      },
+      "required": ["id", "given", "when", "then", "testable"]
+    },
+
+    "Spec": {
+      "description": "Spec Writer output. The single source of truth for Decomposer, Implementer, Test Author, and every Verifier lens.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":            { "type": "string" },
+        "work_item_id":  { "type": "string" },
+        "goal":          { "type": "string" },
+        "acceptance":    { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AcceptanceCriterion" } },
+        "touched_surfaces": { "type": "array", "items": { "$ref": "#/$defs/Surface" } },
+        "out_of_scope":  { "type": "array", "items": { "type": "string" } },
+        "risk":          { "type": "string", "enum": ["low", "high"] },
+        "risk_reasons":  { "type": "array", "items": { "type": "string" } },
+        "gate":          { "type": "string", "enum": ["not_required", "pending", "approved", "revised", "killed"] },
+        "provenance":    { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "work_item_id", "goal", "acceptance", "touched_surfaces", "risk", "gate", "provenance"]
+    },
+
+    "Task": {
+      "description": "One node in a Task Graph. Owned surfaces must be disjoint across tasks in the same spec.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":            { "type": "string" },
+        "spec_id":       { "type": "string" },
+        "description":   { "type": "string" },
+        "owned_surfaces":{ "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Surface" } },
+        "depends_on":    { "type": "array", "items": { "type": "string" }, "description": "Task ids. Only for real data dependencies." },
+        "criteria_ids":  { "type": "array", "items": { "type": "string" }, "description": "Which acceptance criteria this task satisfies." }
+      },
+      "required": ["id", "spec_id", "description", "owned_surfaces", "depends_on", "criteria_ids"]
+    },
+
+    "TaskGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spec_id":    { "type": "string" },
+        "tasks":      { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Task" } },
+        "provenance": { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["spec_id", "tasks", "provenance"]
+    },
+
+    "ChangeSet": {
+      "description": "Implementer / Fixer / Patch Drafter output. Verifiers receive diff_ref and NOT notes.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string" },
+        "task_id":     { "type": "string" },
+        "spec_id":     { "type": "string" },
+        "worktree":    { "type": "string" },
+        "base_commit": { "type": "string" },
+        "diff_ref":    { "type": "string", "description": "Pointer to the diff artifact; never inline the diff." },
+        "touched_surfaces": { "type": "array", "items": { "$ref": "#/$defs/Surface" } },
+        "notes":       { "type": "string", "description": "Implementer rationale. Hidden from verifiers." },
+        "revision":    { "type": "integer", "minimum": 0 },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "task_id", "spec_id", "worktree", "base_commit", "diff_ref", "touched_surfaces", "revision", "provenance"]
+    },
+
+    "TestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string" },
+        "task_id":     { "type": "string" },
+        "tests_ref":   { "type": "string" },
+        "criteria_coverage": { "type": "array", "items": { "type": "string" }, "description": "Acceptance criterion ids this set exercises." },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "task_id", "tests_ref", "criteria_coverage", "provenance"]
+    },
+
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":        { "type": "string" },
+        "lens":      { "type": "string" },
+        "severity":  { "$ref": "#/$defs/Severity" },
+        "location":  { "type": "string", "description": "path:line or surface ref" },
+        "claim":     { "type": "string" },
+        "evidence":  { "type": "string" },
+        "dedupe_key":{ "type": "string", "description": "Deterministic: hash(location + normalized claim)" },
+        "status":    { "type": "string", "enum": ["open", "fixed", "disputed", "overruled", "repeat"] }
+      },
+      "required": ["id", "lens", "severity", "location", "claim", "evidence", "dedupe_key", "status"]
+    },
+
+    "Verdict": {
+      "description": "One lens's opinion. Empty attempts is invalid — the tool layer must reject and retry.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lens":         { "type": "string", "enum": ["spec_conformance", "correctness", "security", "blast_radius", "tiebreak"] },
+        "change_set_id":{ "type": "string" },
+        "verdict":      { "type": "string", "enum": ["pass", "fail"] },
+        "attempts":     { "type": "array", "minItems": 3, "items": { "type": "string" } },
+        "findings":     { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "confidence":   { "type": "number", "minimum": 0, "maximum": 1 },
+        "provenance":   { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["lens", "change_set_id", "verdict", "attempts", "findings", "confidence", "provenance"]
+    },
+
+    "PanelResult": {
+      "description": "Adjudicator output. Pure code; no provenance model field.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "change_set_id": { "type": "string" },
+        "result":        { "type": "string", "enum": ["pass", "fail"] },
+        "veto_by":       { "type": "string" },
+        "verdicts":      { "type": "array", "items": { "$ref": "#/$defs/Verdict" } },
+        "findings":      { "type": "array", "items": { "$ref": "#/$defs/Finding" }, "description": "Deduped, open only." },
+        "round":         { "type": "integer", "minimum": 1 }
+      },
+      "required": ["change_set_id", "result", "verdicts", "findings", "round"]
+    },
+
+    "Escalation": {
+      "description": "The only thing a Fix Loop shows a human.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id":      { "type": "string" },
+        "reason":       { "type": "string", "enum": ["max_rounds", "repeat_finding", "budget", "no_fresh_findings", "cannot_repro"] },
+        "history":      { "type": "array", "items": { "type": "string" }, "description": "One line per round." },
+        "repeats":      { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "disputes_lost":{ "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "hypothesis":   { "type": "string" },
+        "options":      { "type": "array", "items": { "type": "string", "enum": ["guide", "direct_drive", "kill_to_spec"] } }
+      },
+      "required": ["task_id", "reason", "history", "repeats", "hypothesis", "options"]
+    },
+
+    "Patch": {
+      "description": "Maintain → Build re-entry. A ChangeSet plus the why. Never drafted without repro or explicit cannot_repro.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string" },
+        "signal_ids":  { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "severity":    { "type": "string", "enum": ["sev1", "sev2", "sev3"] },
+        "urgency":     { "type": "string", "enum": ["hotfix", "routine"] },
+        "repro":       { "type": "object", "additionalProperties": false,
+                         "properties": { "status": {"type":"string","enum":["reproduced","cannot_repro"]},
+                                         "failing_test_ref": {"type":"string"}, "steps": {"type":"string"} },
+                         "required": ["status"] },
+        "cause":       { "type": "object", "additionalProperties": false,
+                         "properties": { "location": {"type":"string"}, "hypothesis": {"type":"string"},
+                                         "confidence": {"type":"number","minimum":0,"maximum":1} },
+                         "required": ["location", "hypothesis", "confidence"] },
+        "change_set":  { "$ref": "#/$defs/ChangeSet" },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "signal_ids", "severity", "urgency", "repro", "cause", "change_set", "provenance"]
+    },
+
+    "EvidenceBundle": {
+      "description": "Build → Launch. Everything a human needs to veto, and nothing they don't.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release_candidate_id": { "type": "string" },
+        "project_id":     { "type": "string" },
+        "iteration":      { "type": "integer" },
+        "artifact_ref":   { "type": "string" },
+        "specs":          { "type": "array", "items": { "type": "string" }, "description": "Spec ids shipped." },
+        "panel_results":  { "type": "array", "items": { "$ref": "#/$defs/PanelResult" } },
+        "suite":          { "type": "object", "additionalProperties": false,
+                            "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"}, "results_ref": {"type":"string"} },
+                            "required": ["passed", "failed", "results_ref"] },
+        "escalations":    { "type": "array", "items": { "$ref": "#/$defs/Escalation" } },
+        "starved_items":  { "type": "array", "items": { "type": "string" }, "description": "WorkItem ids deferred ≥ N iterations." },
+        "spend":          { "type": "object", "additionalProperties": false,
+                            "properties": { "tokens": {"type":"integer"}, "wall_clock_min": {"type":"integer"}, "human_min": {"type":"integer"} } },
+        "provenance":     { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["release_candidate_id", "project_id", "iteration", "artifact_ref", "specs", "panel_results", "suite", "escalations", "provenance"]
+    },
+
+    "ProjectBrief": {
+      "description": "Scope & Contract output. For self-owned ventures the founder is both HE and HC; the shape does not change.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":            { "type": "string" },
+        "name":          { "type": "string" },
+        "client":        { "type": "string", "enum": ["self", "external"] },
+        "problem":       { "type": "string" },
+        "users":         { "type": "string" },
+        "success_metrics": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false,
+                             "properties": { "metric": {"type":"string"}, "target": {"type":"string"}, "by": {"type":"string","format":"date"} },
+                             "required": ["metric", "target"] } },
+        "kill_criteria": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "constraints":   { "type": "array", "items": { "type": "string" } },
+        "budget":        { "type": "object", "additionalProperties": false,
+                           "properties": { "tokens": {"type":"integer"}, "dollars": {"type":"number"}, "human_hours": {"type":"number"}, "deadline": {"type":"string","format":"date"} } },
+        "initial_scope": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Seeds the first backlog." },
+        "stack_preferences": { "type": "array", "items": { "type": "string" } },
+        "status":        { "type": "string", "enum": ["draft", "signed"] },
+        "provenance":    { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "name", "client", "problem", "users", "success_metrics", "kill_criteria", "budget", "initial_scope", "status", "provenance"]
+    },
+
+    "Workspace": {
+      "description": "Project Create output. Handles only — every node re-reads what it needs.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id":   { "type": "string" },
+        "repo":         { "type": "string" },
+        "envs":         { "type": "object", "additionalProperties": { "type": "string" }, "description": "name → url/handle (dev, staging, prod)" },
+        "ci_ref":       { "type": "string" },
+        "observability":{ "type": "object", "additionalProperties": { "type": "string" } },
+        "comms":        { "type": "object", "additionalProperties": { "type": "string" }, "description": "client channel, status page, review queue" },
+        "artifact_store": { "type": "string" },
+        "backlog":      { "type": "array", "items": { "$ref": "#/$defs/WorkItem" } },
+        "provenance":   { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["project_id", "repo", "envs", "ci_ref", "observability", "comms", "artifact_store", "backlog", "provenance"]
+    },
+
+    "Signal": {
+      "description": "Normalized input to Maintain. Produced by code from telemetry, alerts, error trackers, and user reports.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":         { "type": "string" },
+        "project_id": { "type": "string" },
+        "source":     { "type": "string", "enum": ["alert", "error_tracker", "log_anomaly", "user_report", "slo_breach", "synthetic"] },
+        "fingerprint":{ "type": "string", "description": "Deterministic dedupe key." },
+        "first_seen": { "type": "string", "format": "date-time" },
+        "count":      { "type": "integer", "minimum": 1 },
+        "payload_ref":{ "type": "string" },
+        "surfaces":   { "type": "array", "items": { "$ref": "#/$defs/Surface" } }
+      },
+      "required": ["id", "project_id", "source", "fingerprint", "first_seen", "count", "payload_ref"]
+    },
+
+    "Triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signal_id":   { "type": "string" },
+        "severity":    { "type": "string", "enum": ["sev1", "sev2", "sev3", "noise"] },
+        "category":    { "type": "string", "enum": ["bug", "perf", "security", "data", "infra", "ux", "unknown"] },
+        "surfaces":    { "type": "array", "items": { "$ref": "#/$defs/Surface" } },
+        "reproducible":{ "type": "string", "enum": ["likely", "unlikely", "unknown"] },
+        "rationale":   { "type": "string" },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["signal_id", "severity", "category", "surfaces", "reproducible", "rationale", "provenance"]
+    },
+
+    "HealthReport": {
+      "description": "Maintain → Improve / Evidence / Memory. Rolled up by code on a cadence.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id":  { "type": "string" },
+        "period":      { "type": "object", "additionalProperties": false,
+                         "properties": { "from": {"type":"string","format":"date-time"}, "to": {"type":"string","format":"date-time"} },
+                         "required": ["from", "to"] },
+        "slo":         { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                         "properties": { "name": {"type":"string"}, "target": {"type":"number"}, "actual": {"type":"number"} },
+                         "required": ["name", "target", "actual"] } },
+        "signals_by_severity": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "patches_shipped":     { "type": "integer" },
+        "incidents":           { "type": "integer" },
+        "noise_ratio":         { "type": "number" },
+        "maintain_ratio":      { "type": "number", "description": "Share of Build capacity consumed by maintain work." },
+        "trend":               { "type": "string", "enum": ["improving", "stable", "degrading"] }
+      },
+      "required": ["project_id", "period", "slo", "signals_by_severity", "patches_shipped", "incidents", "maintain_ratio", "trend"]
+    },
+
+    "Opportunity": {
+      "description": "Improve internal. Synthesized from usage insights + feedback themes; ranked by code.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":            { "type": "string" },
+        "project_id":    { "type": "string" },
+        "hypothesis":    { "type": "string" },
+        "evidence":      { "type": "array", "items": { "type": "string" } },
+        "metric_impacted": { "type": "string", "description": "Must reference a ProjectBrief.success_metrics.metric" },
+        "expected_value":{ "type": "number" },
+        "estimated_cost":{ "type": "object", "additionalProperties": false,
+                           "properties": { "tokens": {"type":"integer"}, "human_min": {"type":"integer"} } },
+        "confidence":    { "type": "number", "minimum": 0, "maximum": 1 },
+        "provenance":    { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "project_id", "hypothesis", "evidence", "metric_impacted", "expected_value", "estimated_cost", "confidence", "provenance"]
+    },
+
+    "VentureVerdict": {
+      "description": "Improve → HE. Periodic recommendation on a self-owned venture. The human decides; this is the evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id":     { "type": "string" },
+        "recommendation": { "type": "string", "enum": ["keep", "sell", "kill", "pivot"] },
+        "metrics_vs_targets": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                                "properties": { "metric": {"type":"string"}, "target": {"type":"string"}, "actual": {"type":"string"}, "met": {"type":"boolean"} },
+                                "required": ["metric", "target", "actual", "met"] } },
+        "kill_criteria_hit": { "type": "array", "items": { "type": "string" } },
+        "remaining_backlog_value": { "type": "number" },
+        "burn":           { "type": "object", "additionalProperties": false,
+                            "properties": { "tokens": {"type":"integer"}, "dollars": {"type":"number"}, "human_hours": {"type":"number"} } },
+        "rationale":      { "type": "string" },
+        "provenance":     { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["project_id", "recommendation", "metrics_vs_targets", "kill_criteria_hit", "remaining_backlog_value", "burn", "rationale", "provenance"]
+    },
+
+    "LaunchRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release_candidate_id": { "type": "string" },
+        "project_id":   { "type": "string" },
+        "approved_by":  { "$ref": "#/$defs/Executor" },
+        "approved_at":  { "type": "string", "format": "date-time" },
+        "deployed_at":  { "type": "string", "format": "date-time" },
+        "strategy":     { "type": "string", "enum": ["canary", "blue_green", "full"] },
+        "watch_result": { "type": "string", "enum": ["healthy", "auto_rolled_back", "manual_rolled_back"] },
+        "baseline_ref": { "type": "string" },
+        "release_notes_ref": { "type": "string" },
+        "provenance":   { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["release_candidate_id", "project_id", "approved_by", "approved_at", "deployed_at", "strategy", "watch_result", "provenance"]
+    }
+  }
+}
