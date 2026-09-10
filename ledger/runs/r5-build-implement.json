@@ -1,0 +1,1095 @@
+{
+  "entry": {
+    "id": "r5-build-implement",
+    "run_id": "r5",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-10T17:11:00.000Z",
+    "finished_at": "2026-09-10T18:30:00.000Z",
+    "wall_clock_sec": 4740,
+    "result_ref": "ledger/runs/r5-build-implement.json",
+    "artifact_count": 28,
+    "escalations": 1,
+    "tokens": 2530024,
+    "agents": 71,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r5",
+      "created_at": "2026-09-10T17:11:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r5-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-r5",
+    "project_id": "toy",
+    "iteration": 2,
+    "artifact_ref": "integration/r5",
+    "specs": [
+      "spec-wi-5",
+      "spec-wi-6",
+      "spec-wi-7",
+      "spec-wi-8",
+      "spec-wi-9",
+      "spec-wi-10",
+      "spec-wi-11",
+      "spec-wi-12"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "impl-limit-parameter-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Validation of canonical integer format: The regex /^[1-9][0-9]*$/ correctly rejects all non-canonical forms (leading zero, negative sign, plus sign, decimal, exponent, surrounding whitespace) and returns 400 with { \"error\": \"invalid limit\" }.",
+              "Safe integer boundary enforcement: Number.isSafeInteger check rejects values beyond Number.MAX_SAFE_INTEGER (tested with 20-digit value returning 400), ensuring no out-of-range integers are accepted.",
+              "Array parameter rejection from repeated keys: When Express parses ?limit=1&limit=2 as an array, typeof check correctly identifies it as non-string and returns 400, blocking the repeated-parameter attack."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-limit-parameter-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "ReDoS via `/^[1-9][0-9]*$/` regex pattern - simple anchored pattern with no nested quantifiers, fails fast on non-matches",
+              "Integer overflow via Number.isSafeInteger bypass - code correctly validates with Number.isSafeInteger() check rejecting numbers beyond JavaScript safe range per spec ac-9",
+              "Repeated query parameter array injection `?limit=1&limit=2` - code checks `typeof raw !== 'string'` before regex, rejecting arrays per spec ac-10",
+              "Non-canonical integer formats (01, 0, -1, 1.5, 1e1, +1) - regex `/^[1-9][0-9]*$/` rejects all non-canonical forms per spec ac-8",
+              "State mutation on validation failure per spec ac-11 - validation checks precede all state access, early return on invalid input leaves items Map and nextId untouched",
+              "Parameter scope leakage per spec ac-13 - limit validation is scoped to GET /items handler only; other routes never check req.query.limit",
+              "Sensitive data exposure - error response matches spec exactly as `{ error: 'invalid limit' }` with no user input reflection or state leakage"
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-limit-parameter-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Bypass canonical positive integer validation with leading zero (limit=01): blocked by regex [1-9] requirement, verified by ac-8 test passing with 400 rejection",
+              "Cause integer overflow using large number beyond MAX_SAFE_INTEGER (limit=99999999999999999999): blocked by Number.isSafeInteger() check, verified by ac-9 test passing with 400 rejection",
+              "Confuse parser with repeated limit parameters (limit=1&limit=2 parsed as array): blocked by typeof raw !== 'string' check, verified by ac-10 test passing with 400 rejection"
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-limit-parameter-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      },
+      {
+        "change_set_id": "changeset-impl-wi-6-query-filter-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Acceptance criteria AC-1 through AC-14 logic verification: traced code execution paths for all behavioral requirements including no-parameter baseline, case-insensitive substring matching, empty query handling, non-matching searches returning 200 [], insertion order preservation, non-string q rejection, and route isolation",
+              "Touched surfaces and out-of-scope boundaries: verified diff modifies only toy/src/app.js and API surface (within spec.touched_surfaces), implements none of the out_of_scope items (limit, sort, pagination, fuzzy search, Unicode normalization, field filtering, etc.)",
+              "Edge case and requirement detail verification: tested URL encoding handling (AC-10), contiguous substring matching (AC-7), preservation of insertion order with filtered results (AC-6), type checking for arrays/objects (AC-9), and verified code structure supports future composition with limit parameter (AC-11 through AC-13 readiness)"
+            ],
+            "confidence": 0.72,
+            "findings": [
+              {
+                "id": "F-1",
+                "lens": "spec_conformance",
+                "severity": "medium",
+                "location": "toy/README.md",
+                "claim": "The spec lists toy/README.md as a touched_surface, but the patch does not include documentation of the new q query parameter.",
+                "evidence": "Spec touched_surfaces includes {\"kind\":\"path\",\"ref\":\"toy/README.md\"}, but the patch file (impl-wi-6-query-filter.r0.patch) contains only modifications to toy/src/app.js. In contrast, impl-limit-parameter.r0.patch (wi-5) includes README updates documenting the ?limit parameter, establishing a documented pattern for this project when adding optional query parameters.",
+                "dedupe_key": "toy/README.md|missing q parameter documentation in README",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "changeset-impl-wi-6-query-filter-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "ReDoS / regex injection via pattern like (a*)*b — treated as literal string by .includes(), no backtracking vulnerability",
+              "Null byte injection to truncate or bypass matching — null bytes treated literally by toLowerCase().includes(), would only match items with null bytes (impossible per POST validation)",
+              "Prototype pollution via bracket notation ?q[__proto__]=value — caught by typeof q !== 'string' check, request correctly rejected with 400"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "changeset-impl-wi-6-query-filter-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Case-insensitive substring matching (AC-2). Query 'GET' should match only 'Gadget', but test fails returning [widget, Gadget] instead of [Gadget]. Implementation uses toLowerCase()+includes() correctly, yet filtering is broken.",
+              "Attempt 2: Invalid q parameter validation (AC-9). Repeated ?q=a&q=b and bracketed ?q[x]=y forms should return 400. Test PASSES - implementation correctly rejects both with { \"error\": \"invalid q\" }.",
+              "Attempt 3: Literal character matching (AC-10). Query 'a.b' should match only item 1 'a.b', not 'axb', proving regex is off. Test PASSES - dot is treated literally. Empty query filtering order (AC-3, AC-4, AC-6) all pass. The parameter is only broken in AC-2 case-insensitivity."
+            ],
+            "findings": [
+              {
+                "id": "AC-2-case-insensitive-fail",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45-57",
+                "claim": "Case-insensitive substring matching is broken; filtering includes non-matching items.",
+                "evidence": "Test: seed ['widget', 'Gadget', 'sprocket'], query q=GET expects [{ id: 2, name: 'Gadget' }]. Actual result: [{ id: 1, name: 'widget' }, { id: 2, name: 'Gadget' }]. Error message: 'Expected values to be strictly deep-equal: actual [id: 1, name: 'widget', id: 2, name: 'Gadget'] but expected only [id: 2, name: 'Gadget'].' The filter should exclude 'widget' because needle='get' and 'widget'.includes('get')===false, yet it appears in result.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45|AC-2 case-insensitive filter returning non-matching items",
+                "status": "open"
+              },
+              {
+                "id": "AC-11-limit-ordering",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173",
+                "claim": "Test AC-11 (limit applied after filter) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+                "evidence": "Spec states: 'AC-11 through AC-13 specify the filter-then-cap ordering and are testable only on a base where wi-5 has already landed... the combination tests are held until wi-5 merges.' Test result: actual [1,3,4] expected [1,3] with error 'Limit is not being applied after filtering'. Dependency note: 'GET /items on the current base does NOT yet support ?limit=N (that is wi-5, still unimplemented)'. Implementation has no limit parameter handling. Test should not run.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165|AC-11 should be held until wi-5 merges",
+                "status": "open"
+              },
+              {
+                "id": "AC-13-limit-validation",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187-199",
+                "claim": "Test AC-13 (limit validation) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+                "evidence": "Spec states: 'the combination tests are held until wi-5 merges'. Test sends ?q=widget&limit=0 expecting 400 but gets 200. Test sends ?q=zzz&limit=abc expecting 400 but gets 200. Dependency: wi-5 (limit support) not yet implemented. Implementation contains no limit validation. Test should not run.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187|AC-13 should be held until wi-5 merges",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.78,
+            "change_set_id": "changeset-impl-wi-6-query-filter-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F-1",
+            "lens": "spec_conformance",
+            "severity": "medium",
+            "location": "toy/README.md",
+            "claim": "The spec lists toy/README.md as a touched_surface, but the patch does not include documentation of the new q query parameter.",
+            "evidence": "Spec touched_surfaces includes {\"kind\":\"path\",\"ref\":\"toy/README.md\"}, but the patch file (impl-wi-6-query-filter.r0.patch) contains only modifications to toy/src/app.js. In contrast, impl-limit-parameter.r0.patch (wi-5) includes README updates documenting the ?limit parameter, establishing a documented pattern for this project when adding optional query parameters.",
+            "dedupe_key": "toy/README.md|missing q parameter documentation in README",
+            "status": "open"
+          },
+          {
+            "id": "AC-2-case-insensitive-fail",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45-57",
+            "claim": "Case-insensitive substring matching is broken; filtering includes non-matching items.",
+            "evidence": "Test: seed ['widget', 'Gadget', 'sprocket'], query q=GET expects [{ id: 2, name: 'Gadget' }]. Actual result: [{ id: 1, name: 'widget' }, { id: 2, name: 'Gadget' }]. Error message: 'Expected values to be strictly deep-equal: actual [id: 1, name: 'widget', id: 2, name: 'Gadget'] but expected only [id: 2, name: 'Gadget'].' The filter should exclude 'widget' because needle='get' and 'widget'.includes('get')===false, yet it appears in result.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45|AC-2 case-insensitive filter returning non-matching items",
+            "status": "open"
+          },
+          {
+            "id": "AC-11-limit-ordering",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173",
+            "claim": "Test AC-11 (limit applied after filter) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+            "evidence": "Spec states: 'AC-11 through AC-13 specify the filter-then-cap ordering and are testable only on a base where wi-5 has already landed... the combination tests are held until wi-5 merges.' Test result: actual [1,3,4] expected [1,3] with error 'Limit is not being applied after filtering'. Dependency note: 'GET /items on the current base does NOT yet support ?limit=N (that is wi-5, still unimplemented)'. Implementation has no limit parameter handling. Test should not run.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165|AC-11 should be held until wi-5 merges",
+            "status": "open"
+          },
+          {
+            "id": "AC-13-limit-validation",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187-199",
+            "claim": "Test AC-13 (limit validation) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+            "evidence": "Spec states: 'the combination tests are held until wi-5 merges'. Test sends ?q=widget&limit=0 expecting 400 but gets 200. Test sends ?q=zzz&limit=abc expecting 400 but gets 200. Dependency: wi-5 (limit support) not yet implemented. Implementation contains no limit validation. Test should not run.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187|AC-13 should be held until wi-5 merges",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "wi-7-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verify path resolution is module-relative using import.meta.url, not cwd-relative, allowing correct resolution from any process cwd or worktree location (ac-5).",
+              "Verify VERSION constant is declared at module scope and evaluated exactly once at module load time, not per-request, with the request handler only referencing the constant (ac-7).",
+              "Verify response body contains exactly three keys in alphabetical order with no spreading or extra fields added, and test assertion correctly validates key set (ac-1).",
+              "Verify version value is extracted from JSON without transformation and remains identical to the value in package.json (ac-1).",
+              "Verify version remains identical across two consecutive requests to the same instance, and test assertions check type and non-empty length (ac-3).",
+              "Verify version is process-wide by checking that two separate app instances created in the same process share the same module-level VERSION constant and test assertions verify this (ac-4).",
+              "Verify only touched_surfaces (toy/src/app.js, toy/test/health.test.js) are modified and out_of_scope files (server.js, helpers.js, items.test.js, package.json) remain untouched.",
+              "Verify status and uptime_seconds fields preserve existing semantics and all existing behavioral assertions remain and pass (ac-2).",
+              "Verify all three existing tests are retained with updated names and new assertions for version behavior, with no deletions or skipping (ac-6).",
+              "Verify GET /items, GET /items/:id, and POST /items routes are untouched as no changes appear in the diff for those handlers (ac-8).",
+              "Verify test file EXPECTED_VERSION loading uses identical path-resolution method as app.js VERSION to ensure both read the same file with no race conditions (ac-4).",
+              "Verify Express res.json() continues to set application/json content type without changes to response mechanism (ac-2).",
+              "Verify version field contains a string type with non-zero length via test assertions that check typeof and length, with no parsing/coercion of the package.json value (ac-3)."
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "wi-7-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted path traversal by crafting file read path — blocked: path components are literal strings, __dirname immutably derived from import.meta.url by Node.js runtime",
+              "Attempted code injection via JSON.parse of package.json — blocked: JSON.parse safely deserializes, version is a string value, response is properly JSON-encoded and not executable",
+              "Attempted sensitive data leakage through version field — blocked: version is public metadata from shipped package.json, no credentials or user data exposed"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "wi-7-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Move readFileSync(packageJsonPath) call from module scope into the GET /health handler. Would violate ac-7 (no filesystem read in handler). Implementation blocks by keeping VERSION at module scope. Test cannot detect.",
+              "Attempt 2: Replace dirname(fileURLToPath(import.meta.url)) with process.cwd() for package.json path resolution. Would violate ac-5 (cwd-independent). Implementation blocks by using import.meta.url. Test detects (ac-5 test changes cwd).",
+              "Attempt 3: Move VERSION assignment from module scope into createApp() so each instance reads its own copy. Would violate ac-4 (process-wide version). Implementation blocks by defining VERSION once at module scope. Test detects (ac-4 test verifies two instances have same version)."
+            ],
+            "findings": [
+              {
+                "id": "F-001",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/wi-7-impl/health-version.test.js:126-142",
+                "claim": "ac-7 test does not verify the critical requirement that package.json is not read inside the request handler",
+                "evidence": "Test checks that 25 consecutive requests return identical versions (distinct.size === 1) and that typeof is string with length > 0, but this would pass even if the implementation read the file in every handler. Spec ac-7 explicitly requires 'no filesystem read, require, or import of package.json occurs inside the request handler', which behavioral stability alone cannot verify without code inspection or instrumentation.",
+                "dedupe_key": ".artifacts/tests/wi-7-impl/health-version.test.js|ac-7 test cannot detect handler file read",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "wi-7-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F-001",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/wi-7-impl/health-version.test.js:126-142",
+            "claim": "ac-7 test does not verify the critical requirement that package.json is not read inside the request handler",
+            "evidence": "Test checks that 25 consecutive requests return identical versions (distinct.size === 1) and that typeof is string with length > 0, but this would pass even if the implementation read the file in every handler. Spec ac-7 explicitly requires 'no filesystem read, require, or import of package.json occurs inside the request handler', which behavioral stability alone cannot verify without code inspection or instrumentation.",
+            "dedupe_key": ".artifacts/tests/wi-7-impl/health-version.test.js|ac-7 test cannot detect handler file read",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "task-spec-wi-8-impl-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Verified that spec.touched_surfaces lists toy/test/not-found.test.js as a required deliverable and ac-10 explicitly requires 'the new unmatched-route tests', but the diff contains no changes to this file and the file does not exist in the worktree",
+              "Attempt 2: Checked that spec.touched_surfaces includes toy/README.md as a surface requiring updates to document the 404 behavior, but the README in the worktree remains unchanged and contains no reference to the new JSON 404 response",
+              "Attempt 3: Verified that spec.touched_surfaces lists 4 items (toy/src/app.js, toy/test/not-found.test.js, toy/README.md, HTTP 404 API) but diff.touched_surfaces lists only 1 item (toy/src/app.js), indicating incomplete coverage of required changes"
+            ],
+            "findings": [
+              {
+                "id": "finding-1",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "toy/test/not-found.test.js (missing)",
+                "claim": "Required test file for new 404 catch-all behavior is not included in the diff, violating acceptance criterion ac-10 which explicitly requires 'the new unmatched-route tests'",
+                "evidence": "spec.touched_surfaces includes 'toy/test/not-found.test.js' and ac-10 states 'the whole suite passes...plus the new unmatched-route tests'; the diff contains no changes to this file and glob for toy/test/not-found.test.js returns no matches",
+                "dedupe_key": "toy/test/not-found.test.js|missing_required_test_file_for_404_behavior",
+                "status": "open"
+              },
+              {
+                "id": "finding-2",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "toy/README.md (missing update)",
+                "claim": "README documentation is not updated to describe the new JSON 404 response behavior, violating spec.touched_surfaces which lists toy/README.md as a required surface",
+                "evidence": "spec.touched_surfaces includes 'toy/README.md'; current README in worktree (lines 1-12) contains no documentation of the 404 JSON response or catch-all handler, only lists original routes without mentioning 404 behavior",
+                "dedupe_key": "toy/README.md|missing_documentation_of_404_behavior",
+                "status": "open"
+              },
+              {
+                "id": "finding-3",
+                "lens": "spec_conformance",
+                "severity": "medium",
+                "location": ".artifacts/diffs/task-spec-wi-8-impl.r0.patch (metadata)",
+                "claim": "The diff.touched_surfaces field does not match spec.touched_surfaces, indicating incomplete change metadata",
+                "evidence": "spec.touched_surfaces contains 4 items: [toy/src/app.js, toy/test/not-found.test.js, toy/README.md, HTTP 404 API]; diff.touched_surfaces contains only 1 item: [toy/src/app.js]; the diff itself contains no changes beyond app.js",
+                "dedupe_key": ".artifacts/diffs/task-spec-wi-8-impl.r0.patch|incomplete_touched_surfaces_metadata",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "confidence": 0.95,
+            "attempts": [
+              "Attempted path traversal attack by sending GET /../../etc/passwd and GET /items/1/../../../config to trigger file access via the catch-all handler; the middleware ignores the request path entirely and returns only static JSON, blocking the attack",
+              "Attempted to bypass express.json() error handling by sending POST /items with malformed JSON body; verified the middleware has 2-parameter signature (req, res) while Express error handlers require 4 parameters (err, req, res, next), so parse errors bypass the normal middleware and reach Express default error handling, preserving 400 status per spec ac-8",
+              "Attempted data exposure by sending requests with crafted headers and query parameters expecting them to be echoed in error response; verified the middleware returns only static { error: 'not found' } object with no reference to req.path, req.headers, req.body, or request-derived data"
+            ],
+            "findings": [],
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Unmatched path returns wrong HTTP status (200 vs 404): ac-1 test line 12 checks res.status === 404, would fail if status was not 404",
+              "Response body contains wrong JSON shape or text (e.g. {\"error\":\"wrong\"}): ac-1 test line 14 checks deepEqual(res.json(), { error: 'not found' }), would fail if body differs",
+              "Catch-all handler intercepts existing routes like GET /health: ac-6 regression test lines 11-35 verify all existing routes still function, would fail if catch-all masked them"
+            ],
+            "findings": [
+              {
+                "id": "finding-wi-8-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "toy/test/not-found.test.js",
+                "claim": "The spec requires new unmatched-route tests to exist and be run as part of npm test per ac-10, but toy/test/not-found.test.js is not created by this implementation.",
+                "evidence": "Spec touched_surfaces list toy/test/not-found.test.js; ac-10 acceptance criterion explicitly states npm test should include 'the new unmatched-route tests'; app_suite test results show only 19 pre-existing tests (3 health + 16 items), no new tests present; worktree and patch show no toy/test/not-found.test.js file created.",
+                "dedupe_key": "toy/test/not-found.test.js|missing required test file for new unmatched-route tests",
+                "status": "open"
+              },
+              {
+                "id": "finding-wi-8-2",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:20-28",
+                "claim": "Test for ac-10 does not verify that new unmatched-route tests are actually included in npm test output; it only verifies npm test exits successfully.",
+                "evidence": "ac-10.test.js checks exit code (line 20), '# fail 0' in output (line 28), and skipped test count (line 26), but does not assert that new test names, descriptions, or an increased test count appear in npm test output. If toy/test/not-found.test.js were missing, this test would still pass because npm test would exit 0 with only the 19 pre-existing tests.",
+                "dedupe_key": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:20-28|test does not verify new tests are included in npm test",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.92,
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-1",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "toy/test/not-found.test.js (missing)",
+            "claim": "Required test file for new 404 catch-all behavior is not included in the diff, violating acceptance criterion ac-10 which explicitly requires 'the new unmatched-route tests'",
+            "evidence": "spec.touched_surfaces includes 'toy/test/not-found.test.js' and ac-10 states 'the whole suite passes...plus the new unmatched-route tests'; the diff contains no changes to this file and glob for toy/test/not-found.test.js returns no matches",
+            "dedupe_key": "toy/test/not-found.test.js|missing_required_test_file_for_404_behavior",
+            "status": "open"
+          },
+          {
+            "id": "finding-2",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "toy/README.md (missing update)",
+            "claim": "README documentation is not updated to describe the new JSON 404 response behavior, violating spec.touched_surfaces which lists toy/README.md as a required surface",
+            "evidence": "spec.touched_surfaces includes 'toy/README.md'; current README in worktree (lines 1-12) contains no documentation of the 404 JSON response or catch-all handler, only lists original routes without mentioning 404 behavior",
+            "dedupe_key": "toy/README.md|missing_documentation_of_404_behavior",
+            "status": "open"
+          },
+          {
+            "id": "finding-3",
+            "lens": "spec_conformance",
+            "severity": "medium",
+            "location": ".artifacts/diffs/task-spec-wi-8-impl.r0.patch (metadata)",
+            "claim": "The diff.touched_surfaces field does not match spec.touched_surfaces, indicating incomplete change metadata",
+            "evidence": "spec.touched_surfaces contains 4 items: [toy/src/app.js, toy/test/not-found.test.js, toy/README.md, HTTP 404 API]; diff.touched_surfaces contains only 1 item: [toy/src/app.js]; the diff itself contains no changes beyond app.js",
+            "dedupe_key": ".artifacts/diffs/task-spec-wi-8-impl.r0.patch|incomplete_touched_surfaces_metadata",
+            "status": "open"
+          },
+          {
+            "id": "finding-wi-8-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "toy/test/not-found.test.js",
+            "claim": "The spec requires new unmatched-route tests to exist and be run as part of npm test per ac-10, but toy/test/not-found.test.js is not created by this implementation.",
+            "evidence": "Spec touched_surfaces list toy/test/not-found.test.js; ac-10 acceptance criterion explicitly states npm test should include 'the new unmatched-route tests'; app_suite test results show only 19 pre-existing tests (3 health + 16 items), no new tests present; worktree and patch show no toy/test/not-found.test.js file created.",
+            "dedupe_key": "toy/test/not-found.test.js|missing required test file for new unmatched-route tests",
+            "status": "open"
+          },
+          {
+            "id": "finding-wi-8-2",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:20-28",
+            "claim": "Test for ac-10 does not verify that new unmatched-route tests are actually included in npm test output; it only verifies npm test exits successfully.",
+            "evidence": "ac-10.test.js checks exit code (line 20), '# fail 0' in output (line 28), and skipped test count (line 26), but does not assert that new test names, descriptions, or an increased test count appear in npm test output. If toy/test/not-found.test.js were missing, this test would still pass because npm test would exit 0 with only the 19 pre-existing tests.",
+            "dedupe_key": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:20-28|test does not verify new tests are included in npm test",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "implement-sort-parameter-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verify plain code-unit string comparison (ac-4): items sorted as 'Apple, Zebra, apple, banana' using JavaScript's < operator on code units (65, 90, 97, 98 respectively), matching spec exactly.",
+              "Verify array-valued sort parameter validation (ac-9): when Express parses ?sort=name&sort=id as array, validation (sort !== 'name' && sort !== 'id') correctly triggers 400 error since array is neither string value.",
+              "Verify filter→sort→cap pipeline shape (ac-12): code structure shows three consecutive stages with comments marking filter (line 28), sort (lines 36-38), and cap (line 40) placeholders, allowing future parameters to compose without restructuring."
+            ],
+            "confidence": 0.92,
+            "findings": [],
+            "change_set_id": "implement-sort-parameter-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Repeated sort parameter attack: send ?sort=name&sort=id to exploit array parsing. Express parses as array ['name', 'id']. The validation check (sort !== 'name' && sort !== 'id') correctly rejects arrays and returns 400.",
+              "Case-sensitivity bypass: send ?sort=Name or ?sort=ID. The code uses exact string comparison (sort !== 'name'), so case variants fail validation and return 400 as specified in acceptance criteria ac-8.",
+              "Prototype pollution via sort parameter: send ?sort=__proto__ or ?sort=constructor. The strict validation (sort !== 'name' && sort !== 'id') rejects both, preventing any property access or object manipulation. Blocked safely with 400."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "implement-sort-parameter-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt 1: Remove the validation check on line 24. If I delete the condition checking sort !== undefined && sort !== 'name' && sort !== 'id', then invalid sort values like 'created', '', 'Name', and arrays would be accepted instead of returning 400, causing ac-6, ac-7, ac-8, ac-9 tests to fail on their 400 status assertions.",
+              "Attempt 2: Break code-unit comparison by using case-insensitive sorting on line 37. If I change the comparator to a.name.toLowerCase() < b.name.toLowerCase(), uppercase and lowercase letters would sort together instead of having all uppercase ASCII before lowercase ASCII, causing ac-4 test to fail its assertion that order is Apple, Zebra, apple, banana.",
+              "Attempt 3: Mutate the items store during sorting on line 37. If I insert items.clear() or modify items before calling res.json(result), then ac-10 would fail because the subsequent unsorted fetch would show the store was mutated instead of remaining unchanged, and ac-3 would fail if state persisted."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "implement-sort-parameter-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      },
+      {
+        "change_set_id": "impl-wi-12-tags-field-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to POST 11 tags (exceeds max of 10): implementation checks tags.length > MAX_TAGS and returns 400 with 'invalid tags'",
+              "Attempt to POST a 33-character tag (exceeds max of 32): implementation checks tag.length <= MAX_TAG_LENGTH and returns 400 with 'invalid tags'",
+              "Attempt to POST tags as null (should be invalid per AC-9, not treated as absent): implementation uses hasOwnProperty to detect present null key, then isValidTags(null) returns false because Array.isArray(null) is false, returning 400 with 'invalid tags'"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "impl-wi-12-tags-field-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Code injection via tags: attempted to submit template strings, eval patterns, and code constructs in tag strings. Result blocked by storing tags as inert strings with no interpretation or execution in POST handler.",
+              "Type confusion in validation: attempted to bypass tag.length checks by submitting non-string types (null, objects, arrays). Result blocked by explicit `typeof tag === 'string'` guard in isValidTags function before any length property access.",
+              "State mutation on invalid tags: attempted to trigger state changes (nextId increment, items map insertion) by submitting invalid tags. Result blocked by early return at validation failure, before line 49 (nextId++) and line 50 (items.set())."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-12-tags-field-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "confidence": 0.98,
+            "attempts": [
+              "Verified tags field is present in all response bodies (POST 201, GET /items, GET /items/:id) via implementation inspection and tests ac-1, ac-2, ac-12, ac-13 which use deepEqual to verify exact response structure including tags",
+              "Verified tags validation logic is complete: array type check (ac-9), length bounds 1-32 per tag (ac-6, ac-7), max 10 tags (ac-5), all elements must be strings (ac-8), null treated as present/invalid (ac-9) — all boundaries tested with both passing and failing cases",
+              "Verified rejected requests do not mutate state: ID is only incremented after validation passes; ac-10 proves rejected tags request doesn't consume ID; ac-5, ac-6, ac-7, ac-8, ac-9 verify GET /items remains empty after rejection",
+              "Verified name validation takes precedence over tags validation by checking implementation order and ac-11 which tests bodies invalid on both dimensions and verifies name error returned (never tags error)",
+              "Verified criteria_coverage matches actual test files: claimed ac-1 through ac-15 match the 16 test files present (ac-1.test.js through ac-15.test.js with ac-15 containing 3 test cases); all 36 tests pass (17 acceptance + 19 app suite pre-existing tests)"
+            ],
+            "findings": [],
+            "change_set_id": "impl-wi-12-tags-field-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      },
+      {
+        "change_set_id": "task-wi-11-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Verified spec's touched_surfaces lists toy/test/items.test.js but diff only modifies toy/src/app.js; spec goal requires tests be extended to assert created_at",
+              "Checked ac-13 requirement for test coverage of ac-1 through ac-12; no new tests present in worktree for format validation, time window checking, immutability verification, or client-value rejection",
+              "Examined existing test assertions for explicit created_at checks; existing deepEqual tests will pass due to field inclusion in both sides but lack explicit created_at property assertions required by spec goal"
+            ],
+            "findings": [
+              {
+                "id": "f1-test-file-missing",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/diffs/task-wi-11-impl.r0.patch",
+                "claim": "Spec-required test file not included in diff despite explicit touched_surfaces requirement",
+                "evidence": "Diff only shows changes to toy/src/app.js (14 lines total); spec touched_surfaces (line 98-106) explicitly lists toy/test/items.test.js; spec goal (line 4) states tests must be extended to assert the created_at field",
+                "dedupe_key": ".artifacts/diffs/task-wi-11-impl.r0.patch|test file omitted from diff",
+                "status": "open"
+              },
+              {
+                "id": "f2-ac13-coverage-gap",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-11-impl/toy/test/items.test.js:191",
+                "claim": "ac-13 acceptance criterion not met: test suite does not additionally cover ac-1 through ac-12",
+                "evidence": "ac-13 requires 'the suite additionally covers ac-1 through ac-12'; worktree contains only 16 original tests with no new tests for created_at format validation (ac-2), time-window verification (ac-3), immutability confirmation (ac-6), ordering validation (ac-7), client-value rejection (ac-8), or other required coverage",
+                "dedupe_key": "toy/test/items.test.js|ac-13 test coverage missing",
+                "status": "open"
+              },
+              {
+                "id": "f3-created-at-assertion-gap",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-11-impl/toy/test/items.test.js:1",
+                "claim": "Spec requires created_at field to be explicitly asserted in tests, not silently carried along",
+                "evidence": "Spec goal (line 4) states 'they must be extended...so the new field is actually asserted instead of silently carried along'; existing tests use deepEqual without explicit created_at assertions for string type, ISO-8601 format matching regex ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$, round-trip validity, or creation-time window bounds",
+                "dedupe_key": "toy/test/items.test.js|explicit created_at assertions missing",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-11-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Injection via Date.toISOString() - attempted to prove timestamp value could be exploited for code injection or command execution; failed because toISOString() is a built-in method producing fixed ISO-8601 format with zero user input influence",
+              "Data exposure in error responses (ac-9) - attempted to prove created_at leaks into 400 and 404 error responses; failed because error handlers return only {error:...} before item object construction, confirming proper exclusion per spec",
+              "Timestamp re-derivation on read (ac-6) - attempted to prove created_at is regenerated per GET request instead of frozen; failed because GET handlers return items directly from Map via items.values() and items.get(), proving frozen semantics"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-11-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to break by omitting created_at field—blocked by ac-1.test.js line 20 which explicitly asserts Object.keys includes 'created_at'",
+              "Attempted to break by using client-supplied created_at value—blocked by ac-8.test.js line 21 which asserts server-generated value differs from client input '1999-01-01T00:00:00.000Z'",
+              "Attempted to break by including created_at in error responses—blocked by ac-9.test.js line 14 and ac-10.test.js which check 'created_at' in error body is false",
+              "Attempted to break by recomputing created_at on read—blocked by ac-6.test.js which reads item twice (1100ms apart) and asserts deep equality (line 20)",
+              "Attempted to break by wrong timestamp format—blocked by ac-2.test.js lines 12-13 which verify ISO-8601 UTC millisecond precision regex and round-trip",
+              "Attempted to break by using stale or non-clock timestamp—blocked by ac-3.test.js lines 21-23 which bound timestamp between before/after Date.now() captures"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-11-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-test-file-missing",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/diffs/task-wi-11-impl.r0.patch",
+            "claim": "Spec-required test file not included in diff despite explicit touched_surfaces requirement",
+            "evidence": "Diff only shows changes to toy/src/app.js (14 lines total); spec touched_surfaces (line 98-106) explicitly lists toy/test/items.test.js; spec goal (line 4) states tests must be extended to assert the created_at field",
+            "dedupe_key": ".artifacts/diffs/task-wi-11-impl.r0.patch|test file omitted from diff",
+            "status": "open"
+          },
+          {
+            "id": "f2-ac13-coverage-gap",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-11-impl/toy/test/items.test.js:191",
+            "claim": "ac-13 acceptance criterion not met: test suite does not additionally cover ac-1 through ac-12",
+            "evidence": "ac-13 requires 'the suite additionally covers ac-1 through ac-12'; worktree contains only 16 original tests with no new tests for created_at format validation (ac-2), time-window verification (ac-3), immutability confirmation (ac-6), ordering validation (ac-7), client-value rejection (ac-8), or other required coverage",
+            "dedupe_key": "toy/test/items.test.js|ac-13 test coverage missing",
+            "status": "open"
+          },
+          {
+            "id": "f3-created-at-assertion-gap",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-11-impl/toy/test/items.test.js:1",
+            "claim": "Spec requires created_at field to be explicitly asserted in tests, not silently carried along",
+            "evidence": "Spec goal (line 4) states 'they must be extended...so the new field is actually asserted instead of silently carried along'; existing tests use deepEqual without explicit created_at assertions for string type, ISO-8601 format matching regex ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$, round-trip validity, or creation-time window bounds",
+            "dedupe_key": "toy/test/items.test.js|explicit created_at assertions missing",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "implement-request-logger.r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Send GET /items/%20 and verify log outputs /items/%20 without decoding; Express req.path decodes to space",
+              "Send GET /items/%20?q=1 with percent-encoded path and query string; verify path remains encoded while query excluded",
+              "Send three sequential requests with percent-encoded paths (/items/%20, /items/1, /items/%2F); verify each logs path exactly as sent without decoding"
+            ],
+            "confidence": 0.95,
+            "findings": [
+              {
+                "id": "ac-5-path-decoding",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "toy/src/app.js:34",
+                "claim": "Implementation logs req.path which is URL-decoded by Express, violating ac-5 requirement to log path 'as received, without percent-decoding'",
+                "evidence": "Line 34 writes `${req.path}` to stdout. When client sends GET /items/%20, req.path is decoded to /items/ (space char), but spec ac-5 requires logging /items/%20 exactly as received. Express documentation states req.path is a 'decoded, querystring-less path'.",
+                "dedupe_key": "toy/src/app.js:34|path-percent-encoding-not-preserved",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "implement-request-logger.r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Query string injection/leakage: Attempted to send GET /items?secret=token and verify the secret is leaked in logs. Result: req.path correctly excludes query strings—no leakage.",
+              "Newline injection via percent-encoding: Attempted to send GET /items/%0a/admin to break the four-field log format. Result: req.path preserves percent-encoding without decoding—format remains intact.",
+              "NODE_ENV suppression bypass: Attempted to force logging output when NODE_ENV=test by testing if the check is cached rather than re-evaluated per-request. Result: Check correctly happens in finish callback, re-evaluated per request—suppression cannot be bypassed for that request."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "implement-request-logger.r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to exploit elapsed-time calculation by checking if time could be 0ms or non-monotonic: ac-6 test verifies non-negative integer < 10000; ac-11 test uses performance.now() timing to verify log appears after response; both tests pass and implementation uses monotonic process.hrtime.bigint(). Attack blocked.",
+              "Attempt to exploit NODE_ENV caching by checking if suppression is cached at createApp() time rather than re-evaluated per request: ac-9 test explicitly verifies NODE_ENV can be toggled mid-session with different requests (create app at NODE_ENV='test', request 1 no log, set to 'production', request 2 logs, set back to 'test', request 3 no log); only 1 log line total. Attack blocked.",
+              "Attempt to exploit log line format by checking for wrong number of fields, wrong order, extra output, or wrong termination: ac-6 verifies fields.length === 4; ac-1 verifies /^GET /items/1 200 \\d+\\n$/; ac-10 verifies stdout matches exactly lines.map(l=>l+newline).join(''); ac-11 hijacks stdout.write to count write events. Attack blocked."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "implement-request-logger.r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "ac-5-path-decoding",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "toy/src/app.js:34",
+            "claim": "Implementation logs req.path which is URL-decoded by Express, violating ac-5 requirement to log path 'as received, without percent-decoding'",
+            "evidence": "Line 34 writes `${req.path}` to stdout. When client sends GET /items/%20, req.path is decoded to /items/ (space char), but spec ac-5 requires logging /items/%20 exactly as received. Express documentation states req.path is a 'decoded, querystring-less path'.",
+            "dedupe_key": "toy/src/app.js:34|path-percent-encoding-not-preserved",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "task-spec-wi-8-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified ac-1: GET /nope returns 404 JSON via catch-all handler (unmatched path falls through to app.use middleware which sends status 404 with json body)",
+              "Verified ac-6: Existing routes (GET /health, GET /items, POST /items, GET /items/:id) remain unchanged because specific handlers registered before catch-all are matched first by Express",
+              "Verified ac-4: Method mismatches (POST /health, DELETE /items/1, PUT /items) return 404 JSON via catch-all because methods don't match registered routes, no 405 semantics introduced",
+              "Verified ac-8: Malformed JSON and validation errors (400 responses) are not converted to 404 because express.json() error handler intercepts parse failures before catch-all, and route handlers return before catch-all",
+              "Verified ac-5: HEAD /nope returns 404 with empty body because catch-all is reached, res.json() is called, and Express automatically suppresses body for HEAD requests"
+            ],
+            "findings": [],
+            "confidence": 0.92,
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Send GET /nope and expect to hit the catch-all for unmatched paths; the implementation returns 404 JSON {\"error\":\"not found\"} as required",
+              "Send requests with unregistered HTTP methods (POST /health, DELETE /items/1, PUT /items) to registered paths; the implementation returns 404 JSON instead of allowing through or returning default HTML",
+              "Send HEAD request to unmatched path and verify it returns 404 with application/json Content-Type and empty body; the implementation correctly handles this edge case"
+            ],
+            "findings": [
+              {
+                "id": "find-ac10-recursive-invocation",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:10",
+                "claim": "ac-10 test fails because it invokes npm test from within a Node.js test file, causing Node.js to detect recursive test runner invocation and skip the test files instead of running them",
+                "evidence": "Failure output: \"error\": \"expected zero failing tests, got: (node:7127) Warning: node:test run() is being called recursively within a test file. skipping running files.\" The test runs spawnSync('npm', ['test']) at line 10 within a node:test context, triggering Node.js's recursive invocation protection which prevents test files from executing, making the \"# fail 0\" assertion impossible to verify",
+                "status": "open",
+                "dedupe_key": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:10|ac-10 unverifiable due to recursive test runner invocation"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "find-ac10-recursive-invocation",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:10",
+            "claim": "ac-10 test fails because it invokes npm test from within a Node.js test file, causing Node.js to detect recursive test runner invocation and skip the test files instead of running them",
+            "evidence": "Failure output: \"error\": \"expected zero failing tests, got: (node:7127) Warning: node:test run() is being called recursively within a test file. skipping running files.\" The test runs spawnSync('npm', ['test']) at line 10 within a node:test context, triggering Node.js's recursive invocation protection which prevents test files from executing, making the \"# fail 0\" assertion impossible to verify",
+            "status": "open",
+            "dedupe_key": ".artifacts/tests/task-spec-wi-8-impl/ac-10.test.js:10|ac-10 unverifiable due to recursive test runner invocation"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "task-spec-wi-8-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal injection via unmatched routes (e.g., GET /../../etc/passwd) — blocked because handler ignores request path and returns fixed JSON",
+              "Request body exploitation on unmapped paths — blocked because handler never reads req.body; malformed bodies handled by express.json() middleware before route matching",
+              "Header-based injection or smuggling via malicious headers — blocked because handler doesn't examine or echo headers; response Content-Type is explicitly set by res.json()",
+              "Authentication bypass via catch-all 404 handler — blocked because terminal handler only runs for unmatched paths; existing routes and their behavior unchanged",
+              "Information disclosure via response — blocked because response contains only fixed {\"error\":\"not found\"} with no request path, method, or internal state reflection"
+            ],
+            "findings": [],
+            "confidence": 0.96,
+            "change_set_id": "task-spec-wi-8-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r5",
+              "created_at": "2026-09-10T17:11:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      }
+    ],
+    "suite": {
+      "passed": 35,
+      "failed": 0,
+      "results_ref": "/home/user/company-graph/.artifacts/integration/r5.json"
+    },
+    "escalations": [
+      {
+        "task_id": "impl-wi-6-query-filter",
+        "reason": "repeat_finding",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (4 findings)",
+          "r1: overruled correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45-57 — the finding rests on a false premise ('widget'.includes('get') === false). Re-verified here by running node -e: 'widget'.toLowerCase().includes('get') === true, 'Gadget' === true, 'sprocket' === false. The implementation (needle = q.toLowerCase(); item.name.toLowerCase().includes(needle)) is exactly the normative rule in spec-wi-6's goal, decision (a). The defect is in spec-wi-6's own AC-2 illustrative fixture, which asserts the body is exactly [{id:2,name:'Gadget'}] for q=GET over the seed ['widget','Gadget','sprocket'] — that expectation contradicts the spec's own literal-substring rule because the seed word 'widget' ends in the needle 'get'. The test transcribed the bad fixture faithfully. Fix AC-2 and the test, not app.js.",
+          "r1: overruled spec_conformance at toy/README.md — touched_surfaces is a permission envelope, not a mandate; no acceptance criterion (AC-1..AC-14 are all behavioral HTTP assertions) requires documentation; and the decomposer's task record in .artifacts/traces/r4.1-build-spec.jsonl granted owned_surfaces of only toy/src/app.js plus the GET /items handler, deliberately excluding README.md, so editing it would itself have been a scope violation. Verified: .artifacts/worktrees/impl-wi-6-query-filter/toy/README.md is 11 lines and documents no query parameter at all — it does not document ?limit either, so the claimed wi-5 precedent is not visible on this base. The real object of the finding is a decomposition gap: the new q parameter and the new 400 {\"error\":\"invalid q\"} response have no documentation owner.",
+          "r1: upheld correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173 — a real, spec-grounded defect in the test artifact, not the implementation. spec-wi-6's DEPENDENCY note states AC-11..AC-13 'are testable only on a base where wi-5 has already landed' and 'the combination tests are held until wi-5 merges', yet the test file ships AC-11, AC-12 and AC-13 as live unheld tests at lines 165-199. The finding's stated remedy is 'Test should not run' — it does not ask for ?limit=N — so the fixer's dispute (limit is wi-5, out of scope) rebutted a claim nobody made. Action: mark AC-11/AC-12/AC-13 held pending wi-5.",
+          "r1: overruled correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187-199 — AC-13's assertions can only go green by building wi-5's limit validation into toy/src/app.js, which out_of_scope forbids ('Implementing ?limit=N itself — that is wi-5'). Verified the handler contains no limit parsing and applies the q filter to the full insertion-ordered [...items.values()] list, so a later cap step composes correctly when wi-5 lands. Same held-test gating matter as AC-11.",
+          "r1 verification pass (this escalation): .artifacts/results/impl-wi-6-query-filter.r1.json records 30/33 passing — 19/19 app tests green, 11/14 external green, failures exactly AC-2, AC-11, AC-13. All three failures are the artifacts adjudicated above. Zero in-scope edits to app.js remain that would change any of them.",
+          "r1: artifact inconsistency found while verifying — the test source at query-filter.test.js:45-57 queries q=GET, but the recorded error in .artifacts/results/impl-wi-6-query-filter.r1.json says \"Case-insensitive filter is including 'widget' when searching for 'GAD'\". Those cannot both be true: 'widget' does not contain 'gad'. The results file's error prose does not match the test it reports on, so the AC-2 evidence trail is itself unreliable and should be regenerated after the fixture is corrected.",
+          "r2: not attempted — the fix loop has no legal move. Every remaining finding names an artifact outside the task's owned_surfaces (spec-wi-6.json, the generated test file, toy/README.md). Escalating rather than burning a round that can only re-emit the same four findings."
+        ],
+        "repeats": [
+          {
+            "id": "F-1",
+            "lens": "spec_conformance",
+            "severity": "medium",
+            "location": "toy/README.md",
+            "claim": "The spec lists toy/README.md as a touched_surface, but the patch does not include documentation of the new q query parameter.",
+            "evidence": "Spec touched_surfaces includes {\"kind\":\"path\",\"ref\":\"toy/README.md\"}, but the patch file (impl-wi-6-query-filter.r0.patch) contains only modifications to toy/src/app.js. In contrast, impl-limit-parameter.r0.patch (wi-5) includes README updates documenting the ?limit parameter, establishing a documented pattern for this project when adding optional query parameters.",
+            "dedupe_key": "toy/README.md|missing q parameter documentation in README",
+            "status": "open"
+          },
+          {
+            "id": "AC-2-case-insensitive-fail",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45-57",
+            "claim": "Case-insensitive substring matching is broken; filtering includes non-matching items.",
+            "evidence": "Test: seed ['widget', 'Gadget', 'sprocket'], query q=GET expects [{ id: 2, name: 'Gadget' }]. Actual result: [{ id: 1, name: 'widget' }, { id: 2, name: 'Gadget' }]. Error message: 'Expected values to be strictly deep-equal: actual [id: 1, name: 'widget', id: 2, name: 'Gadget'] but expected only [id: 2, name: 'Gadget'].' The filter should exclude 'widget' because needle='get' and 'widget'.includes('get')===false, yet it appears in result.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45|AC-2 case-insensitive filter returning non-matching items",
+            "status": "open"
+          },
+          {
+            "id": "AC-11-limit-ordering",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173",
+            "claim": "Test AC-11 (limit applied after filter) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+            "evidence": "Spec states: 'AC-11 through AC-13 specify the filter-then-cap ordering and are testable only on a base where wi-5 has already landed... the combination tests are held until wi-5 merges.' Test result: actual [1,3,4] expected [1,3] with error 'Limit is not being applied after filtering'. Dependency note: 'GET /items on the current base does NOT yet support ?limit=N (that is wi-5, still unimplemented)'. Implementation has no limit parameter handling. Test should not run.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165|AC-11 should be held until wi-5 merges",
+            "status": "open"
+          },
+          {
+            "id": "AC-13-limit-validation",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187-199",
+            "claim": "Test AC-13 (limit validation) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+            "evidence": "Spec states: 'the combination tests are held until wi-5 merges'. Test sends ?q=widget&limit=0 expecting 400 but gets 200. Test sends ?q=zzz&limit=abc expecting 400 but gets 200. Dependency: wi-5 (limit support) not yet implemented. Implementation contains no limit validation. Test should not run.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187|AC-13 should be held until wi-5 merges",
+            "status": "open"
+          }
+        ],
+        "hypothesis": "The loop is stuck because the implementation is already spec-correct and all four surviving findings are defects in artifacts the fixer is forbidden to edit — a self-contradictory AC-2 fixture inside spec-wi-6 itself (its seed word 'widget' contains the needle 'get', so the fixture contradicts the spec's own literal-substring rule), two combination tests the spec ordered held until wi-5 that the test author shipped live anyway, and a README surface the decomposer assigned to no task — so every round the fixer correctly declines to touch app.js and the same four findings regenerate unchanged.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": [
+          {
+            "id": "AC-11-limit-ordering",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173",
+            "claim": "Test AC-11 (limit applied after filter) is failing, but spec requires these combination tests to be held until wi-5 merges.",
+            "evidence": "Spec states: 'AC-11 through AC-13 specify the filter-then-cap ordering and are testable only on a base where wi-5 has already landed... the combination tests are held until wi-5 merges.' Test result: actual [1,3,4] expected [1,3] with error 'Limit is not being applied after filtering'. Dependency note: 'GET /items on the current base does NOT yet support ?limit=N (that is wi-5, still unimplemented)'. Implementation has no limit parameter handling. Test should not run.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165|AC-11 should be held until wi-5 merges",
+            "status": "disputed"
+          }
+        ]
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 722406,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r5",
+      "created_at": "2026-09-10T17:11:00Z"
+    }
+  }
+}

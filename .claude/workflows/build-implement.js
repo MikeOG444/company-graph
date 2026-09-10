@@ -87,7 +87,10 @@ function adjudicate(verdicts) {
   const fails = rest.filter(v => v.verdict === 'fail')
   const split = fails.length > 0 && fails.length < rest.length
   const swing = split ? Math.min(...rest.map(v => v.confidence)) : 1
-  if (split && swing < 0.7) return { result: null, split: true }
+  // A tie is never a majority. With two non-veto lenses a 1–1 used to pass (r5 shipped four tasks over a failing lens);
+  // any split that is not a strict majority either way goes to the Tiebreak Judge, as does a low-confidence swing vote.
+  const tie = fails.length * 2 === rest.length
+  if (split && (tie || swing < 0.7)) return { result: null, split: true }
   return { result: fails.length > rest.length / 2 ? 'fail' : 'pass', split: false }
 }
 
