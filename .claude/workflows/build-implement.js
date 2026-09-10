@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-implement',
   description: 'Implement approved specs: implementer and test author in parallel per task, adversarial verifier panel, converging fix loop, one integration barrier, evidence bundle out.',
-  phases: ['Implement+Verify', 'Integrate', 'Evidence'],
+  phases: [{ title: 'Implement+Verify', detail: 'per task: implementer ∥ test author → panel → fix loop' }, { title: 'Integrate', detail: 'the one barrier' }, { title: 'Evidence', detail: 'assembled by code' }],
 }
 
 // args: { repo, project_id, iteration, specs: [{spec, graph}], run_id, now,
@@ -18,6 +18,8 @@ const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
 const VETO_LENS = 'security'
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+// Output tokens for this turn's shared pool at start; the runtime exposes no per-agent count, so spend is a run-level delta.
+const TOKENS_AT_START = budget.spent()
 
 // ---- inlined contracts (runtime forbids import; keep in sync with contracts.schema.json) ----
 const Surface = { type: 'object', additionalProperties: false, required: ['kind', 'ref'],
@@ -34,9 +36,10 @@ const TestResults = { type: 'object', additionalProperties: false, required: ['p
   properties: { passed: { type: 'integer' }, failed: { type: 'integer' }, results_ref: { type: 'string' },
     criteria_covered: { type: 'array', items: { type: 'string' } } } }
 const Finding = { type: 'object', additionalProperties: false,
-  required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key'],
+  required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
-    location: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, dedupe_key: { type: 'string' } } }
+    location: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, dedupe_key: { type: 'string' },
+    status: { enum: ['open', 'fixed', 'disputed', 'overruled', 'repeat'] } } }
 const Verdict = { type: 'object', additionalProperties: false,
   required: ['lens', 'verdict', 'attempts', 'findings', 'confidence'],
   properties: { lens: { enum: ['spec_conformance', 'correctness', 'security', 'tiebreak'] },
@@ -97,11 +100,11 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     () => agent(`Create git worktree ${wt} from ${A.repo} main. Implement this task there, staying inside owned surfaces.
                  Write the diff to ${ART}/diffs/${task.id}.r0.patch and return its path as diff_ref.
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `impl:${task.id}`, model: MODEL.mid, schema: ChangeSet }),
+      { label: `impl:${task.id}`, model: MODEL.mid, agentType: 'implementer', schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref.
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `tests:${task.id}`, model: MODEL.mid, schema: TestSet }),
+      { label: `tests:${task.id}`, model: MODEL.mid, agentType: 'test-author', schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
 
@@ -115,28 +118,29 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it.
     const runP = agent(`Apply ${ctx.changeSet.diff_ref} in ${wt} if not already applied, run the tests at ${ctx.testSet.tests_ref},
                         write results to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
-      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: TestResults })
+      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: TestResults })
 
     const lens = (name, focus, extra = '') =>
       agent(`You are the ${name} reviewer. Your job is to REJECT this change. A pass is only valid if you list at least
              three concrete attempts you made to break it. ${focus}
              Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
              Every finding needs location, claim, evidence, and dedupe_key = "<location>|<short normalized claim>".`,
-        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: Verdict })
+        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: `lens-${name.replace(/_/g, '-')}`, schema: Verdict })
 
+    const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const verdicts = (await parallel([
       () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
       () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure.`),
       async () => { const r = await runP; return r && lens('correctness',
         'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
         `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
-    ])).filter(Boolean)
+    ])).filter(Boolean).map(v => sealVerdict(v, MODEL.cheap))
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
       const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. Spec: ${JSON.stringify(spec)}. Change: ${JSON.stringify(diffOnly)}.`,
         { label: `tiebreak:${task.id}:r${ctx.round}`, model: MODEL.strong, schema: Verdict })
-      if (tie) { verdicts.push(tie); result = tie.verdict } else result = 'fail'
+      if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
     }
     const findings = dedupe(verdicts.flatMap(v => v.findings))
     panelResults.push({ change_set_id: ctx.changeSet.id, result, veto_by, verdicts, findings, round: ctx.round })
@@ -163,7 +167,7 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}.
              Write the incremental diff to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              If you are confident the finding is WRONG, make no change and set notes to "DISPUTE: <why>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, schema: ChangeSet })))).filter(Boolean)
+        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, agentType: 'fixer', schema: ChangeSet })))).filter(Boolean)
 
     const disputed = patches.filter(p => p.notes?.startsWith('DISPUTE:'))
     const applied = patches.filter(p => !p.notes?.startsWith('DISPUTE:'))
@@ -177,7 +181,7 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     const merged = await agent(`Apply these patches in order in ${wt}: ${JSON.stringify(applied.map(p => p.diff_ref))}.
                                 Resolve conflicts minimally. Write the cumulative diff vs base to ${ART}/diffs/${task.id}.r${ctx.round}.patch
                                 and return the ChangeSet with revision ${ctx.changeSet.revision + 1}.`,
-      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: ChangeSet })
+      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
   }
@@ -191,7 +195,7 @@ log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} es
 const suite = await agent(`Merge these worktrees into an integration branch of ${A.repo} in this order: ${JSON.stringify(passing.map(c => c.worktree))}.
                            Resolve conflicts minimally and list any you touched. Run the FULL test suite, build the artifact,
                            write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
-  { label: 'integrate', model: MODEL.cheap, schema: Suite })
+  { label: 'integrate', model: MODEL.cheap, agentType: 'mechanical', schema: Suite })
 
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
@@ -205,6 +209,7 @@ return {
   suite: { passed: suite?.passed ?? 0, failed: suite?.failed ?? 0, results_ref: suite?.results_ref ?? '' },
   escalations,
   starved_items: [],
-  spend: { tokens: 0, wall_clock_min: 0, human_min: 0 },
+  // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.
+  spend: { tokens: Math.max(0, budget.spent() - TOKENS_AT_START), wall_clock_min: 0, human_min: 0 },
   provenance: stamp('build-implement', 'n/a', 'hotl'),
 }

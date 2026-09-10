@@ -1,0 +1,7 @@
+node_modules/
+# Artifact store: diffs, tests, results, worktrees, traces. Only the convention doc is tracked.
+.artifacts/*
+!.artifacts/README.md
+# Toy venture worktrees and scratch
+toy/.git/
+*.log

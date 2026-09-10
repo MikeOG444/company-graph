@@ -1,0 +1,25 @@
+{
+  "name": "company-graph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Company Super Graph — substrate for the workflows in .claude/workflows/",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": {
+    "validator": "substrate/validator.js",
+    "artifacts": "substrate/artifacts.js",
+    "gates": "substrate/gates.js",
+    "ledger": "substrate/ledger.js"
+  },
+  "scripts": {
+    "test": "node --test \"substrate/test/*.test.js\"",
+    "validator": "node substrate/validator.js",
+    "artifacts": "node substrate/artifacts.js",
+    "gates": "node substrate/gates.js",
+    "ledger": "node substrate/ledger.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

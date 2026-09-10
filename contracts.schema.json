@@ -411,6 +411,55 @@
         "provenance":   { "$ref": "#/$defs/Provenance" }
       },
       "required": ["release_candidate_id", "project_id", "approved_by", "approved_at", "deployed_at", "strategy", "watch_result", "provenance"]
+    },
+
+    "GateRecord": {
+      "description": "Substrate. A workflow output that needs a human decision, written to gates/ by the main session at a workflow boundary. The human's decision is recorded here and carried into the next workflow's args.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":            { "type": "string" },
+        "gate":          { "type": "string", "description": "Gate name from the operating model, e.g. spec_gate, launch_approval, sev1_page, roadmap_gate, venture_verdict, ratio_gate, escalation, portfolio_gate, machine_release_gate." },
+        "run_id":        { "type": "string" },
+        "workflow":      { "type": "string", "description": "The workflow whose return opened this gate." },
+        "project_id":    { "type": "string" },
+        "status":        { "type": "string", "enum": ["open", "decided"] },
+        "opened_at":     { "type": "string", "format": "date-time" },
+        "options":       { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "payload":       { "type": "object", "description": "Small decision context, inlined." },
+        "payload_ref":   { "type": "string", "description": "Large decision context, by ref." },
+        "next_workflow": { "type": "string", "description": "The workflow that consumes the decision." },
+        "decision":      { "type": "object", "additionalProperties": false,
+                           "properties": { "option": {"type":"string"}, "note": {"type":"string"},
+                                           "decided_by": { "$ref": "#/$defs/Executor" }, "decided_at": {"type":"string","format":"date-time"} },
+                           "required": ["option", "decided_by", "decided_at"] },
+        "provenance":    { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "gate", "run_id", "workflow", "status", "opened_at", "options", "provenance"]
+    },
+
+    "LedgerEntry": {
+      "description": "Substrate. One row per workflow run in ledger/. Tokens and wall clock are stamped after the run returns because the script can see neither; this is the Method Ledger's unit of account.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":             { "type": "string" },
+        "run_id":         { "type": "string" },
+        "workflow":       { "type": "string" },
+        "status":         { "type": "string", "enum": ["ok", "failed"] },
+        "started_at":     { "type": "string", "format": "date-time" },
+        "finished_at":    { "type": "string", "format": "date-time" },
+        "wall_clock_sec": { "type": "integer", "minimum": 0 },
+        "tokens":         { "type": "integer", "minimum": 0 },
+        "agents":         { "type": "integer", "minimum": 0 },
+        "human_min":      { "type": "integer", "minimum": 0 },
+        "artifact_count": { "type": "integer", "minimum": 0, "description": "Nested objects carrying provenance in the stored result." },
+        "escalations":    { "type": "integer", "minimum": 0 },
+        "result_ref":     { "type": "string" },
+        "trace_ref":      { "type": "string", "description": "Copy of the runtime journal, by ref." },
+        "provenance":     { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "run_id", "workflow", "status", "started_at", "finished_at", "wall_clock_sec", "artifact_count", "escalations", "result_ref", "provenance"]
     }
   }
 }

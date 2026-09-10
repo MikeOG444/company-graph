@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-spec',
   description: 'Plan an iteration, write specs, classify risk and decompose in parallel. Ends at the Spec Gate: high-risk specs need a human decision before /build-implement.',
-  phases: ['Plan', 'Spec'],
+  phases: [{ title: 'Plan', detail: 'select work items within capacity' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
 }
 
 // args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now }
