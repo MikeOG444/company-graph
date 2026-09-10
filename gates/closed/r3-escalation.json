@@ -1,0 +1,48 @@
+{
+  "id": "r3-escalation",
+  "gate": "escalation",
+  "run_id": "r3",
+  "workflow": "build-implement",
+  "status": "decided",
+  "opened_at": "2026-09-10T07:41:30.000Z",
+  "options": [
+    "guide",
+    "direct_drive",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r3",
+    "created_at": "2026-09-10T07:41:30.000Z"
+  },
+  "project_id": "toy",
+  "payload": {
+    "task_id": "impl-delete-items-route",
+    "reason": "max_rounds",
+    "history": [
+      "r1: fail (13 findings, veto by security)",
+      "escalation triage: all 13 findings are one defect (missing auth on DELETE /items/:id) reported 3x across spec_conformance/security/correctness lenses; no distinct issues found",
+      "escalation triage: located the real worktree at /home/user/company-graph/.artifacts/worktrees/impl-delete-items-route (branch task/impl-delete-items-route) — the main checkout's toy/src/app.js is only 32 lines and has neither GET /items/:id nor DELETE, so the cited line numbers 52-63 resolve only inside that worktree",
+      "escalation triage: HEAD of that worktree is 965cc9b 'Apply canary mutation: remove Authorization check from DELETE /items/:id handler', whose commit message states 'This is a deliberate defect to test the verifiers'",
+      "escalation triage: parent commit eb87b79 'Add admin-only DELETE /items/:id route' contains a spec-conformant auth block (per-request process.env.ADMIN_TOKEN read, case-insensitive Bearer scheme via /^Bearer (.+)$/i, exact-match token, 401 returned before id validation and existence lookup)",
+      "escalation triage: .artifacts/results/impl-delete-items-route.r1.json confirms 11/18 AC pass and exactly the 7 auth ACs fail (AC-3,4,5,7,8,9,13) — precisely the ACs the canary deletes, and no others",
+      "escalation triage: working tree is otherwise clean; the only untracked file is toy/test-manual-attempts.js (verifier scratch)"
+    ],
+    "hypothesis": "The loop is not stuck on a real bug: HEAD of the task worktree is an intentionally seeded canary commit (965cc9b) that strips the already-correct auth block added in eb87b79, so every round the panel correctly re-detects the same planted defect while no fixer is authorized to revert a commit it did not author — verification is working, the loop simply has no exit for a deliberate mutation.",
+    "repeats": [],
+    "options": [
+      "direct_drive",
+      "guide",
+      "kill_to_spec"
+    ],
+    "disputes_lost": []
+  },
+  "decision": {
+    "option": "kill_to_spec",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T07:42:00.000Z",
+    "note": "Canary run (HANDOFF Phase 1 exit test): the auth check was removed on purpose by args.canary. Escalation is the expected outcome, not a real defect. wi-4 stays in the backlog for a normal run."
+  }
+}
