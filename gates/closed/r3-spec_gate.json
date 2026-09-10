@@ -1,0 +1,269 @@
+{
+  "id": "r3-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "r3",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-10T07:30:30.000Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r3",
+    "created_at": "2026-09-10T07:30:30.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec": {
+      "id": "spec-wi-4",
+      "work_item_id": "wi-4",
+      "goal": "Add an admin-only DELETE /items/:id route to the toy items API. With a valid admin bearer token the route removes the named item from the in-memory store and returns 204 with an empty body. Authorization is checked before anything else: a missing, malformed, or wrong token returns 401 {\"error\":\"unauthorized\"} and mutates nothing, and when process.env.ADMIN_TOKEN is unset (or empty) every request to the route is rejected with 401. With a valid token, an id that is not a canonical decimal integer or that names no existing item returns 404 {\"error\":\"not found\"}. Behavior of GET /health, GET /items, GET /items/:id and POST /items is unchanged.\n\nDesign decisions this spec pins (so tests are deterministic):\n- The token is read from process.env.ADMIN_TOKEN at request time, not at createApp() time, so a test can set/unset it around a running app instance.\n- ADMIN_TOKEN that is undefined or the empty string means \"no admin configured\" -> always 401.\n- The Authorization header must be the Bearer scheme followed by exactly one space and the token: scheme compared case-insensitively, token compared with exact string equality (===). Anything else (no header, other scheme, bare token, empty token, extra spaces or trailing junk) is 401.\n- Auth failure takes precedence over id validation and over item existence: never leak existence via a 404 to an unauthenticated caller.\n- Ids are never recycled: deleting an item does not roll back the nextId counter.\n- The 204 response carries no JSON body.\n- Id validation reuses the existing canonical-decimal-integer rule from GET /items/:id in toy/src/app.js.",
+      "acceptance": [
+        {
+          "id": "AC-1",
+          "given": "process.env.ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists (created via POST /items {\"name\":\"widget\"})",
+          "when": "DELETE /items/1 is sent with header Authorization: Bearer s3cret",
+          "then": "the response status is 204, the response body is empty (zero-length text), a subsequent GET /items/1 returns 404 {\"error\":\"not found\"}, and GET /items returns []",
+          "testable": true
+        },
+        {
+          "id": "AC-2",
+          "given": "ADMIN_TOKEN is set and three items (ids 1, 2, 3) exist",
+          "when": "DELETE /items/2 is sent with the valid bearer token",
+          "then": "the response status is 204 and GET /items returns exactly the items with ids 1 and 3, unchanged in name and in insertion order",
+          "testable": true
+        },
+        {
+          "id": "AC-3",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with no Authorization header",
+          "then": "the response status is 401 with JSON body exactly {\"error\":\"unauthorized\"} and GET /items/1 still returns 200 with the item",
+          "testable": true
+        },
+        {
+          "id": "AC-4",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with Authorization: Bearer wrong-token",
+          "then": "the response status is 401 with body {\"error\":\"unauthorized\"} and GET /items still returns the item",
+          "testable": true
+        },
+        {
+          "id": "AC-5",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with each malformed Authorization header in turn: \"s3cret\", \"Basic s3cret\", \"Token s3cret\", \"Bearer\", \"Bearer \", \"Bearer  s3cret\" (two spaces), \"Bearer s3cret extra\"",
+          "then": "every response is 401 with body {\"error\":\"unauthorized\"} and after all attempts GET /items/1 still returns 200 with the item",
+          "testable": true
+        },
+        {
+          "id": "AC-6",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with Authorization: bearer s3cret, and then again with Authorization: BEARER s3cret",
+          "then": "the first request returns 204 and deletes the item (scheme match is case-insensitive) and the second returns 404 {\"error\":\"not found\"} because the item is already gone",
+          "testable": true
+        },
+        {
+          "id": "AC-7",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with Authorization: Bearer S3CRET",
+          "then": "the response status is 401 with body {\"error\":\"unauthorized\"} (token comparison is case-sensitive) and the item still exists",
+          "testable": true
+        },
+        {
+          "id": "AC-8",
+          "given": "process.env.ADMIN_TOKEN is deleted (unset) and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with no header, then with Authorization: Bearer undefined, then with Authorization: \"Bearer \" (empty token)",
+          "then": "every response is 401 with body {\"error\":\"unauthorized\"} and GET /items still returns the item",
+          "testable": true
+        },
+        {
+          "id": "AC-9",
+          "given": "process.env.ADMIN_TOKEN is set to the empty string \"\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with Authorization: \"Bearer \" (empty token) and with Authorization: Bearer anything",
+          "then": "both responses are 401 with body {\"error\":\"unauthorized\"} and the item still exists",
+          "testable": true
+        },
+        {
+          "id": "AC-10",
+          "given": "an app instance is already running and started while process.env.ADMIN_TOKEN was unset, with an item id 1 created",
+          "when": "process.env.ADMIN_TOKEN is set to \"s3cret\" without restarting the app and DELETE /items/1 is sent with Authorization: Bearer s3cret",
+          "then": "the response is 204 and the item is deleted, proving the token is read per request rather than captured at createApp() time",
+          "testable": true
+        },
+        {
+          "id": "AC-11",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and one item with id 1 exists",
+          "when": "DELETE /items/999 is sent with the valid bearer token",
+          "then": "the response status is 404 with JSON body exactly {\"error\":\"not found\"} and GET /items still returns the item with id 1",
+          "testable": true
+        },
+        {
+          "id": "AC-12",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and one item with id 1 exists",
+          "when": "DELETE /items/:id is sent with the valid bearer token for each of the ids \"abc\", \"1.5\", \"-1\", \"1e0\", \"0x1\", \"01\", \"%201\"",
+          "then": "every response is 404 with body {\"error\":\"not found\"} and the item with id 1 still exists",
+          "testable": true
+        },
+        {
+          "id": "AC-13",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and the store is empty",
+          "when": "DELETE /items/999 is sent with no Authorization header, and then with Authorization: Bearer wrong",
+          "then": "both responses are 401 {\"error\":\"unauthorized\"} — never 404 — showing auth is checked before id validation and before existence lookup",
+          "testable": true
+        },
+        {
+          "id": "AC-14",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 with the valid token is sent twice",
+          "then": "the first response is 204 and the second is 404 with body {\"error\":\"not found\"}",
+          "testable": true
+        },
+        {
+          "id": "AC-15",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 succeeds with the valid token and then POST /items {\"name\":\"replacement\"} is sent",
+          "then": "the created item has id 2 (ids are not recycled) and GET /items returns exactly that one item",
+          "testable": true
+        },
+        {
+          "id": "AC-16",
+          "given": "two independently started app instances A and B, with ADMIN_TOKEN set to \"s3cret\"",
+          "when": "an item is created on A and DELETE /items/1 with the valid token is sent to B",
+          "then": "B responds 404 {\"error\":\"not found\"} and GET /items/1 on A still returns 200 with the item, confirming the store stays per-instance",
+          "testable": true
+        },
+        {
+          "id": "AC-17",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item exists",
+          "when": "the pre-existing routes are exercised — GET /health, GET /items, GET /items/:id (hit and miss), POST /items (valid, missing name, 65-character name) — all without an Authorization header",
+          "then": "every response matches current behavior, and `cd toy && npm test` passes with toy/test/items.test.js and toy/test/health.test.js unmodified",
+          "testable": true
+        },
+        {
+          "id": "AC-18",
+          "given": "ADMIN_TOKEN is set to \"s3cret\" and an item with id 1 exists",
+          "when": "DELETE /items/1 is sent with a valid bearer token, content-type: application/json and a JSON request body such as {\"force\":true}",
+          "then": "the response is still 204 and the item is deleted — the body is ignored and causes no parse error or 400",
+          "testable": true
+        }
+      ],
+      "touched_surfaces": [
+        {
+          "kind": "path",
+          "ref": "toy/src/app.js"
+        },
+        {
+          "kind": "path",
+          "ref": "toy/test/items-delete.test.js"
+        },
+        {
+          "kind": "path",
+          "ref": "toy/README.md"
+        },
+        {
+          "kind": "api",
+          "ref": "DELETE /items/:id"
+        },
+        {
+          "kind": "config",
+          "ref": "process.env.ADMIN_TOKEN"
+        }
+      ],
+      "out_of_scope": [
+        "Any change to GET /health, GET /items, GET /items/:id or POST /items behavior, status codes or payloads",
+        "Adding authentication or authorization to any route other than DELETE /items/:id",
+        "Editing toy/test/items.test.js or toy/test/health.test.js — existing tests must keep passing unchanged",
+        "User accounts, roles, scopes, multiple tokens, token issuance, rotation or expiry",
+        "Constant-time / timing-safe token comparison, token hashing, rate limiting or lockout after failed auth",
+        "WWW-Authenticate response headers, CORS, or any other new response headers on the 401",
+        "Audit logging, soft delete, undo, or deleted-item tombstones",
+        "Bulk delete, DELETE /items (collection), PUT/PATCH /items/:id, or explicit 405 handling for other methods on /items/:id",
+        "Persistence beyond the in-memory Map, or sharing store state across app instances",
+        "Startup validation that fails fast when ADMIN_TOKEN is unset — the route returns 401 at request time instead",
+        "Recycling or resetting the nextId counter after a delete",
+        "Changes to toy/package.json, dependencies, toy/src/server.js, or the test runner setup"
+      ],
+      "risk": "high",
+      "risk_reasons": [
+        "Touches authentication: introduces bearer token authorization via process.env.ADMIN_TOKEN; auth bugs expose the delete endpoint to unauthorized users",
+        "Adds to public API: introduces new endpoint DELETE /items/:id visible to all consumers",
+        "Irreversible data mutation: deletion is permanent and not recoverable; data loss is always high-risk",
+        "Complex auth edge cases: 18 acceptance criteria covering header parsing (case sensitivity, exact token match), authorization precedence, and information leak prevention",
+        "Implicit deployment trust boundary: ADMIN_TOKEN read at request time means misconfiguration (unset or empty) silently locks the route down"
+      ],
+      "gate": "pending",
+      "provenance": {
+        "node": "spec_writer",
+        "executor": "ai_agent",
+        "method": "hotl",
+        "model": "opus",
+        "run_id": "r3",
+        "created_at": "2026-09-10T07:27:00Z"
+      }
+    },
+    "graph": {
+      "spec_id": "spec-wi-4",
+      "tasks": [
+        {
+          "id": "impl-delete-items-route",
+          "spec_id": "spec-wi-4",
+          "description": "Implement DELETE /items/:id route handler in toy/src/app.js with admin-only authorization. Add route that: (1) checks Authorization header for Bearer scheme (case-insensitive) and token matching process.env.ADMIN_TOKEN (case-sensitive exact equality); (2) rejects missing, malformed, wrong, or empty tokens with 401 {\"error\":\"unauthorized\"}; (3) when ADMIN_TOKEN is unset or empty string, rejects all requests with 401; (4) performs auth checks before any other validation; (5) validates id as canonical decimal integer (reusing existing logic from GET /items/:id); (6) returns 404 {\"error\":\"not found\"} for invalid ids or non-existent items; (7) on success, removes item from in-memory store and returns 204 with empty body; (8) reads ADMIN_TOKEN from process.env at request time, not at app creation time; (9) never recycles ids after deletion; (10) ensures GET /health, GET /items, GET /items/:id, and POST /items remain completely unchanged. Implementation must pass all 18 acceptance criteria without modifying existing test files.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "api",
+              "ref": "DELETE /items/:id"
+            },
+            {
+              "kind": "config",
+              "ref": "process.env.ADMIN_TOKEN"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "AC-1",
+            "AC-2",
+            "AC-3",
+            "AC-4",
+            "AC-5",
+            "AC-6",
+            "AC-7",
+            "AC-8",
+            "AC-9",
+            "AC-10",
+            "AC-11",
+            "AC-12",
+            "AC-13",
+            "AC-14",
+            "AC-15",
+            "AC-16",
+            "AC-17",
+            "AC-18"
+          ]
+        }
+      ],
+      "provenance": {
+        "node": "decomposer",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "r3",
+        "created_at": "2026-09-10T07:27:00Z"
+      }
+    }
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T07:31:00.000Z",
+    "note": "HANDOFF Phase 1 canary exit test: this spec exists so the security lens can be tested against an omitted auth check. Approved on that standing instruction, not a separate HE decision."
+  }
+}

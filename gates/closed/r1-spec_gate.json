@@ -1,0 +1,168 @@
+{
+  "id": "r1-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "r1",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-10T06:20:00.000Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r1",
+    "created_at": "2026-09-10T06:20:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec": {
+      "id": "spec-wi-2",
+      "work_item_id": "wi-2",
+      "goal": "POST /items rejects a name longer than 64 characters with HTTP 400 and body { \"error\": \"name too long\" }, while accepting a name of exactly 64 characters with the existing 201 create behavior. \"Longer than 64\" is measured as JavaScript String.length (UTF-16 code units) on the raw request value, with no trimming or normalization. The length check runs only after the existing presence/type check in toy/src/app.js, so the current missing-name / non-string / empty-string 400 { \"error\": \"name is required\" } responses are unchanged. No other route, field, or response shape changes.",
+      "acceptance": [
+        {
+          "id": "ac-1",
+          "given": "a running app instance with an empty item store",
+          "when": "a client sends POST /items with content-type application/json and body { \"name\": <a 65-character string> }",
+          "then": "the response status is 400, the JSON body deep-equals { \"error\": \"name too long\" }, and a subsequent GET /items returns [] (the item was not created)",
+          "testable": true
+        },
+        {
+          "id": "ac-2",
+          "given": "a running app instance with an empty item store",
+          "when": "a client sends POST /items with body { \"name\": <a string of exactly 64 characters> }",
+          "then": "the response status is 201, the JSON body is { id: <number>, name: <the same 64-character string> }, and a subsequent GET /items returns exactly that one item",
+          "testable": true
+        },
+        {
+          "id": "ac-3",
+          "given": "a running app instance with an empty item store",
+          "when": "a client sends POST /items with body { \"name\": <a string of exactly 63 characters> }",
+          "then": "the response status is 201 and the created item's name equals the 63-character string, confirming the boundary rejects only lengths strictly greater than 64",
+          "testable": true
+        },
+        {
+          "id": "ac-4",
+          "given": "a running app instance",
+          "when": "a client sends POST /items with body {} (no name field)",
+          "then": "the response status is 400 and the JSON body deep-equals { \"error\": \"name is required\" }, unchanged from current behavior",
+          "testable": true
+        },
+        {
+          "id": "ac-5",
+          "given": "a running app instance",
+          "when": "a client sends POST /items with body { \"name\": \"\" } (empty string) and, separately, { \"name\": 123 } (non-string)",
+          "then": "in both cases the response status is 400 and the JSON body deep-equals { \"error\": \"name is required\" }; the new length check never turns these into \"name too long\"",
+          "testable": true
+        },
+        {
+          "id": "ac-6",
+          "given": "a running app instance with an empty item store and a name of 200 characters (well past the limit)",
+          "when": "a client sends POST /items with that 200-character name and then sends POST /items with { \"name\": \"widget\" }",
+          "then": "the first response is 400 { \"error\": \"name too long\" }, the second is 201, and the created item's id is 1 — a rejected over-length request consumes no id and mutates no state",
+          "testable": true
+        },
+        {
+          "id": "ac-7",
+          "given": "the existing toy test suite",
+          "when": "`npm test` is run from the toy/ directory",
+          "then": "every pre-existing test in toy/test/items.test.js and toy/test/health.test.js still passes alongside the new length-limit tests, and the run exits 0",
+          "testable": true
+        }
+      ],
+      "touched_surfaces": [
+        {
+          "kind": "path",
+          "ref": "toy/src/app.js"
+        },
+        {
+          "kind": "path",
+          "ref": "toy/test/items.test.js"
+        },
+        {
+          "kind": "api",
+          "ref": "POST /items"
+        },
+        {
+          "kind": "module",
+          "ref": "toy/src/app.js:createApp"
+        }
+      ],
+      "out_of_scope": [
+        "Any change to GET /items, GET /health, or GET /items/:id (the latter belongs to wi-1 — do not add or modify that route here).",
+        "Changing the existing missing-name / non-string / empty-string error message, status, or check ordering; 'name is required' stays exactly as it is and is still evaluated first.",
+        "Trimming, whitespace collapsing, Unicode normalization (NFC/NFD), grapheme-cluster counting, or byte-length counting — the limit is raw String.length in UTF-16 code units.",
+        "Making the 64-character limit configurable via env var, config file, or request parameter; the constant is hard-coded in toy/src/app.js.",
+        "Adding a minimum-length rule, character-set validation, content/profanity filtering, or duplicate-name rejection.",
+        "Validating or limiting any field other than `name`, and rejecting requests that carry extra unknown fields.",
+        "Introducing a validation library (zod, joi, express-validator) or a shared validation middleware layer; the check stays inline in the existing route handler.",
+        "Changing the error response envelope shape (e.g. adding `code`, `field`, or `details` keys) for this or any other error.",
+        "Truncating an over-length name and accepting it instead of rejecting it.",
+        "Request body size limits, rate limiting, auth, or any other request-level middleware.",
+        "Persistence beyond the existing in-memory Map, and any change to id allocation strategy.",
+        "toy/README.md, OpenAPI/schema docs, or CHANGELOG updates.",
+        "Modifying toy/test/helpers.js, toy/test/health.test.js, or toy/package.json."
+      ],
+      "risk": "high",
+      "risk_reasons": [
+        "Touches public API: modifies POST /items endpoint behavior, affecting all external consumers",
+        "Breaks backward compatibility: requests with names > 64 characters change from 201 to 400, impacting existing clients",
+        "Affects external contract: changes the validation rules exposed to API consumers"
+      ],
+      "gate": "pending",
+      "provenance": {
+        "node": "spec_writer",
+        "executor": "ai_agent",
+        "method": "hotl",
+        "model": "opus",
+        "run_id": "r1",
+        "created_at": "2026-09-10T06:08:00Z"
+      }
+    },
+    "graph": {
+      "spec_id": "spec-wi-2",
+      "tasks": [
+        {
+          "id": "impl-1",
+          "spec_id": "spec-wi-2",
+          "description": "Implement POST /items name length validation: add a check in the route handler that rejects names longer than 64 UTF-16 code units with HTTP 400 { \"error\": \"name too long\" }, accepting exactly 64 or shorter with existing 201 create behavior. The check must run after the existing presence/type validation so existing error messages remain unchanged.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "ac-1",
+            "ac-2",
+            "ac-3",
+            "ac-4",
+            "ac-5",
+            "ac-6",
+            "ac-7"
+          ]
+        }
+      ],
+      "provenance": {
+        "node": "decomposer",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "r1",
+        "created_at": "2026-09-10T06:08:00Z"
+      }
+    }
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T06:21:12.501Z",
+    "note": "Delegated by HE in chat: enforce the 64-char limit as specified; no external consumers, so the router's compatibility concern does not apply."
+  }
+}

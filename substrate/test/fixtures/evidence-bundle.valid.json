@@ -1,0 +1,37 @@
+{
+  "release_candidate_id": "rc-r1",
+  "project_id": "toy",
+  "iteration": 1,
+  "artifact_ref": ".artifacts/integration/r1.tgz",
+  "specs": ["spec-1"],
+  "panel_results": [
+    {
+      "change_set_id": "cs-t1-r1",
+      "result": "pass",
+      "round": 1,
+      "verdicts": [
+        {
+          "lens": "security",
+          "change_set_id": "cs-t1-r1",
+          "verdict": "pass",
+          "attempts": ["injected a quoted id into /items/:id", "sent a request with no auth header", "grepped the diff for key-like strings"],
+          "findings": [],
+          "confidence": 0.9,
+          "provenance": { "node": "lens:security", "executor": "ai_agent", "method": "dark_factory", "model": "haiku", "run_id": "r1", "created_at": "2026-09-10T00:00:00Z", "tokens": 1200 }
+        }
+      ],
+      "findings": [
+        {
+          "id": "f-1", "lens": "spec_conformance", "severity": "low", "location": "src/items.js:12",
+          "claim": "returns 200 on empty list; spec says 204", "evidence": "res.status(200).json([])",
+          "dedupe_key": "src/items.js:12|empty list status", "status": "fixed"
+        }
+      ]
+    }
+  ],
+  "suite": { "passed": 12, "failed": 0, "results_ref": ".artifacts/integration/r1.json" },
+  "escalations": [],
+  "starved_items": [],
+  "spend": { "tokens": 48000, "wall_clock_min": 9, "human_min": 0 },
+  "provenance": { "node": "build-implement", "executor": "ai_agent", "method": "hotl", "model": "n/a", "run_id": "r1", "created_at": "2026-09-10T00:00:00Z" }
+}

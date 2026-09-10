@@ -1,11 +1,15 @@
 export const meta = {
   name: 'build-implement',
   description: 'Implement approved specs: implementer and test author in parallel per task, adversarial verifier panel, converging fix loop, one integration barrier, evidence bundle out.',
-  phases: ['Implement+Verify', 'Integrate', 'Evidence'],
+  phases: [{ title: 'Implement+Verify', detail: 'per task: implementer ∥ test author → panel → fix loop' }, { title: 'Integrate', detail: 'the one barrier' }, { title: 'Evidence', detail: 'assembled by code' }],
 }
 
 // args: { repo, project_id, iteration, specs: [{spec, graph}], run_id, now,
-//         budget?: { task_tokens }, k_rounds?, artifact_dir? }
+//         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
+//         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string }
+//   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
+//         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
+//   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
 // returns: EvidenceBundle (see contracts.schema.json)
 //
 // Human touchpoints: none inside this run. Escalations come back in the bundle;
@@ -16,8 +20,15 @@ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
 const K_ROUNDS = A.k_rounds ?? 3
 const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
+const BASE = A.base ?? 'HEAD'
+// .claude/agents/ definitions register at session start; a session that predates them must pass agent_types:false
+// (an unknown agentType throws and drops the task).
+const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+const APP = `${A.repo}`
 const VETO_LENS = 'security'
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+// Output tokens for this turn's shared pool at start; the runtime exposes no per-agent count, so spend is a run-level delta.
+const TOKENS_AT_START = budget.spent()
 
 // ---- inlined contracts (runtime forbids import; keep in sync with contracts.schema.json) ----
 const Surface = { type: 'object', additionalProperties: false, required: ['kind', 'ref'],
@@ -34,9 +45,10 @@ const TestResults = { type: 'object', additionalProperties: false, required: ['p
   properties: { passed: { type: 'integer' }, failed: { type: 'integer' }, results_ref: { type: 'string' },
     criteria_covered: { type: 'array', items: { type: 'string' } } } }
 const Finding = { type: 'object', additionalProperties: false,
-  required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key'],
+  required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
-    location: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, dedupe_key: { type: 'string' } } }
+    location: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, dedupe_key: { type: 'string' },
+    status: { enum: ['open', 'fixed', 'disputed', 'overruled', 'repeat'] } } }
 const Verdict = { type: 'object', additionalProperties: false,
   required: ['lens', 'verdict', 'attempts', 'findings', 'confidence'],
   properties: { lens: { enum: ['spec_conformance', 'correctness', 'security', 'tiebreak'] },
@@ -83,29 +95,74 @@ function shouldEscalate(ctx, findings) {
 
 // =====================================================================
 phase('Implement+Verify')
-const tasks = A.specs.flatMap(({ spec, graph }) => graph.tasks.map(task => ({ spec, task })))
+// Topological order on depends_on (code). Dependents start after their dependency and branch from its task branch.
+function topo(items) {
+  const byId = new Map(items.map(i => [i.task.id, i])), out = [], seen = new Set()
+  const visit = (i, stack = new Set()) => {
+    if (seen.has(i.task.id)) return
+    if (stack.has(i.task.id)) throw new Error(`depends_on cycle at ${i.task.id}`)
+    stack.add(i.task.id)
+    for (const d of i.task.depends_on ?? []) if (byId.has(d)) visit(byId.get(d), stack)
+    seen.add(i.task.id); out.push(i)
+  }
+  items.forEach(i => visit(i))
+  return out
+}
+const tasks = topo(A.specs.flatMap(({ spec, graph }) => graph.tasks.map(task => ({ spec, task }))))
 log(`${tasks.length} tasks across ${A.specs.length} specs`)
 
 const panelResults = []
 const escalations = []
+const taskDone = {}, resolveTask = {}
+for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
 
-const finished = (await pipeline(tasks, async ({ spec, task }) => {
+const finished = (await pipeline(tasks, async (item) => {
+  const out = await runTask(item)
+  resolveTask[item.task.id](out)
+  return out
+})).filter(Boolean)
+
+async function runTask({ spec, task }) {
   const wt = `${ART}/worktrees/${task.id}`
+  const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
+  const deps = await Promise.all(depIds.map(d => taskDone[d]))
+  if (deps.some(d => !d || !d.passed)) {
+    log(`${task.id}: skipped, a dependency did not pass`)
+    return { spec, task, passed: false, skipped: true }
+  }
+  const base = deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE
+  const extraMerges = deps.slice(0, -1).map(d => `task/${d.task.id}`)
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
-    () => agent(`Create git worktree ${wt} from ${A.repo} main. Implement this task there, staying inside owned surfaces.
-                 Write the diff to ${ART}/diffs/${task.id}.r0.patch and return its path as diff_ref.
+    () => agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${base} (skip if it exists).
+                 ${extraMerges.length ? `First merge ${extraMerges.join(', ')} into the branch. ` : ''}The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing).
+                 Implement this task there, staying inside owned surfaces (paths are repository-relative). Commit your work on the task branch.
+                 Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
+                 and return that path as diff_ref; base_commit = the sha of ${base}; worktree = "${wt}".
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `impl:${task.id}`, model: MODEL.mid, schema: ChangeSet }),
+      { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
-                 Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref.
+                 Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `tests:${task.id}`, model: MODEL.mid, schema: TestSet }),
+      { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
 
-  const ctx = { spec, task, changeSet: changeSet0, testSet, seen: new Set(), round: 0, tokens: 0, history: [] }
+  let changeSet1 = changeSet0
+  if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
+    log(`canary: injecting a deliberate defect into ${task.id}`)
+    const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id})
+                                 apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
+                                 the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
+                                 Then rewrite the cumulative diff vs ${base} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
+                                 ChangeSet: ${JSON.stringify(changeSet0)}`,
+      { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
+    if (mutated) changeSet1 = { ...mutated, notes: undefined }
+  }
+
+  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [], overruled: [], upheld: [] }
+  const fileOf = (loc) => String(loc).split(':')[0].trim()
 
   // ---- Verify → Fix cycle ----
   for (;;) {
@@ -113,30 +170,41 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     const { notes: _hidden, ...diffOnly } = ctx.changeSet   // lenses never see implementer rationale
 
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it.
-    const runP = agent(`Apply ${ctx.changeSet.diff_ref} in ${wt} if not already applied, run the tests at ${ctx.testSet.tests_ref},
-                        write results to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
-      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: TestResults })
+    const runP = agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
+                        against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
+                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
+      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
+    const overruledNote = ctx.overruled.length
+      ? `A judge has OVERRULED these earlier findings because the spec requires that behavior. Do not raise them or paraphrases of them
+         again; a re-raise is a repeat that fails the lens, not the change: ${JSON.stringify(ctx.overruled.map(o => ({ lens: o.lens, location: o.location, claim: o.claim })))}.`
+      : ''
     const lens = (name, focus, extra = '') =>
       agent(`You are the ${name} reviewer. Your job is to REJECT this change. A pass is only valid if you list at least
              three concrete attempts you made to break it. ${focus}
+             Findings are DEFECTS ONLY: an attack you tried that the change blocks is an attempt, not a finding. Behavior the spec
+             requires is never a finding. If you believe the spec itself is unsafe, record ONE finding with severity "low" and a claim
+             starting "SPEC-LEVEL:" and do not fail the change on it alone. ${overruledNote}
              Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
-             Every finding needs location, claim, evidence, and dedupe_key = "<location>|<short normalized claim>".`,
-        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: Verdict })
+             Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
+        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
+        .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
 
+    const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const verdicts = (await parallel([
       () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
-      () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure.`),
+      () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
+                               A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
       async () => { const r = await runP; return r && lens('correctness',
         'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
         `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
-    ])).filter(Boolean)
+    ])).filter(Boolean).map(v => sealVerdict(v, MODEL.cheap))
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
       const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. Spec: ${JSON.stringify(spec)}. Change: ${JSON.stringify(diffOnly)}.`,
         { label: `tiebreak:${task.id}:r${ctx.round}`, model: MODEL.strong, schema: Verdict })
-      if (tie) { verdicts.push(tie); result = tie.verdict } else result = 'fail'
+      if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
     }
     const findings = dedupe(verdicts.flatMap(v => v.findings))
     panelResults.push({ change_set_id: ctx.changeSet.id, result, veto_by, verdicts, findings, round: ctx.round })
@@ -144,54 +212,83 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
 
     if (result === 'pass') return { ...ctx, passed: true }
 
-    const reason = shouldEscalate(ctx, findings)
-    if (reason) {
+    // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
+    const escalate = async (reason, open) => {
+      const repeats = open.filter(f => ctx.overruled.some(o => o.lens === f.lens && fileOf(o.location) === fileOf(f.location)))
       const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
-                               Open findings: ${JSON.stringify(findings)}. Spec: ${JSON.stringify(spec)}.
-                               One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
+                               Open findings: ${JSON.stringify(open)}. Repeats: ${JSON.stringify(repeats)}.
+                               Disputes lost (fixer disputed, judge upheld): ${JSON.stringify(ctx.upheld)}. Overruled by judge: ${JSON.stringify(ctx.overruled)}.
+                               Spec: ${JSON.stringify(spec)}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
         { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
-      if (esc) escalations.push(esc)
+      if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
       return { ...ctx, passed: false }
     }
+
+    const reason = shouldEscalate(ctx, findings)
+    if (reason) return escalate(reason, findings)
 
     // ---- Fix Loop: dedupe against SEEN, fan out fixers, rule on disputes, merge ----
     const fresh = findings.filter(f => !ctx.seen.has(f.dedupe_key))
     fresh.forEach(f => ctx.seen.add(f.dedupe_key))
 
-    const patches = (await parallel(fresh.map(f => () =>
-      agent(`Fix ONE finding in worktree ${wt}. Location: ${f.location}. Evidence: ${f.evidence}.
-             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}.
-             Write the incremental diff to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
-             If you are confident the finding is WRONG, make no change and set notes to "DISPUTE: <why>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, schema: ChangeSet })))).filter(Boolean)
+    const fixes = (await parallel(fresh.map(f => () =>
+      agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
+             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on the task branch.
+             Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
+             Do not modify tests under ${ART}/tests/.
+             Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
+             If the finding objects to behavior the spec requires, asks for something out of scope, or you are confident it is WRONG,
+             make no change and set notes to "DISPUTE: <why>".`,
+        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p })))).filter(Boolean)
 
-    const disputed = patches.filter(p => p.notes?.startsWith('DISPUTE:'))
-    const applied = patches.filter(p => !p.notes?.startsWith('DISPUTE:'))
+    const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
+    const applied = fixes.filter(x => !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
     if (disputed.length) {
-      await parallel(disputed.map(p => () =>
-        agent(`Rule on a disputed finding. Spec: ${JSON.stringify(spec)}. Dispute: ${p.notes}.`,
-          { label: `dispute:${task.id}`, model: MODEL.strong, schema: Ruling })))
-      // Upheld or overruled, the key stays in `seen`: the lens cannot re-raise it, and a re-raise is a repeat → escalate.
+      // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
+      const rulings = await parallel(disputed.map(x => () =>
+        agent(`Rule on a disputed finding. Spec: ${JSON.stringify(spec)}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
+               UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
+               spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
+          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.strong, schema: Ruling })))
+      let repeatOverrule = false
+      disputed.forEach((x, i) => {
+        const r = rulings[i]
+        if (r?.ruling === 'overrule') {
+          if (ctx.overruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
+          ctx.overruled.push({ ...x.f, status: 'overruled' })
+          ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
+        } else {
+          ctx.upheld.push({ ...x.f, status: 'disputed' })
+          ctx.history.push(`r${ctx.round}: upheld ${x.f.lens} at ${x.f.location}: ${r?.reason ?? 'no ruling'}`)
+        }
+      })
+      // A lens overruled twice at the same file is arguing with the spec, not the change. Stop paying for rounds.
+      if (repeatOverrule) return escalate('repeat_finding', findings)
     }
 
-    const merged = await agent(`Apply these patches in order in ${wt}: ${JSON.stringify(applied.map(p => p.diff_ref))}.
-                                Resolve conflicts minimally. Write the cumulative diff vs base to ${ART}/diffs/${task.id}.r${ctx.round}.patch
-                                and return the ChangeSet with revision ${ctx.changeSet.revision + 1}.`,
-      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, schema: ChangeSet })
+    if (!applied.length) continue   // nothing changed; next round's lenses see the overruled list
+
+    const merged = await agent(`In worktree ${wt} (branch task/${task.id}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
+                                Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
+                                (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
+                                and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
+      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
   }
-})).filter(Boolean)
+}
 
 // =====================================================================
 phase('Integrate')   // the one earned barrier
-const passing = finished.filter(f => f.passed).map(f => f.changeSet)
-log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated`)
+const passing = finished.filter(f => f.passed).map(f => f.changeSet)   // `finished` is already in topological order
+log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated; ${finished.filter(f => f.skipped).length} skipped on a failed dependency`)
 
-const suite = await agent(`Merge these worktrees into an integration branch of ${A.repo} in this order: ${JSON.stringify(passing.map(c => c.worktree))}.
-                           Resolve conflicts minimally and list any you touched. Run the FULL test suite, build the artifact,
-                           write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
-  { label: 'integrate', model: MODEL.cheap, schema: Suite })
+const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
+                           (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
+                           ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}. Resolve conflicts minimally and list any files you touched in conflicts.
+                           Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
+                           Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
+  { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
 
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
@@ -205,6 +302,7 @@ return {
   suite: { passed: suite?.passed ?? 0, failed: suite?.failed ?? 0, results_ref: suite?.results_ref ?? '' },
   escalations,
   starved_items: [],
-  spend: { tokens: 0, wall_clock_min: 0, human_min: 0 },
+  // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.
+  spend: { tokens: Math.max(0, budget.spent() - TOKENS_AT_START), wall_clock_min: 0, human_min: 0 },
   provenance: stamp('build-implement', 'n/a', 'hotl'),
 }

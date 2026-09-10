@@ -32,11 +32,11 @@ Read in this order: `COMPANY.md` (Level 0 — the plant), `OPERATING_MODEL.md` (
 ```
 COMPANY.md                  Level 0 — the plant: strategy, tooling, maintenance, process eng, ops, governance
 OPERATING_MODEL.md          the production line, all levels
-contracts.schema.json       26 edge contracts (JSON Schema 2020-12)
+contracts.schema.json       28 contracts: 26 edge shapes + GateRecord, LedgerEntry for the substrate (JSON Schema 2020-12)
 HANDOFF.md                  build phases, exit tests, exact prompts
 .claude/workflows/          one workflow per stretch between human gates
-.claude/agents/             subagent definitions (model, tools, role) — to be created in Phase 0
-substrate/                  to be created in Phase 0: artifact store, gate queue, ledger, run trace
+.claude/agents/             subagent definitions (model, tools, role): implementer, test-author, three lenses, fixer, mechanical
+substrate/                  artifact store, gate queue, ledger + run trace, validator (see substrate/README.md)
 ```
 
 ## Model tiering
