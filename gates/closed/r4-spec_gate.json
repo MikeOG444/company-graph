@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "r4",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-10T17:05:00.000Z",
   "options": [
     "approve",
@@ -58,5 +58,11 @@
         ]
       }
     ]
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T17:10:00.000Z",
+    "note": "HE approved both schema changes in chat (created_at, tags)."
   }
 }
