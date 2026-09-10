@@ -153,8 +153,9 @@ async function runTask({ spec, task }) {
   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
     log(`canary: injecting a deliberate defect into ${task.id}`)
     const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id})
-                                 apply exactly this change to the implementation and commit it: ${A.canary.mutation}
-                                 Then rewrite the cumulative diff vs ${BASE} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
+                                 apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
+                                 the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
+                                 Then rewrite the cumulative diff vs ${base} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
                                  ChangeSet: ${JSON.stringify(changeSet0)}`,
       { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (mutated) changeSet1 = { ...mutated, notes: undefined }
