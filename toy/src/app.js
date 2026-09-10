@@ -12,9 +12,34 @@ export function createApp() {
     res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()) })
   })
 
-  // GET /items → Item[]
+  // GET /items → Item[] ; optional ?sort=name|id ; 400 { error: "invalid sort" }
+  // for any other present value (including "", case variants, padding, or a
+  // repeated parameter, which Express parses as an array).
+  //
+  // Pipeline: filter -> sort -> cap. Filtering (?q, wi-6) and capping
+  // (?limit, wi-5) are not implemented yet; this shape leaves room for them
+  // to compose around the sort stage without restructuring the handler.
   app.get('/items', (req, res) => {
-    res.json([...items.values()])
+    const sort = req.query.sort
+    if (sort !== undefined && sort !== 'name' && sort !== 'id') {
+      return res.status(400).json({ error: 'invalid sort' })
+    }
+
+    // filter stage (no-op today; ?q substring filter lands here in wi-6)
+    let result = [...items.values()]
+
+    // sort stage — plain code-unit comparison, no locale/case folding.
+    // sort === 'id' (or absent) keeps the existing insertion order, which
+    // already matches ascending id order, so no reordering is needed. The
+    // sort below never mutates `items` or the array captured above; it
+    // operates on and returns a fresh copy, and Array#sort is a stable sort.
+    if (sort === 'name') {
+      result = [...result].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    }
+
+    // cap stage (no-op today; ?limit lands here in wi-5)
+
+    res.json(result)
   })
 
   // GET /items/:id → 200 Item ; 404 { error: "not found" } when :id is not a
