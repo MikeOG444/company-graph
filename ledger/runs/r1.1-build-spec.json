@@ -1,0 +1,348 @@
+{
+  "entry": {
+    "id": "r1.1-build-spec",
+    "run_id": "r1.1",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-10T06:19:00.000Z",
+    "finished_at": "2026-09-10T06:19:56.000Z",
+    "wall_clock_sec": 56,
+    "result_ref": "ledger/runs/r1.1-build-spec.json",
+    "artifact_count": 5,
+    "escalations": 0,
+    "tokens": 143650,
+    "agents": 7,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r1",
+      "created_at": "2026-09-10T06:08:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r1.1-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-1",
+          "work_item_id": "wi-1",
+          "goal": "Add a read route GET /items/:id to the toy items API. When :id is a canonical decimal integer that names an item in the in-memory store, respond 200 with that item serialized as JSON ({ id, name }) — deep-equal to the object POST /items returned for it. In every other case — a well-formed integer id with no matching item, or an id that is not a canonical decimal integer (e.g. \"abc\", \"1.5\", \"-1\", \" 1\") — respond 404 with the JSON body { \"error\": \"not found\" }. No other route's behavior, response shape, or status code changes, and the store stays in-memory and per-app-instance.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "A fresh app instance where POST /items {\"name\":\"widget\"} has returned 201 with body {\"id\":1,\"name\":\"widget\"}",
+              "when": "A client sends GET /items/1",
+              "then": "The response status is 200, the content-type is application/json, and the parsed body deep-equals the exact object returned by the POST ({\"id\":1,\"name\":\"widget\"}) with no extra or missing keys",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "A fresh app instance with no items created",
+              "when": "A client sends GET /items/1",
+              "then": "The response status is 404, the content-type is application/json, and the parsed body deep-equals {\"error\":\"not found\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "A fresh app instance where exactly one item has been created and has id 1",
+              "when": "A client sends GET /items/999 (a well-formed integer id no item holds)",
+              "then": "The response status is 404 and the parsed body deep-equals {\"error\":\"not found\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "A fresh app instance where an item with id 1 exists",
+              "when": "A client sends GET /items/abc",
+              "then": "The response status is 404 and the parsed body deep-equals {\"error\":\"not found\"} — the same status and body as the missing-item case, with no 500 and no stack trace in the body",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "A fresh app instance where an item with id 1 exists",
+              "when": "A client sends GET /items/1.5, GET /items/-1, GET /items/1e0, GET /items/%201 (URL-encoded leading space) and GET /items/0x1 in turn",
+              "then": "Each response has status 404 and a body deep-equal to {\"error\":\"not found\"}; none of them returns the item with id 1",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "A fresh app instance where POST /items has created items named \"a\", \"b\" and \"c\", receiving ids 1, 2 and 3",
+              "when": "A client sends GET /items/1, GET /items/2 and GET /items/3",
+              "then": "Each response is 200 and returns exactly its own item — {\"id\":1,\"name\":\"a\"}, {\"id\":2,\"name\":\"b\"} and {\"id\":3,\"name\":\"c\"} respectively — with no cross-contamination between ids",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "Two separate app instances created by createApp(), where an item with id 1 was created only on the first",
+              "when": "A client sends GET /items/1 to the second instance",
+              "then": "The response status is 404 with body {\"error\":\"not found\"}, proving the store is still per-instance and no module-level state leaked",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "A fresh app instance with the new route registered",
+              "when": "A client sends GET /items (the collection route) both before and after creating one item",
+              "then": "The responses are unchanged from current behavior: 200 with [] before, and 200 with an array containing exactly the created item after — the :id route does not shadow or alter the collection route",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "A fresh app instance with the new route registered",
+              "when": "The pre-existing suites toy/test/items.test.js and toy/test/health.test.js are run",
+              "then": "Every pre-existing test still passes unmodified: GET /health returns 200 {\"status\":\"ok\"}, POST /items with a name returns 201, and POST /items with a missing name returns 400 {\"error\":\"name is required\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "The repository after the change",
+              "when": "`npm test` is run from the toy/ directory",
+              "then": "The command exits 0 and the run includes new tests covering the 200 hit, the missing-id 404 and the non-integer-id 404",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items/:id"
+            },
+            {
+              "kind": "module",
+              "ref": "createApp (toy/src/app.js) — route registration order and the in-memory items Map lookup"
+            }
+          ],
+          "out_of_scope": [
+            "POST /items name-length validation and the 400 {\"error\":\"name too long\"} body — that is work item wi-2",
+            "GET /health uptime_seconds — that is work item wi-3",
+            "Any write or mutation route for a single item: PUT, PATCH or DELETE /items/:id",
+            "Persistence of any kind — the store stays an in-memory Map that resets per createApp() instance",
+            "Changing the id allocation scheme (nextId stays a monotonic integer counter) or supporting UUID/string/slug ids",
+            "Pagination, filtering, sorting or query parameters on GET /items or GET /items/:id",
+            "Authentication, authorization, rate limiting and CORS",
+            "Changing the error body shape, status codes or messages of any existing route, including the POST /items missing-name 400",
+            "405 Method Not Allowed handling, HEAD/OPTIONS semantics, and a global 404 handler for unknown paths outside /items/:id",
+            "Response headers beyond what express res.json() already sets (no ETag, Cache-Control or Location work)",
+            "Structured logging, metrics or tracing for the new route",
+            "Changes to toy/src/server.js, toy/package.json, the test harness toy/test/helpers.js, or anything outside the toy/ directory"
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Purely additive change — one new route (GET /items/:id) with no modifications to existing routes, response shapes, or status codes",
+            "Isolated scope — only toy/src/app.js and toy/test/items.test.js touched; no schema or data model evolution",
+            "Reversible — in-memory, per-instance store with no persistence; route can be safely removed",
+            "No auth, data, payment, or infrastructure concerns — explicitly out of scope",
+            "Comprehensive test guardrails — acceptance criteria verify all pre-existing tests pass unchanged and new tests cover edge cases"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r1",
+            "created_at": "2026-09-10T06:08:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-1",
+          "tasks": [
+            {
+              "id": "impl-wi-1",
+              "spec_id": "spec-wi-1",
+              "description": "Implement GET /items/:id route handler in toy/src/app.js. Add route logic that validates :id is a canonical decimal integer (rejecting formats like \"1.5\", \"-1\", \"1e0\", hex, URL-encoded spaces), retrieves the matching item from the store, returns 200 with the item object {id, name} if found, returns 404 with {\"error\": \"not found\"} for any invalid ID or missing item, and ensures per-instance store isolation with no module-level state leakage. Must preserve all existing route behavior (GET /items, POST /items, GET /health) and leave all pre-existing tests passing.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r1",
+            "created_at": "2026-09-10T06:08:00Z"
+          }
+        }
+      }
+    ],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-2",
+          "work_item_id": "wi-2",
+          "goal": "POST /items rejects a name longer than 64 characters with HTTP 400 and body { \"error\": \"name too long\" }, while accepting a name of exactly 64 characters with the existing 201 create behavior. \"Longer than 64\" is measured as JavaScript String.length (UTF-16 code units) on the raw request value, with no trimming or normalization. The length check runs only after the existing presence/type check in toy/src/app.js, so the current missing-name / non-string / empty-string 400 { \"error\": \"name is required\" } responses are unchanged. No other route, field, or response shape changes.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a running app instance with an empty item store",
+              "when": "a client sends POST /items with content-type application/json and body { \"name\": <a 65-character string> }",
+              "then": "the response status is 400, the JSON body deep-equals { \"error\": \"name too long\" }, and a subsequent GET /items returns [] (the item was not created)",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a running app instance with an empty item store",
+              "when": "a client sends POST /items with body { \"name\": <a string of exactly 64 characters> }",
+              "then": "the response status is 201, the JSON body is { id: <number>, name: <the same 64-character string> }, and a subsequent GET /items returns exactly that one item",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a running app instance with an empty item store",
+              "when": "a client sends POST /items with body { \"name\": <a string of exactly 63 characters> }",
+              "then": "the response status is 201 and the created item's name equals the 63-character string, confirming the boundary rejects only lengths strictly greater than 64",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "a running app instance",
+              "when": "a client sends POST /items with body {} (no name field)",
+              "then": "the response status is 400 and the JSON body deep-equals { \"error\": \"name is required\" }, unchanged from current behavior",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "a running app instance",
+              "when": "a client sends POST /items with body { \"name\": \"\" } (empty string) and, separately, { \"name\": 123 } (non-string)",
+              "then": "in both cases the response status is 400 and the JSON body deep-equals { \"error\": \"name is required\" }; the new length check never turns these into \"name too long\"",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "a running app instance with an empty item store and a name of 200 characters (well past the limit)",
+              "when": "a client sends POST /items with that 200-character name and then sends POST /items with { \"name\": \"widget\" }",
+              "then": "the first response is 400 { \"error\": \"name too long\" }, the second is 201, and the created item's id is 1 — a rejected over-length request consumes no id and mutates no state",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "the existing toy test suite",
+              "when": "`npm test` is run from the toy/ directory",
+              "then": "every pre-existing test in toy/test/items.test.js and toy/test/health.test.js still passes alongside the new length-limit tests, and the run exits 0",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "POST /items"
+            },
+            {
+              "kind": "module",
+              "ref": "toy/src/app.js:createApp"
+            }
+          ],
+          "out_of_scope": [
+            "Any change to GET /items, GET /health, or GET /items/:id (the latter belongs to wi-1 — do not add or modify that route here).",
+            "Changing the existing missing-name / non-string / empty-string error message, status, or check ordering; 'name is required' stays exactly as it is and is still evaluated first.",
+            "Trimming, whitespace collapsing, Unicode normalization (NFC/NFD), grapheme-cluster counting, or byte-length counting — the limit is raw String.length in UTF-16 code units.",
+            "Making the 64-character limit configurable via env var, config file, or request parameter; the constant is hard-coded in toy/src/app.js.",
+            "Adding a minimum-length rule, character-set validation, content/profanity filtering, or duplicate-name rejection.",
+            "Validating or limiting any field other than `name`, and rejecting requests that carry extra unknown fields.",
+            "Introducing a validation library (zod, joi, express-validator) or a shared validation middleware layer; the check stays inline in the existing route handler.",
+            "Changing the error response envelope shape (e.g. adding `code`, `field`, or `details` keys) for this or any other error.",
+            "Truncating an over-length name and accepting it instead of rejecting it.",
+            "Request body size limits, rate limiting, auth, or any other request-level middleware.",
+            "Persistence beyond the existing in-memory Map, and any change to id allocation strategy.",
+            "toy/README.md, OpenAPI/schema docs, or CHANGELOG updates.",
+            "Modifying toy/test/helpers.js, toy/test/health.test.js, or toy/package.json."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "Touches public API: modifies POST /items endpoint behavior, affecting all external consumers",
+            "Breaks backward compatibility: requests with names > 64 characters change from 201 to 400, impacting existing clients",
+            "Affects external contract: changes the validation rules exposed to API consumers"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r1",
+            "created_at": "2026-09-10T06:08:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-2",
+          "tasks": [
+            {
+              "id": "impl-1",
+              "spec_id": "spec-wi-2",
+              "description": "Implement POST /items name length validation: add a check in the route handler that rejects names longer than 64 UTF-16 code units with HTTP 400 { \"error\": \"name too long\" }, accepting exactly 64 or shorter with existing 201 create behavior. The check must run after the existing presence/type validation so existing error messages remain unchanged.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r1",
+            "created_at": "2026-09-10T06:08:00Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r1",
+      "created_at": "2026-09-10T06:08:00Z"
+    }
+  }
+}
