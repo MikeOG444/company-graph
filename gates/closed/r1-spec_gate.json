@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "r1",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-10T06:20:00.000Z",
   "options": [
     "approve",
@@ -158,5 +158,11 @@
         "created_at": "2026-09-10T06:08:00Z"
       }
     }
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T06:21:12.501Z",
+    "note": "Delegated by HE in chat: enforce the 64-char limit as specified; no external consumers, so the router's compatibility concern does not apply."
   }
 }
