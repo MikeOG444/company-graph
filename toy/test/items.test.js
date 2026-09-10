@@ -33,6 +33,72 @@ test('POST /items rejects a missing name with 400', async () => {
   } finally { await close() }
 })
 
+test('POST /items rejects a 65-character name with 400 "name too long"', async () => {
+  const { base, close } = await start()
+  try {
+    const name = 'a'.repeat(65)
+    const res = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })
+    assert.equal(res.status, 400)
+    assert.deepEqual(await res.json(), { error: 'name too long' })
+    const list = await (await fetch(`${base}/items`)).json()
+    assert.deepEqual(list, [])
+  } finally { await close() }
+})
+
+test('POST /items accepts a name of exactly 64 characters', async () => {
+  const { base, close } = await start()
+  try {
+    const name = 'a'.repeat(64)
+    const res = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })
+    assert.equal(res.status, 201)
+    const item = await res.json()
+    assert.equal(typeof item.id, 'number')
+    assert.equal(item.name, name)
+    const list = await (await fetch(`${base}/items`)).json()
+    assert.deepEqual(list, [item])
+  } finally { await close() }
+})
+
+test('POST /items accepts a name of exactly 63 characters', async () => {
+  const { base, close } = await start()
+  try {
+    const name = 'a'.repeat(63)
+    const res = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })
+    assert.equal(res.status, 201)
+    const item = await res.json()
+    assert.equal(item.name, name)
+  } finally { await close() }
+})
+
+test('POST /items still rejects empty string and non-string names as "name is required", not "name too long"', async () => {
+  const { base, close } = await start()
+  try {
+    const emptyRes = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '' }) })
+    assert.equal(emptyRes.status, 400)
+    assert.deepEqual(await emptyRes.json(), { error: 'name is required' })
+
+    const nonStringRes = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 123 }) })
+    assert.equal(nonStringRes.status, 400)
+    assert.deepEqual(await nonStringRes.json(), { error: 'name is required' })
+  } finally { await close() }
+})
+
+test('POST /items rejecting an over-length name does not consume an id or mutate state', async () => {
+  const { base, close } = await start()
+  try {
+    const overLong = 'a'.repeat(200)
+    const rejected = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: overLong }) })
+    assert.equal(rejected.status, 400)
+    assert.deepEqual(await rejected.json(), { error: 'name too long' })
+
+    const accepted = await fetch(`${base}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'widget' }) })
+    assert.equal(accepted.status, 201)
+    const item = await accepted.json()
+    assert.equal(item.id, 1)
+    assert.equal(item.name, 'widget')
+  } finally { await close() }
+})
+
 test('GET /items/:id returns the created item', async () => {
   const { base, close } = await start()
   try {

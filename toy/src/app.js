@@ -31,11 +31,16 @@ export function createApp() {
     res.json(item)
   })
 
-  // POST /items { name } → 201 Item ; 400 when name missing or not a string
+  // POST /items { name } → 201 Item ; 400 when name missing or not a string ;
+  // 400 when name is longer than 64 UTF-16 code units
+  const MAX_NAME_LENGTH = 64
   app.post('/items', (req, res) => {
     const name = req.body?.name
     if (typeof name !== 'string' || name.length === 0) {
       return res.status(400).json({ error: 'name is required' })
+    }
+    if (name.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ error: 'name too long' })
     }
     const item = { id: nextId++, name }
     items.set(item.id, item)
