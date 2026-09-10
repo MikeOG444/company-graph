@@ -2,7 +2,7 @@
 
 A tiny in-memory items API. Exists so the production line has something to build against before venture 1.
 
-Routes: `GET /health`, `GET /items`, `POST /items`.
+Routes: `GET /health`, `GET /items`, `POST /items`, `GET /items/:id`.
 
 ```
 cd toy && npm install && npm test

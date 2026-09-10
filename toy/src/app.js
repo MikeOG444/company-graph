@@ -7,9 +7,9 @@ export function createApp() {
   const items = new Map()
   let nextId = 1
 
-  // GET /health → { status: "ok" }
+  // GET /health → { status: "ok", uptime_seconds: <integer seconds since process start> }
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok' })
+    res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()) })
   })
 
   // GET /items → Item[]
@@ -17,11 +17,30 @@ export function createApp() {
     res.json([...items.values()])
   })
 
-  // POST /items { name } → 201 Item ; 400 when name missing or not a string
+  // GET /items/:id → 200 Item ; 404 { error: "not found" } when :id is not a
+  // canonical decimal integer or names no item.
+  app.get('/items/:id', (req, res) => {
+    const raw = req.params.id
+    if (!/^\d+$/.test(raw) || String(Number(raw)) !== raw) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    const item = items.get(Number(raw))
+    if (!item) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    res.json(item)
+  })
+
+  // POST /items { name } → 201 Item ; 400 when name missing or not a string ;
+  // 400 when name is longer than 64 UTF-16 code units
+  const MAX_NAME_LENGTH = 64
   app.post('/items', (req, res) => {
     const name = req.body?.name
     if (typeof name !== 'string' || name.length === 0) {
       return res.status(400).json({ error: 'name is required' })
+    }
+    if (name.length > MAX_NAME_LENGTH) {
+      return res.status(400).json({ error: 'name too long' })
     }
     const item = { id: nextId++, name }
     items.set(item.id, item)
