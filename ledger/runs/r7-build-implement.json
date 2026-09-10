@@ -20,7 +20,13 @@
       "run_id": "r7",
       "created_at": "2026-09-10T20:42:00Z"
     },
-    "trace_ref": ".artifacts/traces/r7-build-implement.jsonl"
+    "trace_ref": ".artifacts/traces/r7-build-implement.jsonl",
+    "tokens_by_model": {
+      "claude-haiku-4-5": 691674,
+      "claude-sonnet-5": 210173,
+      "claude-opus-5": 169609
+    },
+    "cost_est_usd": 2.74
   },
   "result": {
     "release_candidate_id": "rc-r7",

@@ -20,7 +20,13 @@
       "run_id": "r5",
       "created_at": "2026-09-10T17:11:00Z"
     },
-    "trace_ref": ".artifacts/traces/r5-build-implement.jsonl"
+    "trace_ref": ".artifacts/traces/r5-build-implement.jsonl",
+    "tokens_by_model": {
+      "claude-sonnet-5": 766443,
+      "claude-haiku-4-5": 1109388,
+      "claude-opus-5": 654193
+    },
+    "cost_est_usd": 8.28
   },
   "result": {
     "release_candidate_id": "rc-r5",

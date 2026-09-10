@@ -3,14 +3,16 @@
 // The script cannot see its own tokens or a clock, so this runs AFTER the workflow returns, from the main session.
 //
 //   ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json>
-//                 [--tokens N] [--agents N] [--human-min N] [--status ok|failed] [--journal <path>] [--now <iso>]
+//                 [--tokens N] [--tokens-by-model '{"claude-opus-5":N,...}'] [--agents N] [--human-min N] [--status ok|failed] [--journal <path>] [--now <iso>]
+//   ledger recost [<id>]            recompute cost_est_usd from substrate/lib/pricing.json (all rows, or one)
 //   ledger list [--json]
-//   ledger summary [--by method|workflow|node] [--json]
+//   ledger summary [--by method|workflow|node|model] [--json]
 //   ledger show <run_id>
 import fs from 'node:fs'
 import path from 'node:path'
 import { ARTIFACTS, LEDGER, ensureDir, absToRef, parseArgs, die, readJson, writeJson, nowIso } from './lib/paths.js'
 import { validate, formatErrors } from './lib/contracts.js'
+import { estimateCost, normalizeMap } from './lib/pricing.js'
 
 const RUNS = path.join(LEDGER, 'runs'), INDEX = path.join(LEDGER, 'index.jsonl')
 const { pos, opts } = parseArgs(process.argv.slice(2))
@@ -52,6 +54,13 @@ switch (cmd) {
       escalations: Array.isArray(payload.escalations) ? payload.escalations.length : 0,
     }
     const tokens = int(opts.tokens, 'tokens'); if (tokens !== undefined) entry.tokens = tokens
+    if (opts['tokens-by-model']) {
+      let map; try { map = JSON.parse(opts['tokens-by-model']) } catch { die('--tokens-by-model must be a JSON object of model → integer tokens') }
+      entry.tokens_by_model = normalizeMap(map)
+      if (entry.tokens === undefined) entry.tokens = Object.values(entry.tokens_by_model).reduce((a, b) => a + b, 0)
+      const c = estimateCost(entry.tokens_by_model); entry.cost_est_usd = c.cost_est_usd
+      if (c.unpriced.length) process.stderr.write(`warning: no price for ${c.unpriced.join(', ')}; excluded from cost_est_usd\n`)
+    }
     const agents = int(opts.agents, 'agents'); if (agents !== undefined) entry.agents = agents
     const human = int(opts['human-min'], 'human-min'); if (human !== undefined) entry.human_min = human
     if (payload.provenance) entry.provenance = payload.provenance
@@ -67,7 +76,22 @@ switch (cmd) {
     if (fs.existsSync(runPath)) die(`ledger already has ${id}; a re-run needs a new run_id`, 1)
     writeJson(runPath, { entry, result: payload })
     ensureDir(LEDGER); fs.appendFileSync(INDEX, JSON.stringify(entry) + '\n')
-    console.log(`appended ${id}: ${wall}s${tokens !== undefined ? `, ${tokens} tokens` : ''}, ${entry.artifact_count} artifacts, ${entry.escalations} escalations`)
+    const costTxt = entry.cost_est_usd !== undefined ? `, ~$` + entry.cost_est_usd.toFixed(2) : ''
+    console.log(`appended ${id}: ${wall}s${entry.tokens !== undefined ? `, ${entry.tokens} tokens` : ''}${costTxt}, ${entry.artifact_count} artifacts, ${entry.escalations} escalations`)
+    break
+  }
+
+  case 'recost': {
+    const rows = readIndex()
+    let n = 0
+    for (const r of rows) {
+      if (a && r.id !== a) continue
+      if (!r.tokens_by_model) continue
+      r.cost_est_usd = estimateCost(r.tokens_by_model).cost_est_usd; n++
+      const p = path.join(RUNS, `${r.id}.json`); const doc = readJson(p); doc.entry = r; writeJson(p, doc)
+    }
+    fs.writeFileSync(INDEX, rows.map(r => JSON.stringify(r)).join('\n') + '\n')
+    console.log(`recosted ${n} row(s) from substrate/lib/pricing.json`)
     break
   }
 
@@ -75,7 +99,8 @@ switch (cmd) {
     const rows = readIndex()
     if (opts.json) { console.log(JSON.stringify(rows, null, 2)); break }
     if (!rows.length) { console.log('ledger is empty'); break }
-    for (const r of rows) console.log(`${r.id}\t${r.status}\t${r.provenance.method}\t${r.wall_clock_sec}s\t${r.tokens ?? '?'} tok\t${r.artifact_count} artifacts\t${r.escalations} esc`)
+    const usd = (r) => r.cost_est_usd !== undefined ? '$' + r.cost_est_usd.toFixed(2) : '$?'
+    for (const r of rows) console.log(`${r.id}\t${r.status}\t${r.provenance.method}\t${r.wall_clock_sec}s\t${r.tokens ?? '?'} tok\t${usd(r)}\t${r.artifact_count} artifacts\t${r.escalations} esc`)
     break
   }
 
@@ -91,28 +116,32 @@ switch (cmd) {
     // Method Ledger. Run-level tokens/wall clock are attributed to the run's own provenance.method.
     // Per-node rows come from nested artifacts' provenance (node, method, tokens when a script stamped them).
     const by = opts.by ?? 'method'
-    if (!['method', 'workflow', 'node'].includes(by)) die('--by must be method, workflow, or node')
+    if (!['method', 'workflow', 'node', 'model'].includes(by)) die('--by must be method, workflow, node, or model')
     const rows = readIndex()
     const groups = {}
-    const add = (k, f) => { const g = groups[k] ??= { key: k, runs: 0, artifacts: 0, tokens: 0, wall_clock_sec: 0, human_min: 0, escalations: 0 }; f(g) }
+    const add = (k, f) => { const g = groups[k] ??= { key: k, runs: 0, artifacts: 0, tokens: 0, cost_est_usd: 0, wall_clock_sec: 0, human_min: 0, escalations: 0 }; f(g) }
     for (const r of rows) {
+      if (by === 'model') {
+        for (const [m, t] of Object.entries(r.tokens_by_model ?? {})) add(m, g => { g.runs++; g.tokens += t; g.cost_est_usd += estimateCost({ [m]: t }).cost_est_usd })
+        continue
+      }
       if (by === 'node') {
         const { result } = readJson(path.join(RUNS, `${r.id}.json`))
         for (const p of artifacts(result)) add(`${p.node} [${p.method}]`, g => { g.artifacts++; g.tokens += p.tokens ?? 0 })
         continue
       }
       const key = by === 'method' ? r.provenance.method : r.workflow
-      add(key, g => { g.runs++; g.artifacts += r.artifact_count; g.tokens += r.tokens ?? 0; g.wall_clock_sec += r.wall_clock_sec; g.human_min += r.human_min ?? 0; g.escalations += r.escalations })
+      add(key, g => { g.runs++; g.artifacts += r.artifact_count; g.tokens += r.tokens ?? 0; g.cost_est_usd += r.cost_est_usd ?? 0; g.wall_clock_sec += r.wall_clock_sec; g.human_min += r.human_min ?? 0; g.escalations += r.escalations })
     }
-    const out = Object.values(groups).sort((x, y) => y.tokens - x.tokens)
+    const out = Object.values(groups).map(g => ({ ...g, cost_est_usd: Math.round(g.cost_est_usd * 100) / 100 })).sort((x, y) => y.tokens - x.tokens)
     if (opts.json) { console.log(JSON.stringify(out, null, 2)); break }
     if (!out.length) { console.log('ledger is empty'); break }
-    const cols = by === 'node' ? ['key', 'artifacts', 'tokens'] : ['key', 'runs', 'artifacts', 'tokens', 'wall_clock_sec', 'human_min', 'escalations']
+    const cols = by === 'node' ? ['key', 'artifacts', 'tokens'] : by === 'model' ? ['key', 'runs', 'tokens', 'cost_est_usd'] : ['key', 'runs', 'artifacts', 'tokens', 'cost_est_usd', 'wall_clock_sec', 'human_min', 'escalations']
     console.log(cols.join('\t'))
     for (const g of out) console.log(cols.map(c => g[c]).join('\t'))
     break
   }
 
   default:
-    die('usage: ledger append|list|show|summary ...  (see header of substrate/ledger.js)')
+    die('usage: ledger append|list|show|summary|recost ...  (see header of substrate/ledger.js)')
 }

@@ -53,3 +53,12 @@ Both are `$def`s in `contracts.schema.json` and are validated on every write.
 ## Permissions
 
 `.claude/settings.json` allows git, node, npm and writes under `.artifacts/`, `gates/`, `ledger/`, and `toy/` so a long run does not stall on prompts. Workflow agents inherit the session's permissions; agent `tools:` lists can only narrow them.
+
+## Cost
+
+Tokens are not comparable across model tiers, so every ledger row carries `tokens_by_model` (the runtime's per-agent
+count, summed per model id) and `cost_est_usd`. Prices and the blend assumption live in `substrate/lib/pricing.json`:
+the runtime reports one token count per agent with no input/output split, so each model's tokens are priced at a
+blended rate (default 90% input, 10% output; cache reads ignored). Pass `--tokens-by-model '{"claude-opus-5": N, ...}'`
+to `ledger append`; `ledger recost` reprices every row after editing the pricing file; `ledger summary --by model`
+shows where the money goes.

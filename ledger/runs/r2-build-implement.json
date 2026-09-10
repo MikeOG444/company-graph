@@ -20,7 +20,12 @@
       "run_id": "r2",
       "created_at": "2026-09-10T07:08:00Z"
     },
-    "trace_ref": ".artifacts/traces/r2-build-implement.jsonl"
+    "trace_ref": ".artifacts/traces/r2-build-implement.jsonl",
+    "tokens_by_model": {
+      "claude-sonnet-5": 251504,
+      "claude-haiku-4-5": 478475
+    },
+    "cost_est_usd": 1.37
   },
   "result": {
     "release_candidate_id": "rc-r2",

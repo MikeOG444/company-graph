@@ -20,7 +20,13 @@
       "run_id": "r6",
       "created_at": "2026-09-10T20:12:00Z"
     },
-    "trace_ref": ".artifacts/traces/r6-build-implement.jsonl"
+    "trace_ref": ".artifacts/traces/r6-build-implement.jsonl",
+    "tokens_by_model": {
+      "claude-sonnet-5": 374161,
+      "claude-haiku-4-5": 299178,
+      "claude-opus-5": 544775
+    },
+    "cost_est_usd": 5.28
   },
   "result": {
     "release_candidate_id": "rc-r6",
