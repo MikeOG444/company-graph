@@ -5,7 +5,11 @@ export const meta = {
 }
 
 // args: { repo, project_id, iteration, specs: [{spec, graph}], run_id, now,
-//         budget?: { task_tokens }, k_rounds?, artifact_dir? }
+//         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
+//         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string }
+//   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
+//         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
+//   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
 // returns: EvidenceBundle (see contracts.schema.json)
 //
 // Human touchpoints: none inside this run. Escalations come back in the bundle;
@@ -16,6 +20,8 @@ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
 const K_ROUNDS = A.k_rounds ?? 3
 const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
+const BASE = A.base ?? 'HEAD'
+const APP = `${A.repo}`
 const VETO_LENS = 'security'
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 // Output tokens for this turn's shared pool at start; the runtime exposes no per-agent count, so spend is a run-level delta.
@@ -97,18 +103,32 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
-    () => agent(`Create git worktree ${wt} from ${A.repo} main. Implement this task there, staying inside owned surfaces.
-                 Write the diff to ${ART}/diffs/${task.id}.r0.patch and return its path as diff_ref.
+    () => agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${BASE} (skip if it exists).
+                 The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing). Implement this task there, staying inside owned surfaces
+                 (paths are repository-relative). Commit your work on the task branch. Then write the cumulative diff vs ${BASE}
+                 (git diff ${BASE}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref;
+                 base_commit = the sha of ${BASE}; worktree = "${wt}".
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, agentType: 'implementer', schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
-                 Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref.
+                 Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
       { label: `tests:${task.id}`, model: MODEL.mid, agentType: 'test-author', schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
 
-  const ctx = { spec, task, changeSet: changeSet0, testSet, seen: new Set(), round: 0, tokens: 0, history: [] }
+  let changeSet1 = changeSet0
+  if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
+    log(`canary: injecting a deliberate defect into ${task.id}`)
+    const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id})
+                                 apply exactly this change to the implementation and commit it: ${A.canary.mutation}
+                                 Then rewrite the cumulative diff vs ${BASE} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
+                                 ChangeSet: ${JSON.stringify(changeSet0)}`,
+      { label: `canary:${task.id}`, model: MODEL.cheap, agentType: 'mechanical', schema: ChangeSet })
+    if (mutated) changeSet1 = { ...mutated, notes: undefined }
+  }
+
+  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [] }
 
   // ---- Verify → Fix cycle ----
   for (;;) {
@@ -116,8 +136,9 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     const { notes: _hidden, ...diffOnly } = ctx.changeSet   // lenses never see implementer rationale
 
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it.
-    const runP = agent(`Apply ${ctx.changeSet.diff_ref} in ${wt} if not already applied, run the tests at ${ctx.testSet.tests_ref},
-                        write results to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
+    const runP = agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
+                        against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
+                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
       { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: TestResults })
 
     const lens = (name, focus, extra = '') =>
@@ -163,9 +184,10 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     fresh.forEach(f => ctx.seen.add(f.dedupe_key))
 
     const patches = (await parallel(fresh.map(f => () =>
-      agent(`Fix ONE finding in worktree ${wt}. Location: ${f.location}. Evidence: ${f.evidence}.
-             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}.
-             Write the incremental diff to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
+      agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
+             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on the task branch.
+             Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
+             Do not modify tests under ${ART}/tests/.
              If you are confident the finding is WRONG, make no change and set notes to "DISPUTE: <why>".`,
         { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, agentType: 'fixer', schema: ChangeSet })))).filter(Boolean)
 
@@ -178,9 +200,10 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
       // Upheld or overruled, the key stays in `seen`: the lens cannot re-raise it, and a re-raise is a repeat → escalate.
     }
 
-    const merged = await agent(`Apply these patches in order in ${wt}: ${JSON.stringify(applied.map(p => p.diff_ref))}.
-                                Resolve conflicts minimally. Write the cumulative diff vs base to ${ART}/diffs/${task.id}.r${ctx.round}.patch
-                                and return the ChangeSet with revision ${ctx.changeSet.revision + 1}.`,
+    const merged = await agent(`In worktree ${wt} (branch task/${task.id}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
+                                Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${BASE}
+                                (git diff ${BASE}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
+                                and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
       { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
@@ -192,9 +215,11 @@ phase('Integrate')   // the one earned barrier
 const passing = finished.filter(f => f.passed).map(f => f.changeSet)
 log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated`)
 
-const suite = await agent(`Merge these worktrees into an integration branch of ${A.repo} in this order: ${JSON.stringify(passing.map(c => c.worktree))}.
-                           Resolve conflicts minimally and list any you touched. Run the FULL test suite, build the artifact,
-                           write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
+const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
+                           (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
+                           ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}. Resolve conflicts minimally and list any files you touched in conflicts.
+                           Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
+                           Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
   { label: 'integrate', model: MODEL.cheap, agentType: 'mechanical', schema: Suite })
 
 // =====================================================================

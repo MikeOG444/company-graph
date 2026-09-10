@@ -5,6 +5,7 @@ export const meta = {
 }
 
 // args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now }
+//   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
 // returns: { ready: [{spec, graph}], gated: [{spec, graph}], provenance }
 //
 // The human reviews `gated` in chat, then runs:
@@ -51,7 +52,8 @@ phase('Spec')
 // One pipeline per work item. Inside each: Spec → (Router ∥ Decomposer). No barrier across items.
 const specced = (await pipeline(selected, async (w) => {
   const spec = await agent(
-    `Write a Spec for this work item in repo ${A.repo}. Read the repo as needed.
+    `Write a Spec for this work item for the app at ./${A.repo}/ (a directory of this git repository). Read its code and tests as needed.
+     Surface refs are repository-relative paths (e.g. ${A.repo}/src/app.js).
      Acceptance criteria must be testable Given/When/Then. List every touched surface and what is out of scope.
      Work item: ${JSON.stringify(w)}`,
     { label: `spec:${w.id}`, model: MODEL.strong, schema: Spec })
@@ -64,7 +66,8 @@ const specced = (await pipeline(selected, async (w) => {
       { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
     () => agent(`Decompose this spec into tasks with DISJOINT owned surfaces (no two tasks may own the same path).
                  Add depends_on only where one task must read another's output. Map each task to the criteria it satisfies.
-                 Repo: ${A.repo}. Spec: ${JSON.stringify(spec)}`,
+                 Prefer ONE task unless surfaces are genuinely separable; every criterion must be covered by some task.
+                 App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
       { label: `decompose:${w.id}`, model: MODEL.cheap, schema: TaskGraph }),
   ])
   if (!risk || !graph) return null

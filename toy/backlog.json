@@ -1,0 +1,35 @@
+[
+  {
+    "id": "wi-1",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /items/:id returns one item or 404",
+    "intent": "Clients need to fetch a single item by id. Return the item as JSON with 200 when it exists, and { \"error\": \"not found\" } with 404 when it does not. A non-integer id is also a 404.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": { "tokens": 120000, "wall_clock_min": 20 },
+    "provenance": { "node": "backlog_seeder", "executor": "human_employee", "method": "human", "run_id": "seed", "created_at": "2026-09-10T06:30:00Z" }
+  },
+  {
+    "id": "wi-2",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "POST /items enforces a name length limit",
+    "intent": "Names longer than 64 characters are rejected with 400 and { \"error\": \"name too long\" }. Names of exactly 64 characters are accepted. The existing missing-name 400 behavior is unchanged.",
+    "priority": 2,
+    "deferred_iterations": 0,
+    "budget": { "tokens": 120000, "wall_clock_min": 20 },
+    "provenance": { "node": "backlog_seeder", "executor": "human_employee", "method": "human", "run_id": "seed", "created_at": "2026-09-10T06:30:00Z" }
+  },
+  {
+    "id": "wi-3",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /health reports uptime seconds",
+    "intent": "Operators want to know how long the process has been up. GET /health returns { \"status\": \"ok\", \"uptime_seconds\": <integer >= 0> } computed from process start. The status field is unchanged.",
+    "priority": 3,
+    "deferred_iterations": 0,
+    "budget": { "tokens": 120000, "wall_clock_min": 20 },
+    "provenance": { "node": "backlog_seeder", "executor": "human_employee", "method": "human", "run_id": "seed", "created_at": "2026-09-10T06:30:00Z" }
+  }
+]
