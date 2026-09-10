@@ -12,9 +12,21 @@ export function createApp() {
     res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()) })
   })
 
-  // GET /items → Item[]
+  // GET /items?limit=N → Item[]
+  // limit is optional; when present it must be a canonical positive decimal
+  // integer (/^[1-9][0-9]*$/) within Number.isSafeInteger range — the same
+  // convention GET /items/:id uses for :id. Any other value (zero, negative,
+  // non-numeric, non-canonical, out of safe range, empty, or a repeated
+  // ?limit=&limit= array) is a 400. Unknown query parameters are ignored.
   app.get('/items', (req, res) => {
-    res.json([...items.values()])
+    const raw = req.query.limit
+    if (raw === undefined) {
+      return res.json([...items.values()])
+    }
+    if (typeof raw !== 'string' || !/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
+      return res.status(400).json({ error: 'invalid limit' })
+    }
+    res.json([...items.values()].slice(0, Number(raw)))
   })
 
   // GET /items/:id → 200 Item ; 404 { error: "not found" } when :id is not a
