@@ -21,6 +21,9 @@ const K_ROUNDS = A.k_rounds ?? 3
 const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
 const BASE = A.base ?? 'HEAD'
+// .claude/agents/ definitions register at session start; a session that predates them must pass agent_types:false
+// (an unknown agentType throws and drops the task).
+const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
 const APP = `${A.repo}`
 const VETO_LENS = 'security'
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
@@ -109,11 +112,11 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
                  (git diff ${BASE}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref;
                  base_commit = the sha of ${BASE}; worktree = "${wt}".
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `impl:${task.id}`, model: MODEL.mid, agentType: 'implementer', schema: ChangeSet }),
+      { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
-      { label: `tests:${task.id}`, model: MODEL.mid, agentType: 'test-author', schema: TestSet }),
+      { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
 
@@ -124,7 +127,7 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
                                  apply exactly this change to the implementation and commit it: ${A.canary.mutation}
                                  Then rewrite the cumulative diff vs ${BASE} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
                                  ChangeSet: ${JSON.stringify(changeSet0)}`,
-      { label: `canary:${task.id}`, model: MODEL.cheap, agentType: 'mechanical', schema: ChangeSet })
+      { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (mutated) changeSet1 = { ...mutated, notes: undefined }
   }
 
@@ -139,14 +142,14 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     const runP = agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
-      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: TestResults })
+      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
     const lens = (name, focus, extra = '') =>
       agent(`You are the ${name} reviewer. Your job is to REJECT this change. A pass is only valid if you list at least
              three concrete attempts you made to break it. ${focus}
              Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
              Every finding needs location, claim, evidence, and dedupe_key = "<location>|<short normalized claim>".`,
-        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: `lens-${name.replace(/_/g, '-')}`, schema: Verdict })
+        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const verdicts = (await parallel([
@@ -189,7 +192,7 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
              If you are confident the finding is WRONG, make no change and set notes to "DISPUTE: <why>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, agentType: 'fixer', schema: ChangeSet })))).filter(Boolean)
+        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet })))).filter(Boolean)
 
     const disputed = patches.filter(p => p.notes?.startsWith('DISPUTE:'))
     const applied = patches.filter(p => !p.notes?.startsWith('DISPUTE:'))
@@ -204,7 +207,7 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
                                 Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${BASE}
                                 (git diff ${BASE}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
-      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, agentType: 'mechanical', schema: ChangeSet })
+      { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
   }
@@ -220,7 +223,7 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
                            ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}. Resolve conflicts minimally and list any files you touched in conflicts.
                            Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
                            Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
-  { label: 'integrate', model: MODEL.cheap, agentType: 'mechanical', schema: Suite })
+  { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
 
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
