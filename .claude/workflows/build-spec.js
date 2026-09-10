@@ -16,15 +16,17 @@ const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 // Risk Router, code half: these are high by rule, no judgment needed. The agent half judges only what the rule cannot see.
-const HIGH_KINDS = new Set(['schema', 'infra', 'config'])
-const HIGH_REF = /auth|token|secret|credential|password|payment|billing|migrat|schema/i
+// Rubric (OPERATING_MODEL §2.1): auth, data schema, payments, infra, or anything irreversible. Surface kinds schema and infra
+// are high outright; config and any other kind only when the ref names a sensitive term. Free text is never matched: an r4 goal
+// tripped a keyword regex on an unrelated word, and a read-only package.json labelled `config` tripped the kind check.
+const HIGH_KINDS = new Set(['schema', 'infra'])
+const HIGH_REF = /\bauth|authz|authn|token|secret|credential|password|payment|billing|migrat/i
 const codeRisk = (spec) => {
   const reasons = []
   for (const s of spec.touched_surfaces ?? []) {
     if (HIGH_KINDS.has(s.kind)) reasons.push(`surface kind ${s.kind}: ${s.ref}`)
-    else if (HIGH_REF.test(s.ref)) reasons.push(`surface ref matches a high-risk term: ${s.ref}`)
+    else if (HIGH_REF.test(s.ref)) reasons.push(`surface ref names a sensitive term: ${s.ref}`)
   }
-  if (HIGH_REF.test(spec.goal ?? '')) reasons.push('goal mentions a high-risk term')
   return reasons
 }
 
