@@ -17,6 +17,20 @@ export function createApp() {
     res.json([...items.values()])
   })
 
+  // GET /items/:id → 200 Item ; 404 { error: "not found" } when :id is not a
+  // canonical decimal integer or names no item.
+  app.get('/items/:id', (req, res) => {
+    const raw = req.params.id
+    if (!/^\d+$/.test(raw) || String(Number(raw)) !== raw) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    const item = items.get(Number(raw))
+    if (!item) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    res.json(item)
+  })
+
   // POST /items { name } → 201 Item ; 400 when name missing or not a string
   app.post('/items', (req, res) => {
     const name = req.body?.name
