@@ -12,6 +12,23 @@ const { version: VERSION } = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
 // In-memory store. Reset per app instance so tests are isolated.
 export function createApp() {
   const app = express()
+
+  // Cross-cutting request logger: after each response is sent, writes one
+  // line to stdout: "METHOD PATH STATUS ELAPSED_MS\n". Suppressed when
+  // process.env.NODE_ENV === 'test', re-checked per request (not cached)
+  // so tests can toggle it at runtime. Query strings are excluded from the
+  // logged path (req.path), and the path is logged as received, without
+  // percent-decoding or normalization.
+  app.use((req, res, next) => {
+    const startedAt = process.hrtime.bigint()
+    res.on('finish', () => {
+      if (process.env.NODE_ENV === 'test') return
+      const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6)
+      process.stdout.write(`${req.method} ${req.path} ${res.statusCode} ${elapsedMs}\n`)
+    })
+    next()
+  })
+
   app.use(express.json())
   const items = new Map()
   let nextId = 1
