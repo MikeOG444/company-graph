@@ -95,22 +95,51 @@ function shouldEscalate(ctx, findings) {
 
 // =====================================================================
 phase('Implement+Verify')
-const tasks = A.specs.flatMap(({ spec, graph }) => graph.tasks.map(task => ({ spec, task })))
+// Topological order on depends_on (code). Dependents start after their dependency and branch from its task branch.
+function topo(items) {
+  const byId = new Map(items.map(i => [i.task.id, i])), out = [], seen = new Set()
+  const visit = (i, stack = new Set()) => {
+    if (seen.has(i.task.id)) return
+    if (stack.has(i.task.id)) throw new Error(`depends_on cycle at ${i.task.id}`)
+    stack.add(i.task.id)
+    for (const d of i.task.depends_on ?? []) if (byId.has(d)) visit(byId.get(d), stack)
+    seen.add(i.task.id); out.push(i)
+  }
+  items.forEach(i => visit(i))
+  return out
+}
+const tasks = topo(A.specs.flatMap(({ spec, graph }) => graph.tasks.map(task => ({ spec, task }))))
 log(`${tasks.length} tasks across ${A.specs.length} specs`)
 
 const panelResults = []
 const escalations = []
+const taskDone = {}, resolveTask = {}
+for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
 
-const finished = (await pipeline(tasks, async ({ spec, task }) => {
+const finished = (await pipeline(tasks, async (item) => {
+  const out = await runTask(item)
+  resolveTask[item.task.id](out)
+  return out
+})).filter(Boolean)
+
+async function runTask({ spec, task }) {
   const wt = `${ART}/worktrees/${task.id}`
+  const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
+  const deps = await Promise.all(depIds.map(d => taskDone[d]))
+  if (deps.some(d => !d || !d.passed)) {
+    log(`${task.id}: skipped, a dependency did not pass`)
+    return { spec, task, passed: false, skipped: true }
+  }
+  const base = deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE
+  const extraMerges = deps.slice(0, -1).map(d => `task/${d.task.id}`)
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
-    () => agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${BASE} (skip if it exists).
-                 The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing). Implement this task there, staying inside owned surfaces
-                 (paths are repository-relative). Commit your work on the task branch. Then write the cumulative diff vs ${BASE}
-                 (git diff ${BASE}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref;
-                 base_commit = the sha of ${BASE}; worktree = "${wt}".
+    () => agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${base} (skip if it exists).
+                 ${extraMerges.length ? `First merge ${extraMerges.join(', ')} into the branch. ` : ''}The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing).
+                 Implement this task there, staying inside owned surfaces (paths are repository-relative). Commit your work on the task branch.
+                 Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
+                 and return that path as diff_ref; base_commit = the sha of ${base}; worktree = "${wt}".
                  Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
@@ -211,12 +240,12 @@ const finished = (await pipeline(tasks, async ({ spec, task }) => {
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
   }
-})).filter(Boolean)
+}
 
 // =====================================================================
 phase('Integrate')   // the one earned barrier
-const passing = finished.filter(f => f.passed).map(f => f.changeSet)
-log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated`)
+const passing = finished.filter(f => f.passed).map(f => f.changeSet)   // `finished` is already in topological order
+log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated; ${finished.filter(f => f.skipped).length} skipped on a failed dependency`)
 
 const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
                            (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
