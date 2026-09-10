@@ -160,7 +160,8 @@ async function runTask({ spec, task }) {
     if (mutated) changeSet1 = { ...mutated, notes: undefined }
   }
 
-  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [] }
+  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [], overruled: [], upheld: [] }
+  const fileOf = (loc) => String(loc).split(':')[0].trim()
 
   // ---- Verify → Fix cycle ----
   for (;;) {
@@ -173,17 +174,26 @@ async function runTask({ spec, task }) {
                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
       { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
+    const overruledNote = ctx.overruled.length
+      ? `A judge has OVERRULED these earlier findings because the spec requires that behavior. Do not raise them or paraphrases of them
+         again; a re-raise is a repeat that fails the lens, not the change: ${JSON.stringify(ctx.overruled.map(o => ({ lens: o.lens, location: o.location, claim: o.claim })))}.`
+      : ''
     const lens = (name, focus, extra = '') =>
       agent(`You are the ${name} reviewer. Your job is to REJECT this change. A pass is only valid if you list at least
              three concrete attempts you made to break it. ${focus}
+             Findings are DEFECTS ONLY: an attack you tried that the change blocks is an attempt, not a finding. Behavior the spec
+             requires is never a finding. If you believe the spec itself is unsafe, record ONE finding with severity "low" and a claim
+             starting "SPEC-LEVEL:" and do not fail the change on it alone. ${overruledNote}
              Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
-             Every finding needs location, claim, evidence, and dedupe_key = "<location>|<short normalized claim>".`,
+             Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
         { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
+        .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const verdicts = (await parallel([
       () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
-      () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure.`),
+      () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
+                               A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
       async () => { const r = await runP; return r && lens('correctness',
         'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
         `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
@@ -201,40 +211,65 @@ async function runTask({ spec, task }) {
 
     if (result === 'pass') return { ...ctx, passed: true }
 
-    const reason = shouldEscalate(ctx, findings)
-    if (reason) {
+    // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
+    const escalate = async (reason, open) => {
+      const repeats = open.filter(f => ctx.overruled.some(o => o.lens === f.lens && fileOf(o.location) === fileOf(f.location)))
       const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
-                               Open findings: ${JSON.stringify(findings)}. Spec: ${JSON.stringify(spec)}.
-                               One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
+                               Open findings: ${JSON.stringify(open)}. Repeats: ${JSON.stringify(repeats)}.
+                               Disputes lost (fixer disputed, judge upheld): ${JSON.stringify(ctx.upheld)}. Overruled by judge: ${JSON.stringify(ctx.overruled)}.
+                               Spec: ${JSON.stringify(spec)}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
         { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
-      if (esc) escalations.push(esc)
+      if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
       return { ...ctx, passed: false }
     }
+
+    const reason = shouldEscalate(ctx, findings)
+    if (reason) return escalate(reason, findings)
 
     // ---- Fix Loop: dedupe against SEEN, fan out fixers, rule on disputes, merge ----
     const fresh = findings.filter(f => !ctx.seen.has(f.dedupe_key))
     fresh.forEach(f => ctx.seen.add(f.dedupe_key))
 
-    const patches = (await parallel(fresh.map(f => () =>
+    const fixes = (await parallel(fresh.map(f => () =>
       agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on the task branch.
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
-             If you are confident the finding is WRONG, make no change and set notes to "DISPUTE: <why>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet })))).filter(Boolean)
+             Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
+             If the finding objects to behavior the spec requires, asks for something out of scope, or you are confident it is WRONG,
+             make no change and set notes to "DISPUTE: <why>".`,
+        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p })))).filter(Boolean)
 
-    const disputed = patches.filter(p => p.notes?.startsWith('DISPUTE:'))
-    const applied = patches.filter(p => !p.notes?.startsWith('DISPUTE:'))
+    const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
+    const applied = fixes.filter(x => !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
     if (disputed.length) {
-      await parallel(disputed.map(p => () =>
-        agent(`Rule on a disputed finding. Spec: ${JSON.stringify(spec)}. Dispute: ${p.notes}.`,
-          { label: `dispute:${task.id}`, model: MODEL.strong, schema: Ruling })))
-      // Upheld or overruled, the key stays in `seen`: the lens cannot re-raise it, and a re-raise is a repeat → escalate.
+      // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
+      const rulings = await parallel(disputed.map(x => () =>
+        agent(`Rule on a disputed finding. Spec: ${JSON.stringify(spec)}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
+               UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
+               spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
+          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.strong, schema: Ruling })))
+      let repeatOverrule = false
+      disputed.forEach((x, i) => {
+        const r = rulings[i]
+        if (r?.ruling === 'overrule') {
+          if (ctx.overruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
+          ctx.overruled.push({ ...x.f, status: 'overruled' })
+          ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
+        } else {
+          ctx.upheld.push({ ...x.f, status: 'disputed' })
+          ctx.history.push(`r${ctx.round}: upheld ${x.f.lens} at ${x.f.location}: ${r?.reason ?? 'no ruling'}`)
+        }
+      })
+      // A lens overruled twice at the same file is arguing with the spec, not the change. Stop paying for rounds.
+      if (repeatOverrule) return escalate('repeat_finding', findings)
     }
 
+    if (!applied.length) continue   // nothing changed; next round's lenses see the overruled list
+
     const merged = await agent(`In worktree ${wt} (branch task/${task.id}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
-                                Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${BASE}
-                                (git diff ${BASE}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
+                                Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
+                                (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
       { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
