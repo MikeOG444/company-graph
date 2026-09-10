@@ -1,0 +1,176 @@
+{
+  "entry": {
+    "id": "r1b-build-spec",
+    "run_id": "r1b",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-10T06:16:00.000Z",
+    "finished_at": "2026-09-10T06:21:30.000Z",
+    "wall_clock_sec": 330,
+    "result_ref": "ledger/runs/r1b-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 154144,
+    "agents": 4,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r1b",
+      "created_at": "2026-09-10T06:16:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r1b-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-3-health-uptime",
+          "work_item_id": "wi-3",
+          "goal": "Extend GET /health on the toy items API so its 200 JSON body carries an integer uptime_seconds (>= 0) derived from the Node process start time, alongside the existing unchanged status: \"ok\" field, so operators can see how long the process has been up. Implementation lives in the /health handler in toy/src/app.js using process.uptime() floored to a whole number; the existing health test is updated to assert the new shape.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a running toy app created by createApp() from toy/src/app.js",
+              "when": "a client sends GET /health",
+              "then": "the response status is 200, the Content-Type is JSON, and the parsed body has exactly the keys status and uptime_seconds (no other keys)",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a running toy app",
+              "when": "a client sends GET /health",
+              "then": "body.status strictly equals the string \"ok\" (unchanged from current behavior)",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a running toy app",
+              "when": "a client sends GET /health",
+              "then": "body.uptime_seconds is of type number, satisfies Number.isInteger(body.uptime_seconds) === true, and is >= 0",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "a running toy app and a captured baseline b = Math.floor(process.uptime()) taken in the test process immediately before the request",
+              "when": "a client sends GET /health",
+              "then": "body.uptime_seconds >= b and body.uptime_seconds <= Math.floor(process.uptime()) + 1 measured immediately after the response, proving the value tracks process start rather than being a constant or a wall-clock epoch",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "a running toy app that has already served one GET /health returning uptime_seconds = u1",
+              "when": "the test waits at least 1100 ms and sends a second GET /health returning u2",
+              "then": "u2 > u1 and u2 - u1 >= 1, showing the value increases with elapsed process time",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "two separate app instances created by two calls to createApp() within the same test process (as test/helpers.js start() does per test)",
+              "when": "GET /health is called on each instance",
+              "then": "both return integer uptime_seconds values derived from the same process start (they differ by at most 1), i.e. uptime is not reset per app instance",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "the toy package as checked out",
+              "when": "the suite is run via `npm test` in toy/ (node --test \"test/*.test.js\")",
+              "then": "all tests pass, including toy/test/items.test.js unchanged — GET /items, POST /items success (201) and POST /items missing/invalid name (400 { error: \"name is required\" }) behave exactly as before",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/health.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /health (200 response body: adds uptime_seconds integer field; status field unchanged)"
+            }
+          ],
+          "out_of_scope": [
+            "Any change to GET /items, POST /items, or the in-memory item store and its validation rules (wi-1 and wi-2 remain untouched by this work item).",
+            "Adding further health/diagnostic fields such as version, hostname, pid, memory, timestamp, started_at, or dependency checks.",
+            "New routes (e.g. /healthz, /ready, /live, /metrics) or changing the /health path, method, or HTTP status codes.",
+            "Sub-second precision, floating-point, string/ISO-duration, or millisecond-based uptime representations — the field is a floored integer number of seconds.",
+            "Per-app-instance or per-request uptime tracking (e.g. recording Date.now() inside createApp()) as the source of truth; the value must come from process start.",
+            "Changes to toy/src/server.js, toy/package.json, dependencies, or the shared test harness in toy/test/helpers.js.",
+            "Authentication, rate limiting, caching headers, or observability/monitoring integrations for /health.",
+            "Updating toy/README.md route documentation (optional, not gating).",
+            "Any files outside the toy/ directory, including toy/backlog.json."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Backward-compatible additive change only; existing status field unchanged",
+            "No data schema, auth, payments, or infrastructure changes",
+            "Isolated to a single diagnostic endpoint with no impact on core items API",
+            "Fully reversible with no permanent side effects or migrations",
+            "Well-scoped with clear acceptance criteria and comprehensive test coverage"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r1b",
+            "created_at": "2026-09-10T06:16:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-3-health-uptime",
+          "tasks": [
+            {
+              "id": "impl-health-uptime",
+              "spec_id": "spec-wi-3-health-uptime",
+              "description": "Extend GET /health response in toy/src/app.js to include an uptime_seconds integer field derived from Math.floor(process.uptime()). The /health handler should return both the existing status: 'ok' field and the new uptime_seconds field, meeting all acceptance criteria.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /health (200 response body: adds uptime_seconds integer field; status field unchanged)"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r1b",
+            "created_at": "2026-09-10T06:16:00Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r1b",
+      "created_at": "2026-09-10T06:16:00Z"
+    }
+  }
+}
