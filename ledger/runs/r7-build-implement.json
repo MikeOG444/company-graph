@@ -1,0 +1,599 @@
+{
+  "entry": {
+    "id": "r7-build-implement",
+    "run_id": "r7",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-10T20:42:00.000Z",
+    "finished_at": "2026-09-10T21:16:00.000Z",
+    "wall_clock_sec": 2040,
+    "result_ref": "ledger/runs/r7-build-implement.json",
+    "artifact_count": 16,
+    "escalations": 0,
+    "tokens": 1071456,
+    "agents": 34,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r7",
+      "created_at": "2026-09-10T20:42:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r7-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-r7",
+    "project_id": "toy",
+    "iteration": 2,
+    "artifact_ref": "integration/r7",
+    "specs": [
+      "spec-wi-6",
+      "spec-wi-9"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "impl-wi-6-query-filter",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified case-insensitive substring matching with `toLowerCase()` on both needle and haystack preserves insertion order (AC-2, AC-6, AC-7): implementation uses `String.prototype.includes()` literal matching, no regex or trimming.",
+              "Verified invalid q parameter validation catches repeated keys (?q=a&q=b) and bracketed forms (?q[x]=y) by checking `typeof q !== 'string'` and returns exactly `{ \"error\": \"invalid q\" }` with 400 status (AC-9).",
+              "Verified pipeline ordering applies filter → sort → cap, with empty q (`\"\"` and undefined) both treated as falsy to return full list, and q filter applied to full insertion-ordered list before limit cap (AC-3, AC-4, AC-11, AC-12)."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Injection via untrusted q parameter into string methods like toLowerCase() and includes() — no template evaluation, database queries, or shell execution possible",
+              "Parameter pollution through repeated ?q=a&q=b or bracketed ?q[x]=y forms — correctly caught by typeof validation returning 400 invalid q",
+              "Data exposure in responses or error messages — no new fields added to Item shape, error message is generic with no implementation details",
+              "Denial of service via ReDoS or case-folding complexity — plain toLowerCase() with no regex, linear string matching acceptable per spec",
+              "Pipeline order exploitation affecting filter-before-limit semantics — filter stage correctly executes before sort/cap on read-only copy of items",
+              "Empty string and falsy value edge cases — empty q correctly returns all items per spec, filtering is properly skipped for falsy q"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Create a test case with leading whitespace in q, like ?q=%20widget. The spec AC-10 explicitly mentions 'no trimming of leading or trailing whitespace', but the test only covers middle spaces. This edge case is not tested.",
+              "Attempt 2: Create a test case with trailing whitespace in q, like ?q=widget%20. The test fixture for AC-10 includes four items with various special characters and spaces, but none of the three test queries have leading or trailing spaces, violating the spec's requirement.",
+              "Attempt 3: Create a test case with just whitespace or multiple consecutive spaces, like ?q=%20 or ?q=%20%20. These represent boundary cases for the whitespace handling that the spec requires but the test suite never exercises."
+            ],
+            "findings": [
+              {
+                "id": "spec-wi-6-ac10-leading-trailing-ws",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:162-179",
+                "claim": "AC-10 test does not include test cases for leading or trailing whitespace in the q parameter, even though the spec explicitly requires it.",
+                "evidence": "AC-10 THEN clause states 'with no trimming of leading or trailing whitespace' but the test only contains three queries: '?q=a.b', '?q=50%25', and '?q=e%20t' (space in middle only). No queries test leading space (?q=%20widget) or trailing space (?q=widget%20).",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:162-179|AC-10 missing leading/trailing whitespace test coverage",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "spec-wi-6-ac10-leading-trailing-ws",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:162-179",
+            "claim": "AC-10 test does not include test cases for leading or trailing whitespace in the q parameter, even though the spec explicitly requires it.",
+            "evidence": "AC-10 THEN clause states 'with no trimming of leading or trailing whitespace' but the test only contains three queries: '?q=a.b', '?q=50%25', and '?q=e%20t' (space in middle only). No queries test leading space (?q=%20widget) or trailing space (?q=widget%20).",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:162-179|AC-10 missing leading/trailing whitespace test coverage",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "verify-implement-request-logger-r0",
+        "result": "fail",
+        "veto_by": "security",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Verify touched_surfaces conformance — the spec lists toy/test/request-log.test.js and toy/README.md as surfaces to be touched, but the diff does not create or modify either file.",
+              "Verify middleware does not introduce prohibited configurability — the middleware correctly only checks process.env.NODE_ENV === 'test' and does not add LOG_LEVEL, LOG_FORMAT, per-route opt-out, or any other configuration mentioned in out_of_scope.",
+              "Verify existing test files are not rewritten — health.test.js and items.test.js are out_of_scope for modification; the diff does not modify them and only adds NODE_ENV=test to the test script to suppress logging during existing tests."
+            ],
+            "findings": [
+              {
+                "id": "finding-1-touched-surfaces",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/diffs/implement-request-logger.r0.patch",
+                "claim": "The diff omits toy/test/request-log.test.js and toy/README.md, both explicitly listed in spec.touched_surfaces, violating the spec's contract about which surfaces will be touched.",
+                "evidence": "The diff includes hunks only for toy/package.json (lines 1-14) and toy/src/app.js (lines 15-42); no hunks appear for toy/test/request-log.test.js or toy/README.md. The spec's touched_surfaces lists seven surfaces; the change's touched_surfaces list only five, omitting these two files.",
+                "dedupe_key": ".artifacts/diffs/implement-request-logger.r0.patch|missing_touched_surfaces_test_readme",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "verify-implement-request-logger-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Log injection via newline (%0A): attempts to send GET /items%0A; unencoded newline in req.path would break log format into two lines",
+              "Format breaking via space (%20): attempts to send GET /items%20test; unencoded space in req.path would create 5 space-separated fields instead of required 4",
+              "Shell metacharacter safety: attempts to send GET /items$(whoami); string interpolation into stdout.write() does not execute—successfully blocked by design"
+            ],
+            "findings": [
+              {
+                "id": "log-injection-percent-decoding",
+                "lens": "security",
+                "severity": "high",
+                "location": "toy/src/app.js:18",
+                "claim": "Log injection vulnerability: implementation uses req.path (percent-decoded) instead of raw URL path; spec requires path logged 'without percent-decoding', allowing newlines and spaces in %0A/%20 to break format and inject fake log lines",
+                "evidence": "Line 18: `process.stdout.write(`${req.method} ${req.path} ${res.statusCode} ${elapsedMs}\\n`)`. Express req.path is percent-decoded (converts %0A → newline, %20 → space). Spec ac-5 requires: 'the path is logged as received, without percent-decoding or normalization' with example: '/items/%20' logged literally, not decoded.",
+                "dedupe_key": "toy/src/app.js:18|log-injection-via-percent-decoded-path",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "verify-implement-request-logger-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt 1: Try to cache NODE_ENV at middleware init time instead of re-evaluating per-request - ac-9 test would fail (expects exactly 1 log when NODE_ENV flipped mid-stream)",
+              "Attempt 2: Try to modify log format by adding timestamp or prefix - ac-1, ac-5, ac-6, ac-12 tests would fail (regex match and field split assertions)",
+              "Attempt 3: Try to place middleware after route handlers or remove it - ac-1 through ac-11 tests would fail (no log output captured, regex match fails on empty stdout)",
+              "Attempt 4: Try to omit NODE_ENV=test from package.json test script - ac-12 test would fail (request-log lines detected in npm test output when NODE_ENV not set)",
+              "Attempt 5: Try to buffer or modify response in middleware - ac-13 test would fail (status, header, or body changes detected)",
+              "Attempt 6: Try to use Date.now() instead of hrtime for timing - ac-6 test would fail on millisecond precision edge cases"
+            ],
+            "findings": [],
+            "confidence": 0.96,
+            "change_set_id": "verify-implement-request-logger-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-1-touched-surfaces",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/diffs/implement-request-logger.r0.patch",
+            "claim": "The diff omits toy/test/request-log.test.js and toy/README.md, both explicitly listed in spec.touched_surfaces, violating the spec's contract about which surfaces will be touched.",
+            "evidence": "The diff includes hunks only for toy/package.json (lines 1-14) and toy/src/app.js (lines 15-42); no hunks appear for toy/test/request-log.test.js or toy/README.md. The spec's touched_surfaces lists seven surfaces; the change's touched_surfaces list only five, omitting these two files.",
+            "dedupe_key": ".artifacts/diffs/implement-request-logger.r0.patch|missing_touched_surfaces_test_readme",
+            "status": "open"
+          },
+          {
+            "id": "log-injection-percent-decoding",
+            "lens": "security",
+            "severity": "high",
+            "location": "toy/src/app.js:18",
+            "claim": "Log injection vulnerability: implementation uses req.path (percent-decoded) instead of raw URL path; spec requires path logged 'without percent-decoding', allowing newlines and spaces in %0A/%20 to break format and inject fake log lines",
+            "evidence": "Line 18: `process.stdout.write(`${req.method} ${req.path} ${res.statusCode} ${elapsedMs}\\n`)`. Express req.path is percent-decoded (converts %0A → newline, %20 → space). Spec ac-5 requires: 'the path is logged as received, without percent-decoding or normalization' with example: '/items/%20' logged literally, not decoded.",
+            "dedupe_key": "toy/src/app.js:18|log-injection-via-percent-decoded-path",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "impl-wi-6-query-filter",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Remove the filter stage: GET /items?q=widget should return only matching items, but removing filter returns all items. Blocked by AC-2 (case-insensitive match isolation), AC-6 (preserve insertion order), and AC-7 (substring anywhere vs. non-contiguous).",
+              "Remove toLowerCase() calls for case-sensitive matching: GET /items?q=GAD should match 'Gadget' per AC-2, but case-sensitive search would not match. Test fails on both upper and lower case variants.",
+              "Return 404 instead of 200 [] for non-matching queries: GET /items?q=zzz should return 200 with empty array per AC-5, but returning 404 violates the spec. AC-5 test directly blocks this."
+            ],
+            "findings": [
+              {
+                "id": "F1",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:72-80",
+                "claim": "Test for AC-3 (empty q value) cannot fail if the `if (q)` conditional check is removed from the implementation.",
+                "evidence": "Line 78 asserts `assert.deepEqual(await res.json(), items)` after querying with `?q=`. If the filter ran unconditionally with `needle = ''`, every item would still match because `'any string'.includes('')` is always `true` in JavaScript. The test cannot distinguish between 'correctly skips filter' and 'filter runs but matches everything'.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:72-80|ac3_empty_query_tautology",
+                "status": "open"
+              },
+              {
+                "id": "F2",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:82-90",
+                "claim": "Test for AC-4 (bare q key with no value) has the same tautology as AC-3 and cannot fail.",
+                "evidence": "Line 88 asserts `assert.deepEqual(await res.json(), items)` after querying with bare `?q`. Express parses this as empty string, and the same `String.prototype.includes('')` always-true condition applies. Removing the `if (q)` check would not cause the test to fail.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:82-90|ac4_bare_key_tautology",
+                "status": "open"
+              },
+              {
+                "id": "F3",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js",
+                "claim": "No test combines q and sort parameters to verify the filter → sort stage order in the pipeline.",
+                "evidence": "The spec goal states 'the handler is a filter -> sort -> cap pipeline'. AC-11 tests q+limit without sort. Integration test integration-r5.test.js:191 ('merged pipeline is filter -> sort -> cap') tests sort+limit without q. No test sends both `?q=...&sort=name` together; if the implementation put cap before sort when q is present, this ordering error would not be detected.",
+                "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js|missing_q_sort_pipeline_test",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.78,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F1",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:72-80",
+            "claim": "Test for AC-3 (empty q value) cannot fail if the `if (q)` conditional check is removed from the implementation.",
+            "evidence": "Line 78 asserts `assert.deepEqual(await res.json(), items)` after querying with `?q=`. If the filter ran unconditionally with `needle = ''`, every item would still match because `'any string'.includes('')` is always `true` in JavaScript. The test cannot distinguish between 'correctly skips filter' and 'filter runs but matches everything'.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:72-80|ac3_empty_query_tautology",
+            "status": "open"
+          },
+          {
+            "id": "F2",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:82-90",
+            "claim": "Test for AC-4 (bare q key with no value) has the same tautology as AC-3 and cannot fail.",
+            "evidence": "Line 88 asserts `assert.deepEqual(await res.json(), items)` after querying with bare `?q`. Express parses this as empty string, and the same `String.prototype.includes('')` always-true condition applies. Removing the `if (q)` check would not cause the test to fail.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:82-90|ac4_bare_key_tautology",
+            "status": "open"
+          },
+          {
+            "id": "F3",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js",
+            "claim": "No test combines q and sort parameters to verify the filter → sort stage order in the pipeline.",
+            "evidence": "The spec goal states 'the handler is a filter -> sort -> cap pipeline'. AC-11 tests q+limit without sort. Integration test integration-r5.test.js:191 ('merged pipeline is filter -> sort -> cap') tests sort+limit without q. No test sends both `?q=...&sort=name` together; if the implementation put cap before sort when q is present, this ordering error would not be detected.",
+            "dedupe_key": ".artifacts/tests/impl-wi-6-query-filter/query-filter.test.js|missing_q_sort_pipeline_test",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "verify-implement-request-logger-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "confidence": 0.92,
+            "attempts": [
+              "Verify all 13 acceptance criteria (ac-1 through ac-13) are implemented: log format, path handling, status codes, elapsed time measurement, NODE_ENV suppression timing, query string exclusion, and response completion timing all match spec",
+              "Verify touched_surfaces: confirmed toy/src/app.js, toy/src/app.js:createApp, toy/package.json, toy/package.json#scripts.test, and all HTTP routes are addressed (note: toy/test/request-log.test.js and toy/README.md omission was previously overruled by judge)",
+              "Verify no out-of-scope changes: confirmed route response contracts unchanged, only stdout used, no new dependencies, no flags beyond NODE_ENV, no modification to test helpers/existing tests/server.js",
+              "Verify timing implementation: process.hrtime.bigint() for nanosecond precision properly converted to milliseconds with Math.round()",
+              "Verify path handling: req.originalUrl.split('?')[0] correctly preserves raw path without decoding and excludes query string",
+              "Verify NODE_ENV re-evaluation per-request: check is inside res.on('finish') callback, not cached at module/createApp time, allowing runtime toggling"
+            ],
+            "findings": [],
+            "change_set_id": "verify-implement-request-logger-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to inject newlines in URL path via percent-encoding (%0A) to break one-line-per-request invariant — blocked by preserving raw originalUrl without decoding",
+              "Attempt to leak secrets in query strings (e.g., GET /items?api_key=secret) — blocked by splitting on '?' to exclude query strings",
+              "Attempt to bypass NODE_ENV suppression by modifying process.env at runtime — evaluated per-request per spec requirement (ac-9), general platform concern not implementation defect",
+              "Attempt to trigger logging of Authorization headers or session tokens — blocked by middleware accessing only method, path, status code, elapsed time; no header access",
+              "Attempt to cause logging of POST request bodies or sensitive payload data — blocked by implementation never accessing req.body or response contents"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "verify-implement-request-logger-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "impl-wi-6-query-filter",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Type validation: Repeated keys (?q=a&q=b) and bracketed keys (?q[x]=y) must be rejected as 400 with 'invalid q' error. The implementation correctly checks typeof q !== 'string' after confirming q is not undefined, catching both array and object types that Express parses from these malformed inputs.",
+              "Filtering logic: Case-insensitive substring matching must run on the full insertion-ordered list before limit cap. For ?q=widget&limit=2 on [widget, other, widget, widget], should return 2 widgets not 'first 2 items filtered'. Implementation correctly places filter stage before sort and cap stages, and applies toLowerCase() to both needle and haystack.",
+              "Pipeline order: Verify filter→sort→cap sequencing AC-11 and AC-13 integration. The implementation processes validation (q, sort, limit), then filter on full list, then sort, then cap—exactly as specified. Limit validation runs independently regardless of q validity."
+            ],
+            "findings": [
+              {
+                "id": "f1-touched-surfaces-tests",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "toy/test/items.test.js (not in patch)",
+                "claim": "The spec's touched_surfaces declares toy/test/items.test.js should be modified, but the patch contains no changes to this file despite defining 14 testable acceptance criteria (AC-1 through AC-14).",
+                "evidence": "Spec touched_surfaces includes {'kind':'path','ref':'toy/test/items.test.js'} and lists 'testable': true for all ACs; patch diff only modifies toy/src/app.js. The change's metadata claims touched_surfaces: [toy/src/app.js, api, module] — omitting the test file.",
+                "dedupe_key": "toy/test/items.test.js|missing test file modifications",
+                "status": "open"
+              },
+              {
+                "id": "f2-touched-surfaces-readme",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "toy/README.md (not in patch)",
+                "claim": "The spec's touched_surfaces declares toy/README.md should be modified to document the new ?q parameter, but the patch contains no changes to this file.",
+                "evidence": "Spec touched_surfaces includes {'kind':'path','ref':'toy/README.md'}. The current README.md (4 lines visible) lists routes as 'GET /health, GET /items, POST /items, GET /items/:id' with no mention of query parameters. Patch does not modify this file despite introducing a new optional query parameter to GET /items.",
+                "dedupe_key": "toy/README.md|missing readme updates for q parameter",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.85,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Regex injection: Attempted to send special regex patterns (a.*b, .*|.*) as the q parameter to trigger regex interpretation or ReDoS. Blocked by .includes() using literal string matching only.",
+              "Type confusion bypass: Attempted to pass arrays (?q=a&q=b) and objects (?q[x]=y) to bypass string validation, along with numbers, booleans, and null. Blocked by typeof q !== 'string' check.",
+              "Information disclosure via filtering: Attempted to discover hidden or restricted items through crafted search patterns. Blocked by filter-only design that subsets existing authorized results without exposing new fields or creating information disclosure vectors."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-touched-surfaces-tests",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "toy/test/items.test.js (not in patch)",
+            "claim": "The spec's touched_surfaces declares toy/test/items.test.js should be modified, but the patch contains no changes to this file despite defining 14 testable acceptance criteria (AC-1 through AC-14).",
+            "evidence": "Spec touched_surfaces includes {'kind':'path','ref':'toy/test/items.test.js'} and lists 'testable': true for all ACs; patch diff only modifies toy/src/app.js. The change's metadata claims touched_surfaces: [toy/src/app.js, api, module] — omitting the test file.",
+            "dedupe_key": "toy/test/items.test.js|missing test file modifications",
+            "status": "open"
+          },
+          {
+            "id": "f2-touched-surfaces-readme",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "toy/README.md (not in patch)",
+            "claim": "The spec's touched_surfaces declares toy/README.md should be modified to document the new ?q parameter, but the patch contains no changes to this file.",
+            "evidence": "Spec touched_surfaces includes {'kind':'path','ref':'toy/README.md'}. The current README.md (4 lines visible) lists routes as 'GET /health, GET /items, POST /items, GET /items/:id' with no mention of query parameters. Patch does not modify this file despite introducing a new optional query parameter to GET /items.",
+            "dedupe_key": "toy/README.md|missing readme updates for q parameter",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "verify-implement-request-logger-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to break path extraction by sending query strings and percent-encoded paths (ac-5): implementation correctly strips query string while preserving encoding, test passes",
+              "Attempted to break timing measurement by checking for correct millisecond format without decimal points or units (ac-6): implementation uses process.hrtime.bigint() and Math.round() producing integers, test validates format and range",
+              "Attempted to break NODE_ENV caching by changing process.env at runtime between requests (ac-9): implementation re-evaluates NODE_ENV inside res.on('finish') per request, test confirms dynamic evaluation across three requests"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "verify-implement-request-logger-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "impl-wi-6-query-filter",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified all 14 acceptance criteria: q validation, case-insensitive matching, empty-string handling, non-matching 200-array, order preservation, error handling for non-string q, filter-before-cap ordering, and isolation of GET /items from other routes—all implemented correctly per spec language.",
+              "Confirmed the diff stays within spec.touched_surfaces (toy/src/app.js and API definition) and violates none of the out_of_scope constraints: no limit/sort implementation, no Item shape changes, no POST /items changes, no server/package/helpers modifications, and no other route changes.",
+              "Deep-dive on filter implementation: verified literal-substring matching via String.includes() (not regex), no trimming, URL-decoded verbatim, contiguous-only matching, read-only (no mutations to items map), and pipeline order (filter→sort→cap) correctly applies the q filter to the full insertion-ordered list before the limit cap."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted string injection via `.includes()` using payload `%27%29.filter%28` — blocked because `.includes()` is a safe string method that treats input as literal characters, not code",
+              "Attempted prototype pollution via repeated parameters `?q=a&q=b` and bracket notation `?q[x]=y` — blocked by line 25 type check `if (q !== undefined && typeof q !== 'string')` which rejects arrays and objects before filter logic executes",
+              "Attempted ReDoS via regex metacharacters `.*+?^$|()[]{}` — blocked because implementation uses `.includes()` (linear substring search) not regex, eliminating backtracking and exponential time behavior",
+              "Attempted authorization bypass by manipulating `q` to escalate privileges — blocked by spec scope (auth is out of scope) and implementation (parameter only filters results, adds no auth logic)",
+              "Attempted information disclosure in error responses — blocked by generic error message `{ error: 'invalid q' }` with no details about invalid value, matching project convention"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Test that empty q parameter returns all items unchanged (AC-3, AC-4): filtering is skipped by the falsy check `if (q)`, allowing default behavior to match spec requirement that 'an empty q returns everything, exactly as today'",
+              "Test that repeated q parameter or bracketed q object both reject with 400 invalid q (AC-9): the code validates `typeof q !== 'string'` to reject Express's array/object parsing, matching the 'invalid q' error convention",
+              "Test that q filter is applied to the full list before limit cap is applied (AC-11): the filter stage processes all items before the cap stage calls slice(0, limit), ensuring 'the cap never counts an item that q excluded'",
+              "Test that case-insensitive substring matching works in both directions (AC-2): the implementation converts both q and item.name to lowercase with toLowerCase() before calling includes(), covering 'matching is plain, literal String.prototype.includes on both sides lower-cased'",
+              "Test that q parameter is ignored on routes other than GET /items collection (AC-14): q validation and filtering logic only exist within the `app.get('/items', ...)` handler, leaving GET /items/:id, GET /health, and POST /items unaffected",
+              "Test that matching is literal with no trimming, regex, or accent folding (AC-10): the code uses plain includes() without calling trim() or applying any transformations beyond toLowerCase()"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-wi-6-query-filter",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r7",
+              "created_at": "2026-09-10T20:42:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 35,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/r7.json"
+    },
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 316889,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r7",
+      "created_at": "2026-09-10T20:42:00Z"
+    }
+  }
+}

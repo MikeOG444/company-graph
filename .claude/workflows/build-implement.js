@@ -291,8 +291,9 @@ async function runTask({ spec, task, spec_ref }) {
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
-             If the finding objects to behavior the spec requires, asks for something out of scope, or you are confident it is WRONG,
-             make no change and set notes to "DISPUTE: <why>".`,
+             FIRST reproduce the finding empirically (run the code, a request, or the test it cites); lenses are read-only and can
+             only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
+             asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>".`,
         { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })))).filter(Boolean)
 
     const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
