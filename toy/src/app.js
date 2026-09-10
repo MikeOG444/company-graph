@@ -68,5 +68,12 @@ export function createApp() {
     res.status(201).json(item)
   })
 
+  // Terminal catch-all: any request that matched no route above falls
+  // through to here. Replaces Express's default HTML 404 with the same
+  // JSON shape used elsewhere in this API.
+  app.use((req, res) => {
+    res.status(404).json({ error: 'not found' })
+  })
+
   return app
 }
