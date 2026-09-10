@@ -309,7 +309,7 @@ async function runTask({ spec, task, spec_ref }) {
         agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
-          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.strong, schema: Ruling })))
+          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
       // Compare against rulings from EARLIER rounds only: the guard catches a lens re-raising after being overruled, not several
       // overrules inside one round (r6 escalated a green change on that mistake).
       const priorOverruled = [...ctx.overruled]
