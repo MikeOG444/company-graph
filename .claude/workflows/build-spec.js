@@ -64,9 +64,11 @@ const specced = (await pipeline(selected, async (w) => {
     () => agent(`Classify blast radius of this spec as low or high, with reasons. High = touches auth, data schema,
                  payments, infra, public API, or anything irreversible. Spec: ${JSON.stringify(spec)}`,
       { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
-    () => agent(`Decompose this spec into tasks with DISJOINT owned surfaces (no two tasks may own the same path).
-                 Add depends_on only where one task must read another's output. Map each task to the criteria it satisfies.
-                 Prefer ONE task unless surfaces are genuinely separable; every criterion must be covered by some task.
+    () => agent(`Decompose this spec into IMPLEMENTATION tasks with DISJOINT owned surfaces (no two tasks may own the same path).
+                 Never create a task for writing tests or documentation: a separate Test Author writes tests from the spec, and criteria
+                 about existing tests passing or npm test exiting 0 belong to the implementation task that touches the code.
+                 Prefer ONE task; split only when two disjoint code surfaces can be built independently. Add depends_on only where one
+                 task must read another's output. Every criterion must be covered by some task.
                  App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
       { label: `decompose:${w.id}`, model: MODEL.cheap, schema: TaskGraph }),
   ])
