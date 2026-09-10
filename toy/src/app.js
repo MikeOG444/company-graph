@@ -1,4 +1,13 @@
 import express from 'express'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+// Resolved once at module load, relative to this file's own location so it
+// is independent of process.cwd() or where the app is invoked from.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const packageJsonPath = join(__dirname, '..', 'package.json')
+const { version: VERSION } = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
 
 // In-memory store. Reset per app instance so tests are isolated.
 export function createApp() {
@@ -7,9 +16,9 @@ export function createApp() {
   const items = new Map()
   let nextId = 1
 
-  // GET /health → { status: "ok", uptime_seconds: <integer seconds since process start> }
+  // GET /health → { status: "ok", uptime_seconds: <integer seconds since process start>, version: <package.json version> }
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()) })
+    res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()), version: VERSION })
   })
 
   // GET /items → Item[]
