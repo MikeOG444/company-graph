@@ -15,7 +15,11 @@ export function createApp() {
     res.on('finish', () => {
       if (process.env.NODE_ENV === 'test') return
       const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6)
-      process.stdout.write(`${req.method} ${req.path} ${res.statusCode} ${elapsedMs}\n`)
+      // req.path is percent-decoded by Express; use the raw originalUrl
+      // (as received on the wire) and strip the query string ourselves so
+      // the logged path is neither decoded nor normalized.
+      const rawPath = req.originalUrl.split('?')[0]
+      process.stdout.write(`${req.method} ${rawPath} ${res.statusCode} ${elapsedMs}\n`)
     })
     next()
   })
