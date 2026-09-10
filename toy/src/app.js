@@ -7,9 +7,9 @@ export function createApp() {
   const items = new Map()
   let nextId = 1
 
-  // GET /health → { status: "ok" }
+  // GET /health → { status: "ok", uptime_seconds: <integer seconds since process start> }
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok' })
+    res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()) })
   })
 
   // GET /items → Item[]
