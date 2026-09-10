@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "r1",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-10T07:05:00.000Z",
   "options": [
     "guide",
@@ -115,5 +115,11 @@
       "guide",
       "direct_drive"
     ]
+  },
+  "decision": {
+    "option": "guide",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T16:40:00.073Z",
+    "note": "Machine defect, not a spec problem: security lens vetoed the spec's goal and fixers lacked the spec. Fix loop repaired; wi-3 retried in r2 from a fresh branch and passed round 1."
   }
 }

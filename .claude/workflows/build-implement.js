@@ -6,7 +6,7 @@ export const meta = {
 
 // args: { repo, project_id, iteration, specs: [{spec, graph}], run_id, now,
 //         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
-//         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string }
+//         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string, max_fixers? (default 4) }
 //   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
 //         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
 //   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
@@ -18,6 +18,11 @@ export const meta = {
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
 const K_ROUNDS = A.k_rounds ?? 3
+// Fixer fan-out cap per round. Informed assumption from r1 (3–4 findings per security veto, 7 worst case): 4.
+// Deferred findings are logged, stay out of `seen`, and are re-raised as fresh next round. Tune from the ledger.
+const MAX_FIXERS = A.max_fixers ?? 4
+const LENSES = ['spec_conformance', 'security', 'correctness']
+const SEV = { high: 0, medium: 1, low: 2 }
 const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
 const BASE = A.base ?? 'HEAD'
@@ -161,19 +166,25 @@ async function runTask({ spec, task }) {
     if (mutated) changeSet1 = { ...mutated, notes: undefined }
   }
 
-  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [], overruled: [], upheld: [] }
+  // Lens re-run policy: after a fix, re-run only the lenses that failed until they pass, then confirm the ones that had passed.
+  // If a confirm run fails, run all three until green (mode 'all'). Confirm runs do not count toward K_ROUNDS.
+  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [], overruled: [], upheld: [],
+                mode: 'retry', toRun: LENSES, verified: new Set() }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
   // ---- Verify → Fix cycle ----
+  let confirming = false
   for (;;) {
-    ctx.round += 1
+    if (!confirming) ctx.round += 1
+    const tag = `r${ctx.round}${confirming ? 'c' : ''}`
+    const toRun = ctx.toRun
     const { notes: _hidden, ...diffOnly } = ctx.changeSet   // lenses never see implementer rationale
 
-    // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it.
-    const runP = agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
+    // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
+    const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
-      { label: `run:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
+      { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
     const overruledNote = ctx.overruled.length
       ? `A judge has OVERRULED these earlier findings because the spec requires that behavior. Do not raise them or paraphrases of them
@@ -187,30 +198,44 @@ async function runTask({ spec, task }) {
              starting "SPEC-LEVEL:" and do not fail the change on it alone. ${overruledNote}
              Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
              Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
-        { label: `lens:${name}:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
+        { label: `lens:${name}:${task.id}:${tag}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
         .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
-    const verdicts = (await parallel([
-      () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
-      () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
+    const lensThunks = {
+      spec_conformance: () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
+      security: () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
                                A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
-      async () => { const r = await runP; return r && lens('correctness',
+      correctness: async () => { const r = await runP; return r && lens('correctness',
         'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
         `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
-    ])).filter(Boolean).map(v => sealVerdict(v, MODEL.cheap))
+    }
+    const verdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean).map(v => sealVerdict(v, MODEL.cheap))
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
       const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. Spec: ${JSON.stringify(spec)}. Change: ${JSON.stringify(diffOnly)}.`,
-        { label: `tiebreak:${task.id}:r${ctx.round}`, model: MODEL.strong, schema: Verdict })
+        { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, schema: Verdict })
       if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
     }
     const findings = dedupe(verdicts.flatMap(v => v.findings))
     panelResults.push({ change_set_id: ctx.changeSet.id, result, veto_by, verdicts, findings, round: ctx.round })
-    ctx.history.push(`r${ctx.round}: ${result} (${findings.length} findings${veto_by ? `, veto by ${veto_by}` : ''})`)
+    ctx.history.push(`${tag} [${toRun.join(',')}]: ${result} (${findings.length} findings${veto_by ? `, veto by ${veto_by}` : ''})`)
 
-    if (result === 'pass') return { ...ctx, passed: true }
+    if (result === 'pass') {
+      toRun.forEach(l => ctx.verified.add(l))
+      const remaining = LENSES.filter(l => !ctx.verified.has(l))
+      if (remaining.length) {   // failures cleared; now confirm the lenses that had passed before the fix
+        ctx.toRun = remaining; confirming = true
+        ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
+        continue
+      }
+      return { ...ctx, passed: true }
+    }
+    const failedLenses = verdicts.filter(v => v.verdict === 'fail' && v.lens !== 'tiebreak').map(v => v.lens)
+    if (confirming) { ctx.mode = 'all'; ctx.history.push(`${tag}: a previously passing lens failed after a fix; running all lenses until green`) }
+    confirming = false
+    ctx.toRun = ctx.mode === 'all' ? LENSES : (failedLenses.length ? failedLenses : toRun)
 
     // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
     const escalate = async (reason, open) => {
@@ -228,8 +253,11 @@ async function runTask({ spec, task }) {
     if (reason) return escalate(reason, findings)
 
     // ---- Fix Loop: dedupe against SEEN, fan out fixers, rule on disputes, merge ----
-    const fresh = findings.filter(f => !ctx.seen.has(f.dedupe_key))
-    fresh.forEach(f => ctx.seen.add(f.dedupe_key))
+    const freshAll = findings.filter(f => !ctx.seen.has(f.dedupe_key)).sort((a, b) => (SEV[a.severity] ?? 9) - (SEV[b.severity] ?? 9))
+    const fresh = freshAll.slice(0, MAX_FIXERS)
+    const deferred = freshAll.slice(MAX_FIXERS)
+    fresh.forEach(f => ctx.seen.add(f.dedupe_key))   // deferred findings stay out of `seen` and come back as fresh next round
+    if (deferred.length) { log(`${task.id} ${tag}: fixer cap ${MAX_FIXERS}; deferred ${deferred.length} finding(s)`); ctx.history.push(`${tag}: deferred ${deferred.length} findings past the fixer cap: ${deferred.map(d => d.id).join(',')}`) }
 
     const fixes = (await parallel(fresh.map(f => () =>
       agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
@@ -266,7 +294,7 @@ async function runTask({ spec, task }) {
       if (repeatOverrule) return escalate('repeat_finding', findings)
     }
 
-    if (!applied.length) continue   // nothing changed; next round's lenses see the overruled list
+    if (!applied.length) continue   // nothing changed: previously passing lenses stay verified; only the failing ones re-run
 
     const merged = await agent(`In worktree ${wt} (branch task/${task.id}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
                                 Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
@@ -275,6 +303,7 @@ async function runTask({ spec, task }) {
       { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
+    ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
   }
 }
 
