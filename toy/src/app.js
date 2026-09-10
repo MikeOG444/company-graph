@@ -79,7 +79,6 @@ export function createApp() {
 
     res.json(result)
   })
-  })
 
   // GET /items/:id → 200 Item ; 404 { error: "not found" } when :id is not a
   // canonical decimal integer or names no item.
