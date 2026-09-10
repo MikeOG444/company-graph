@@ -106,7 +106,7 @@ export function createApp() {
     if (name.length > MAX_NAME_LENGTH) {
       return res.status(400).json({ error: 'name too long' })
     }
-    const item = { id: nextId++, name }
+    const item = { id: nextId++, name, created_at: new Date().toISOString() }
     items.set(item.id, item)
     res.status(201).json(item)
   })
