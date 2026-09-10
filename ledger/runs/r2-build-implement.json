@@ -1,0 +1,225 @@
+{
+  "entry": {
+    "id": "r2-build-implement",
+    "run_id": "r2",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-10T07:08:00.000Z",
+    "finished_at": "2026-09-10T07:21:30.000Z",
+    "wall_clock_sec": 810,
+    "result_ref": "ledger/runs/r2-build-implement.json",
+    "artifact_count": 7,
+    "escalations": 0,
+    "tokens": 729979,
+    "agents": 13,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r2",
+      "created_at": "2026-09-10T07:08:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r2-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-r2",
+    "project_id": "toy",
+    "iteration": 1,
+    "artifact_ref": "integration/r2",
+    "specs": [
+      "spec-wi-2",
+      "spec-wi-3-health-uptime"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "impl-1-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "UTF-16 surrogate pair boundary testing: emoji at exactly 64 units accepted, 65+ units rejected",
+              "Type precedence testing: non-string types (number, boolean, object, array, null) all rejected with 'name is required' not 'name too long'",
+              "State mutation testing: rejected requests do not consume ID or mutate store; multiple rejections preserve state with next valid request getting ID 1",
+              "Boundary condition testing: 63 chars accepted, 64 accepted, 65 rejected",
+              "Name preservation testing: special characters, whitespace, Unicode preserved exactly without normalization",
+              "Route isolation testing: GET /health and GET /items unaffected; error and success response shapes correct",
+              "All 17 existing tests passing with 100% success rate"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "impl-1-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Emoji/surrogate pair boundary exploit: Attempted to bypass UTF-16 length check by using emoji characters (each 2 UTF-16 code units). Created 32 emojis (64 UTF-16 units - accepted as 201) and 33 emojis (66 UTF-16 units - correctly rejected as 400 'name too long'). Attack blocked.",
+              "Non-string object with length property: Attempted to pass a JavaScript object with a crafted length property (e.g., {length: 100}) to bypass type checking. The implementation correctly rejected this with 400 'name is required' before attempting length validation. Attack blocked.",
+              "Null byte injection: Attempted to inject null bytes into the string to mask or truncate the effective length (64 ASCII + 1 null byte = 65 UTF-16 units total). The length check correctly counted all UTF-16 code units and rejected with 400 'name too long'. Attack blocked.",
+              "Large string DoS (5000 character payload): Attempted to send a moderately large string to trigger performance issues or memory exhaustion. The length check evaluated in 9ms and correctly rejected with 400 'name too long' before any state mutation. Attack blocked and fast rejection confirmed.",
+              "Off-by-one boundary condition: Tested the exact boundary at 63, 64, and 65 character strings. The `>` operator correctly allows exactly 64 characters (201 created) while rejecting 65+ (400 rejected). Off-by-one protection verified."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-1-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "UTF-16 surrogate pairs: tested 32 emoji characters (64 code units) for acceptance and 33 emoji (66 code units) for rejection—implementation correctly counts paired surrogates",
+              "Mixed character sets: tested 32 emoji + 1 ASCII character (65 code units total) for rejection—implementation correctly sums UTF-16 code units across different character types",
+              "Non-BMP Unicode: tested 64 and 65 Chinese characters at 1 UTF-16 code unit each—implementation counts single code unit characters correctly",
+              "ID counter integrity: attempted multiple rejections followed by acceptance; next valid create received id 1 (not incremented by rejections)—implementation maintains counter safely",
+              "Precise boundary: tested lengths 62, 63, 64, 65, 66 to verify > 64 rejection—implementation rejects only when length strictly exceeds 64",
+              "Null bytes and control characters: tested strings with embedded null and newline at exactly 64 characters—implementation accepts them without normalization (per spec)",
+              "Type coercion: tested numbers, booleans, null, and arrays as name values—implementation correctly rejects all as non-string with 'name is required' (not 'name too long')",
+              "Whitespace strings: tested 64 spaces (accepted) and 65 spaces (rejected) without trimming—implementation counts spaces literally per spec",
+              "Concurrent requests: fired 5 parallel POST requests—implementation assigned sequential ids 1-5 correctly despite concurrency",
+              "Response format: verified error response is exactly {\"error\":\"name too long\"} with single key—implementation matches spec exactly",
+              "Check ordering: verified type check executes before length check, preventing unsafe .length access on non-strings—implementation is correctly ordered",
+              "State isolation: verified rejected requests create no item and GET /items returns empty after rejections—implementation doesn't mutate on rejection",
+              "Field validation scope: tested POST with extra long fields alongside long name—implementation validates only name field length, ignores others",
+              "Grapheme clusters: tested combining marks (e + combining acute = 2 UTF-16 code units)—implementation counts UTF-16 code units, not grapheme clusters",
+              "Large strings: tested 10,000 character string—implementation correctly rejects all names > 64 characters regardless of size"
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-1-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      },
+      {
+        "change_set_id": "impl-health-uptime-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt 1: Inject extra response fields (e.g., version, hostname). Would violate ac-1 spec requirement that body has exactly {status, uptime_seconds} keys. BLOCKED by test line 16 which asserts Object.keys(body).sort() equals ['status', 'uptime_seconds'].",
+              "Attempt 2: Return non-integer uptime by omitting Math.floor(), returning raw process.uptime() float (e.g., 42.567). Would violate ac-3 requirement that Number.isInteger(uptime_seconds) === true. BLOCKED by test line 19 which explicitly checks Number.isInteger(body.uptime_seconds) === true.",
+              "Attempt 3: Use per-app-instance state instead of global process.uptime(), e.g., capture Date.now() in createApp(). Would violate ac-6 spec that multiple instances derive from same process start and differ by at most 1 second. BLOCKED by test lines 42-56 which create two separate app instances and verify Math.abs(bodyA.uptime_seconds - bodyB.uptime_seconds) <= 1, which fails if instances have independent timestamps.",
+              "Attempt 4: Return constant value (e.g., always 100) instead of live process.uptime(). Would violate ac-5 requirement that uptime increases with elapsed time. BLOCKED by test lines 26-40 which waits 1100ms between requests and asserts u2 > u1 and u2 - u1 >= 1."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-health-uptime-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Query string and header injection attempt to add extra fields - implementation blocks by using static response object literal with no user input",
+              "Type confusion attack to make uptime_seconds return floating-point instead of integer - implementation blocks via Math.floor() which guarantees integer return type",
+              "Attempt to make uptime_seconds negative - implementation blocks because process.uptime() is always >= 0 in Node.js and Math.floor preserves non-negativity",
+              "Prototype pollution to inject __proto__ or constructor fields - implementation blocks because res.json() creates direct object literal, not user-derived object",
+              "Timing side-channel attack to extract sub-second precision - implementation blocks because spec requires integer seconds floored, which naturally prevents precision extraction",
+              "Attempt to cause null or undefined values in response - implementation blocks because values are hardcoded literals and Math.floor always returns valid number",
+              "Integer overflow attack with large uptime values - implementation blocks because JavaScript safely handles numbers up to 2^53-1, far exceeding practical process uptime",
+              "Attempt to bypass JSON Content-Type validation - implementation blocks because Express res.json() automatically sets correct content-type header",
+              "Path manipulation (empty path, case variance) to bypass endpoint - implementation blocks because routing is handled by Express, not user-controllable",
+              "Large-scale polling to fingerprint deployment schedule - attack vector exists as per spec requirement, not an implementation defect"
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-health-uptime-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt 1: Try to return non-integer uptime_seconds by omitting Math.floor() — blocked by Math.floor() enforcement and Number.isInteger() test",
+              "Attempt 2: Try to hardcode uptime_seconds to a constant value — blocked by ac-5 test requiring monotonic increase across 1100ms wait",
+              "Attempt 3: Try to return negative uptime_seconds — blocked by process.uptime() semantic guarantee and >= 0 assertion",
+              "Attempt 4: Try to add extra fields (version, hostname, pid, memory) — blocked by exact key cardinality check in test line 16",
+              "Attempt 5: Try to change status value — blocked by hardcoded 'ok' and test assertion",
+              "Attempt 6: Try to return HTTP status 201 or 404 — blocked by res.json() default 200 and status test",
+              "Attempt 7: Try to return text/plain or wrong Content-Type — blocked by res.json() Content-Type header and regex match test",
+              "Attempt 8: Try to omit uptime_seconds field — blocked by exact key check and type assertion tests",
+              "Attempt 9: Try to use Date.now() or per-instance time source — blocked by cross-instance uptime similarity test (lines 50-51)"
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "impl-health-uptime-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "r2",
+              "created_at": "2026-09-10T07:08:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      }
+    ],
+    "suite": {
+      "passed": 19,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/r2.json"
+    },
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 121088,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r2",
+      "created_at": "2026-09-10T07:08:00Z"
+    }
+  }
+}
