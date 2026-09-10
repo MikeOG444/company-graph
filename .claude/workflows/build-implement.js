@@ -319,16 +319,29 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
                            Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
   { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
 
+// AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
+let finalSuite = suite
+if (suite && (suite.conflicts?.length || suite.failed > 0) && passing.length > 1) {
+  log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s); strong-model resolution`)
+  const resolved = await agent(`Integration branch integration/${A.run_id} in worktree ${ART}/worktrees/integration-${A.run_id} merged ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}.
+                                A mechanical merge reported conflicts in ${JSON.stringify(suite.conflicts ?? [])} and ${suite.failed} failing test(s) (results at ${suite.results_ref}).
+                                Re-examine each conflicted file against the task branches' intents and make the integration branch carry ALL merged behaviors
+                                correctly. Commit. Re-run the full suite of the app at <worktree>/${APP}/, write results to ${ART}/integration/${A.run_id}.json
+                                and return the summary with artifact_ref = "integration/${A.run_id}" and conflicts = the files you changed.`,
+    { label: 'integrate:resolve', model: MODEL.strong, schema: Suite })
+  if (resolved) finalSuite = resolved
+}
+
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
 return {
   release_candidate_id: `rc-${A.run_id}`,
   project_id: A.project_id,
   iteration: A.iteration,
-  artifact_ref: suite?.artifact_ref ?? 'INTEGRATION_FAILED',
+  artifact_ref: finalSuite?.artifact_ref ?? 'INTEGRATION_FAILED',
   specs: A.specs.map(s => s.spec.id),
   panel_results: panelResults,
-  suite: { passed: suite?.passed ?? 0, failed: suite?.failed ?? 0, results_ref: suite?.results_ref ?? '' },
+  suite: { passed: finalSuite?.passed ?? 0, failed: finalSuite?.failed ?? 0, results_ref: finalSuite?.results_ref ?? '' },
   escalations,
   starved_items: [],
   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.

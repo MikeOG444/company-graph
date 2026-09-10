@@ -4,7 +4,8 @@ export const meta = {
   phases: [{ title: 'Plan', detail: 'select work items within capacity' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
 }
 
-// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now }
+// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context? }
+//   project_context: one sentence about the venture the router should know (e.g. "client: self, no external consumers yet").
 //   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
 // returns: { ready: [{spec, graph}], gated: [{spec, graph}], provenance }
 //
@@ -14,6 +15,18 @@ export const meta = {
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+// Risk Router, code half: these are high by rule, no judgment needed. The agent half judges only what the rule cannot see.
+const HIGH_KINDS = new Set(['schema', 'infra', 'config'])
+const HIGH_REF = /auth|token|secret|credential|password|payment|billing|migrat|schema/i
+const codeRisk = (spec) => {
+  const reasons = []
+  for (const s of spec.touched_surfaces ?? []) {
+    if (HIGH_KINDS.has(s.kind)) reasons.push(`surface kind ${s.kind}: ${s.ref}`)
+    else if (HIGH_REF.test(s.ref)) reasons.push(`surface ref matches a high-risk term: ${s.ref}`)
+  }
+  if (HIGH_REF.test(spec.goal ?? '')) reasons.push('goal mentions a high-risk term')
+  return reasons
+}
 
 // ---- inlined contracts (runtime forbids import; keep in sync with contracts.schema.json) ----
 const Surface = { type: 'object', additionalProperties: false, required: ['kind', 'ref'],
@@ -61,8 +74,9 @@ const specced = (await pipeline(selected, async (w) => {
 
   // Router and Decomposer both consume only the Spec — run together.
   const [risk, graph] = await parallel([
-    () => agent(`Classify blast radius of this spec as low or high, with reasons. High = touches auth, data schema,
-                 payments, infra, public API, or anything irreversible. Spec: ${JSON.stringify(spec)}`,
+    () => agent(`Classify blast radius of this spec as low or high, with reasons. ${A.project_context ? `Project context: ${A.project_context}. ` : ''}
+                 High ONLY if it changes the stored data shape, touches auth/secrets/payments/infra, is irreversible, or BREAKS an existing
+                 route's contract for existing clients (an additive route, field, or query parameter is low). Spec: ${JSON.stringify(spec)}`,
       { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
     () => agent(`Decompose this spec into IMPLEMENTATION tasks with DISJOINT owned surfaces (no two tasks may own the same path).
                  Never create a task for writing tests or documentation: a separate Test Author writes tests from the spec, and criteria
@@ -74,9 +88,12 @@ const specced = (await pipeline(selected, async (w) => {
   ])
   if (!risk || !graph) return null
 
+  const ruleReasons = codeRisk(spec)
+  const high = ruleReasons.length > 0 || risk.risk === 'high'
+  if (ruleReasons.length) log(`${w.id}: high by rule (${ruleReasons[0]})`)
   return {
-    spec: { ...spec, risk: risk.risk, risk_reasons: risk.reasons,
-            gate: risk.risk === 'high' ? 'pending' : 'not_required',
+    spec: { ...spec, risk: high ? 'high' : 'low', risk_reasons: [...ruleReasons.map(r => `rule: ${r}`), ...risk.reasons],
+            gate: high ? 'pending' : 'not_required',
             provenance: stamp('spec_writer', MODEL.strong, 'hotl') },
     graph: { ...graph, provenance: stamp('decomposer', MODEL.cheap, 'dark_factory') },
   }
