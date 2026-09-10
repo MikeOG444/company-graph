@@ -4,7 +4,9 @@ export const meta = {
   phases: [{ title: 'Implement+Verify', detail: 'per task: implementer ∥ test author → panel → fix loop' }, { title: 'Integrate', detail: 'the one barrier' }, { title: 'Evidence', detail: 'assembled by code' }],
 }
 
-// args: { repo, project_id, iteration, specs: [{spec, graph}], run_id, now,
+// args: { repo, project_id, iteration, specs: [{spec, graph, spec_ref?}], run_id, now,
+//   spec_ref: path to the full Spec JSON in the artifact store. When present, agents read it there and only a summary
+//             (id, goal, touched_surfaces, out_of_scope) is inlined (CLAUDE.md rule 4: large artifacts cross edges by ref).
 //         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
 //         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string, max_fixers? (default 4) }
 //   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
@@ -113,7 +115,7 @@ function topo(items) {
   items.forEach(i => visit(i))
   return out
 }
-const tasks = topo(A.specs.flatMap(({ spec, graph }) => graph.tasks.map(task => ({ spec, task }))))
+const tasks = topo(A.specs.flatMap(({ spec, graph, spec_ref }) => graph.tasks.map(task => ({ spec, task, spec_ref }))))
 log(`${tasks.length} tasks across ${A.specs.length} specs`)
 
 const panelResults = []
@@ -127,8 +129,11 @@ const finished = (await pipeline(tasks, async (item) => {
   return out
 })).filter(Boolean)
 
-async function runTask({ spec, task }) {
+async function runTask({ spec, task, spec_ref }) {
   const wt = `${ART}/worktrees/${task.id}`
+  const specText = spec_ref
+    ? `Spec: the FULL spec (acceptance criteria, touched surfaces, out of scope) is at ${spec_ref}; read it before acting. Summary: ${JSON.stringify({ id: spec.id, goal: spec.goal, touched_surfaces: spec.touched_surfaces, out_of_scope: spec.out_of_scope })}`
+    : `${specText}`
   const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
   const deps = await Promise.all(depIds.map(d => taskDone[d]))
   if (deps.some(d => !d || !d.passed)) {
@@ -145,11 +150,11 @@ async function runTask({ spec, task }) {
                  Implement this task there, staying inside owned surfaces (paths are repository-relative). Commit your work on the task branch.
                  Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
                  and return that path as diff_ref; base_commit = the sha of ${base}; worktree = "${wt}".
-                 Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
+                 Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
-                 Task: ${JSON.stringify(task)}. Spec: ${JSON.stringify(spec)}.`,
+                 Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
@@ -196,7 +201,7 @@ async function runTask({ spec, task }) {
              Findings are DEFECTS ONLY: an attack you tried that the change blocks is an attempt, not a finding. Behavior the spec
              requires is never a finding. If you believe the spec itself is unsafe, record ONE finding with severity "low" and a claim
              starting "SPEC-LEVEL:" and do not fail the change on it alone. ${overruledNote}
-             Spec: ${JSON.stringify(spec)}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
+             ${specText}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
              Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
         { label: `lens:${name}:${task.id}:${tag}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
         .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
@@ -214,7 +219,7 @@ async function runTask({ spec, task }) {
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
-      const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. Spec: ${JSON.stringify(spec)}. Change: ${JSON.stringify(diffOnly)}.`,
+      const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. ${specText}. Change: ${JSON.stringify(diffOnly)}.`,
         { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, schema: Verdict })
       if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
     }
@@ -243,7 +248,7 @@ async function runTask({ spec, task }) {
       const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
                                Open findings: ${JSON.stringify(open)}. Repeats: ${JSON.stringify(repeats)}.
                                Disputes lost (fixer disputed, judge upheld): ${JSON.stringify(ctx.upheld)}. Overruled by judge: ${JSON.stringify(ctx.overruled)}.
-                               Spec: ${JSON.stringify(spec)}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
+                               ${specText}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
         { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
       if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
       return { ...ctx, passed: false }
@@ -274,7 +279,7 @@ async function runTask({ spec, task }) {
     if (disputed.length) {
       // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
       const rulings = await parallel(disputed.map(x => () =>
-        agent(`Rule on a disputed finding. Spec: ${JSON.stringify(spec)}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
+        agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
           { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.strong, schema: Ruling })))
