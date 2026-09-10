@@ -1,0 +1,37 @@
+{
+  "id": "r6-escalation-2",
+  "gate": "escalation",
+  "run_id": "r6",
+  "workflow": "build-implement",
+  "status": "decided",
+  "opened_at": "2026-09-10T20:40:30.000Z",
+  "options": [
+    "guide",
+    "direct_drive",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r6",
+    "created_at": "2026-09-10T20:40:30.000Z"
+  },
+  "project_id": "toy",
+  "payload": {
+    "task_id": "implement-request-logger",
+    "reason": "repeat_finding",
+    "hypothesis": "The loop is reviewing the wrong artifact: task/implement-request-logger was fast-forwarded onto the integration/r5 merge (HEAD 98bcdee), so diff_ref is a 0-byte patch and every lens reads a worktree holding six other work items — it re-raises \"another task's code violates ac-13\", the judge correctly overrules it, and since the inputs never change the same finding class regenerates every round.",
+    "options": [
+      "direct_drive",
+      "guide",
+      "kill_to_spec"
+    ]
+  },
+  "decision": {
+    "option": "guide",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T20:41:30.000Z",
+    "note": "Machine defect: re-running an already-merged change produced a zero-byte diff, so lenses reviewed the whole worktree. verify_only mode added; r5/implement-request-logger re-paneled in r7 against its own base. Packager verified ac-5 passes (req.path is undecoded)."
+  }
+}

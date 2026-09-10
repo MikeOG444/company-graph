@@ -12,6 +12,9 @@ export const meta = {
 //   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
 //         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
 //   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
+//   verify_only: { [task_id]: { branch, base } } — re-panel an EXISTING branch: no implementer; a mechanical agent checks it out
+//         and writes the diff base...branch; test author, panel, fix loop and integration run as usual. For re-verification
+//         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
 // returns: EvidenceBundle (see contracts.schema.json)
 //
 // Human touchpoints: none inside this run. Escalations come back in the bundle;
@@ -142,12 +145,20 @@ async function runTask({ spec, task, spec_ref }) {
     log(`${task.id}: skipped, a dependency did not pass`)
     return { spec, task, passed: false, skipped: true }
   }
-  const base = deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE
+  const vo = A.verify_only?.[task.id]
+  const branch = vo ? vo.branch : `task/${task.id}`
+  const base = vo ? vo.base : (deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE)
   const extraMerges = deps.slice(0, -1).map(d => `task/${d.task.id}`)
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
-    () => agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${base} (skip if it exists).
+    () => vo ? agent(`VERIFY ONLY: the change already exists on branch ${branch}. Check it out: git worktree add ${wt} ${branch} (skip if ${wt} exists).
+                 App at ${wt}/${APP}/ (npm ci there if node_modules is missing). Do NOT modify any code. Write the cumulative diff ${base}...${branch}
+                 (git diff ${base}...HEAD inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref; it must be non-empty,
+                 and if it is empty say so in notes. base_commit = the sha of ${base}; worktree = "${wt}"; revision 0; touched_surfaces from the diff.
+                 Task: ${JSON.stringify(task)}.`,
+      { label: `checkout:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
+    : agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${base} (skip if it exists).
                  ${extraMerges.length ? `First merge ${extraMerges.join(', ')} into the branch. ` : ''}The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing).
                  Implement this task there, staying inside owned surfaces (paths are repository-relative). Commit your work on the task branch.
                  Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
@@ -164,7 +175,7 @@ async function runTask({ spec, task, spec_ref }) {
   let changeSet1 = changeSet0
   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
     log(`canary: injecting a deliberate defect into ${task.id}`)
-    const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id})
+    const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch ${branch})
                                  apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
                                  the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
                                  Then rewrite the cumulative diff vs ${base} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
@@ -188,7 +199,7 @@ async function runTask({ spec, task, spec_ref }) {
     const { notes: _hidden, ...diffOnly } = ctx.changeSet   // lenses never see implementer rationale
 
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
-    const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch task/${task.id}. Run the tests at ${ctx.testSet.tests_ref}
+    const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
       { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
@@ -237,7 +248,7 @@ async function runTask({ spec, task, spec_ref }) {
         ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
         continue
       }
-      return { ...ctx, passed: true }
+      return { ...ctx, passed: true, branch }
     }
     const failedLenses = verdicts.filter(v => v.verdict === 'fail' && v.lens !== 'tiebreak').map(v => v.lens)
     if (confirming) { ctx.mode = 'all'; ctx.history.push(`${tag}: a previously passing lens failed after a fix; running all lenses until green`) }
@@ -275,8 +286,8 @@ async function runTask({ spec, task, spec_ref }) {
              the implementation. If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
              Return tests_ref and the criteria the tests now cover.`,
           { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test' })
-      : agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
-             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on the task branch.
+      : agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch ${branch}). Location: ${f.location}. Evidence: ${f.evidence}.
+             Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on branch ${branch}.
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
@@ -298,11 +309,14 @@ async function runTask({ spec, task, spec_ref }) {
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
           { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.strong, schema: Ruling })))
+      // Compare against rulings from EARLIER rounds only: the guard catches a lens re-raising after being overruled, not several
+      // overrules inside one round (r6 escalated a green change on that mistake).
+      const priorOverruled = [...ctx.overruled]
       let repeatOverrule = false
       disputed.forEach((x, i) => {
         const r = rulings[i]
         if (r?.ruling === 'overrule') {
-          if (ctx.overruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
+          if (priorOverruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
           ctx.overruled.push({ ...x.f, status: 'overruled' })
           ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
         } else {
@@ -316,7 +330,7 @@ async function runTask({ spec, task, spec_ref }) {
 
     if (!applied.length) continue   // nothing changed: previously passing lenses stay verified; only the failing ones re-run
 
-    const merged = await agent(`In worktree ${wt} (branch task/${task.id}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
+    const merged = await agent(`In worktree ${wt} (branch ${branch}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
                                 Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
                                 (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
@@ -330,11 +344,12 @@ async function runTask({ spec, task, spec_ref }) {
 // =====================================================================
 phase('Integrate')   // the one earned barrier
 const passing = finished.filter(f => f.passed).map(f => f.changeSet)   // `finished` is already in topological order
+const passingBranches = finished.filter(f => f.passed).map(f => f.branch ?? `task/${f.task.id}`)
 log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated; ${finished.filter(f => f.skipped).length} skipped on a failed dependency`)
 
 const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
                            (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
-                           ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}. Resolve conflicts minimally and list any files you touched in conflicts.
+                           ${JSON.stringify(passingBranches)}. Resolve conflicts minimally and list any files you touched in conflicts.
                            Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
                            Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
   { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
@@ -343,7 +358,7 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
 let finalSuite = suite
 if (suite && (suite.conflicts?.length || suite.failed > 0) && passing.length > 1) {
   log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s); strong-model resolution`)
-  const resolved = await agent(`Integration branch integration/${A.run_id} in worktree ${ART}/worktrees/integration-${A.run_id} merged ${JSON.stringify(passing.map(c => `task/${c.task_id}`))}.
+  const resolved = await agent(`Integration branch integration/${A.run_id} in worktree ${ART}/worktrees/integration-${A.run_id} merged ${JSON.stringify(passingBranches)}.
                                 A mechanical merge reported conflicts in ${JSON.stringify(suite.conflicts ?? [])} and ${suite.failed} failing test(s) (results at ${suite.results_ref}).
                                 Re-examine each conflicted file against the task branches' intents and make the integration branch carry ALL merged behaviors
                                 correctly. Commit. Re-run the full suite of the app at <worktree>/${APP}/, write results to ${ART}/integration/${A.run_id}.json
