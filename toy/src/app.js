@@ -38,14 +38,23 @@ export function createApp() {
     res.json({ status: 'ok', uptime_seconds: Math.floor(process.uptime()), version: VERSION })
   })
 
-  // GET /items → Item[] ; optional ?sort=name|id ; optional ?limit=N ; 400 { error: "invalid sort" } or { error: "invalid limit" }
+  // GET /items → Item[] ; optional ?q= ; optional ?sort=name|id ; optional ?limit=N ; 400 { error: "invalid q" } or { error: "invalid sort" } or { error: "invalid limit" }
+  // q: when present it must be a plain string (Express parses a repeated key, e.g. ?q=a&q=b, as an
+  // array, and a bracketed key, e.g. ?q[x]=y, as an object; both are a 400). A missing or empty string
+  // matches everything. Matching is a case-insensitive, literal, contiguous substring test against
+  // `name` — both sides lower-cased with toLowerCase(), no trimming, no regex, no locale folding.
   // sort: when present it must be 'name' or 'id'. Any other value (including "", case variants, padding, or a repeated parameter, which Express parses as an array) is a 400.
   // limit: when present it must be a canonical positive decimal integer (/^[1-9][0-9]*$/) within Number.isSafeInteger range. Any other value is a 400.
   // Unknown query parameters are ignored.
   //
-  // Pipeline: filter -> sort -> cap. Filtering (?q, wi-6) is not implemented yet; this shape leaves room for it
-  // to compose around the sort stage without restructuring the handler.
+  // Pipeline: filter -> sort -> cap. The ?q filter runs first against the full insertion-ordered
+  // list, so a limit cap never counts an item that q excluded.
   app.get('/items', (req, res) => {
+    const q = req.query.q
+    if (q !== undefined && typeof q !== 'string') {
+      return res.status(400).json({ error: 'invalid q' })
+    }
+
     const sort = req.query.sort
     if (sort !== undefined && sort !== 'name' && sort !== 'id') {
       return res.status(400).json({ error: 'invalid sort' })
@@ -60,8 +69,12 @@ export function createApp() {
       limit = Number(raw)
     }
 
-    // filter stage (no-op today; ?q substring filter lands here in wi-6)
+    // filter stage — ?q substring filter, applied to the full insertion-ordered list.
     let result = [...items.values()]
+    if (q) {
+      const needle = q.toLowerCase()
+      result = result.filter((item) => item.name.toLowerCase().includes(needle))
+    }
 
     // sort stage — plain code-unit comparison, no locale/case folding.
     // sort === 'id' (or absent) keeps the existing insertion order, which
