@@ -80,18 +80,17 @@ const Suite = { type: 'object', additionalProperties: false, required: ['artifac
 // ---- pure-code edges ----
 const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
 
+// Lenses receive DIFFERENT inputs (OPERATING_MODEL §2.4): they are independent detectors, not redundant voters, so there is
+// no majority rule. Security is a veto. Any other confident fail fails the panel. A fail held only at low confidence
+// (every failing lens < 0.7) goes to the Tiebreak Judge. r5 shipped four tasks over a failing lens under the old majority rule.
+const LOW_CONFIDENCE = 0.7
 function adjudicate(verdicts) {
   const veto = verdicts.find(v => v.lens === VETO_LENS && v.verdict === 'fail')
   if (veto) return { result: 'fail', veto_by: veto.lens, split: false }
-  const rest = verdicts.filter(v => v.lens !== VETO_LENS)
-  const fails = rest.filter(v => v.verdict === 'fail')
-  const split = fails.length > 0 && fails.length < rest.length
-  const swing = split ? Math.min(...rest.map(v => v.confidence)) : 1
-  // A tie is never a majority. With two non-veto lenses a 1–1 used to pass (r5 shipped four tasks over a failing lens);
-  // any split that is not a strict majority either way goes to the Tiebreak Judge, as does a low-confidence swing vote.
-  const tie = fails.length * 2 === rest.length
-  if (split && (tie || swing < 0.7)) return { result: null, split: true }
-  return { result: fails.length > rest.length / 2 ? 'fail' : 'pass', split: false }
+  const fails = verdicts.filter(v => v.verdict === 'fail')
+  if (!fails.length) return { result: 'pass', split: false }
+  if (fails.every(v => v.confidence < LOW_CONFIDENCE)) return { result: null, split: true }
+  return { result: 'fail', split: false }
 }
 
 function shouldEscalate(ctx, findings) {
@@ -267,18 +266,31 @@ async function runTask({ spec, task, spec_ref }) {
     fresh.forEach(f => ctx.seen.add(f.dedupe_key))   // deferred findings stay out of `seen` and come back as fresh next round
     if (deferred.length) { log(`${task.id} ${tag}: fixer cap ${MAX_FIXERS}; deferred ${deferred.length} finding(s)`); ctx.history.push(`${tag}: deferred ${deferred.length} findings past the fixer cap: ${deferred.map(d => d.id).join(',')}`) }
 
-    const fixes = (await parallel(fresh.map(f => () =>
-      agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
+    const isTestFinding = (f) => String(f.location).includes(`${ART}/tests/`) || String(f.location).includes(ctx.testSet.tests_ref)
+    const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
+      properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
+    const fixes = (await parallel(fresh.map(f => () => isTestFinding(f)
+      ? agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
+             Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref} so it asserts exactly what the spec says; do not read or modify
+             the implementation. If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
+             Return tests_ref and the criteria the tests now cover.`,
+          { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test' })
+      : agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch task/${task.id}). Location: ${f.location}. Evidence: ${f.evidence}.
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on the task branch.
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
              If the finding objects to behavior the spec requires, asks for something out of scope, or you are confident it is WRONG,
              make no change and set notes to "DISPUTE: <why>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p })))).filter(Boolean)
+        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })))).filter(Boolean)
 
     const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
-    const applied = fixes.filter(x => !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
+    const testRepairs = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
+    if (testRepairs.length) {
+      ctx.testSet = { ...ctx.testSet, tests_ref: testRepairs[testRepairs.length - 1].p.tests_ref }
+      ctx.history.push(`${tag}: ${testRepairs.length} test finding(s) repaired by the Test Author`)
+    }
+    const applied = fixes.filter(x => x.kind === 'code' && !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
     if (disputed.length) {
       // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
       const rulings = await parallel(disputed.map(x => () =>

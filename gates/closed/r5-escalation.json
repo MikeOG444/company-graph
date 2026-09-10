@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "r5",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-10T18:31:00.000Z",
   "options": [
     "guide",
@@ -38,5 +38,11 @@
       "r1: artifact inconsistency found while verifying — the test source at query-filter.test.js:45-57 queries q=GET, but the recorded error in .artifacts/results/impl-wi-6-query-filter.r1.json says \"Case-insensitive filter is including 'widget' when searching for 'GAD'\". Those cannot both be true: 'widget' does not contain 'gad'. The results file's error prose does not match the test it reports on, so the AC-2 evidence trail is itself unreliable and should be regenerated after the fixture is corrected.",
       "r2: not attempted — the fix loop has no legal move. Every remaining finding names an artifact outside the task's owned_surfaces (spec-wi-6.json, the generated test file, toy/README.md). Escalating rather than burning a round that can only re-emit the same four findings."
     ]
+  },
+  "decision": {
+    "option": "kill_to_spec",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T20:10:00.000Z",
+    "note": "HE: the spec's AC-2 fixture contradicts its own rule ('widget' contains 'get'); AC-11..13 were held on wi-5, which has now landed in integration/r5. Spec revised by hand; wi-6 re-runs on integration/r5."
   }
 }
