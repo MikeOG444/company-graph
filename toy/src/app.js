@@ -91,6 +91,15 @@ export function createApp() {
       result = [...result].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     }
 
+    // X-Total-Count reports the number of items matching after the ?q
+    // filter and before the ?limit cap, so a client can tell a truncated
+    // page from a complete one by comparing this value to the length of
+    // the returned array. Sorting never changes this count, only order.
+    // Set on every successful response from this route (capped, uncapped,
+    // or zero matches) and only on this route's 200s — never on the 400s
+    // above, which return before a match set exists.
+    res.set('X-Total-Count', String(result.length))
+
     // cap stage — apply limit if present
     if (limit !== undefined) {
       result = result.slice(0, limit)
