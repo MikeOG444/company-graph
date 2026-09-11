@@ -26,6 +26,6 @@
   ],
   "stack_preferences": ["node>=20", "express", "node:test"],
   "hosting": { "target": "local_port", "app_dir": "toy", "envs": { "prod": 3100, "canary": 3101 } },
-  "status": "draft",
+  "status": "signed",
   "provenance": { "node": "scope_and_contract", "executor": "ai_agent", "method": "hitl", "run_id": "c1", "created_at": "2026-09-11T01:00:00Z" }
 }
