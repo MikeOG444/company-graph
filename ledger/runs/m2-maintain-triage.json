@@ -7,6 +7,7 @@
     "started_at": "2026-09-11T03:36:00.000Z",
     "finished_at": "2026-09-11T03:33:58.960Z",
     "wall_clock_sec": 0,
+    "wall_clock_unknown": true,
     "result_ref": "ledger/runs/m2-maintain-triage.json",
     "artifact_count": 8,
     "escalations": 0,
