@@ -63,6 +63,9 @@ const ChangeSet = { type: 'object', additionalProperties: false,
   required: ['id', 'task_id', 'spec_id', 'worktree', 'base_commit', 'diff_ref', 'touched_surfaces', 'revision'],
   properties: { id: { type: 'string' }, task_id: { type: 'string' }, spec_id: { type: 'string' },
     worktree: { type: 'string' }, base_commit: { type: 'string' }, diff_ref: { type: 'string' },
+    // Size of the file at diff_ref, as measured by the agent that wrote it. The script cannot stat a file, so the
+    // emptiness decision has to travel on the ChangeSet or not exist at all.
+    diff_bytes: { type: 'integer', minimum: 0 },
     touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' } } }
 const TestSet = { type: 'object', additionalProperties: false, required: ['id', 'task_id', 'tests_ref', 'criteria_coverage'],
   properties: { id: { type: 'string' }, task_id: { type: 'string' }, tests_ref: { type: 'string' },
@@ -229,6 +232,25 @@ function graceRound(ctx, findings) {
   return !stuckLens(ctx.lens_streaks, ctx.k_rounds)
 }
 
+// What to do when the captured diff measures empty. Run t5i deadlocked here: task t2 depended on t1, t1's
+// implementer had already written t2's owned surfaces, so t2 found its work done, committed nothing, and its branch
+// stayed AT t1's head — git rev-parse showed task/t1 and task/t2 as the same ref and base...head was necessarily
+// empty. With a 0-byte diff the lenses fell back to the repository root, where the work did not exist, while the
+// fixer and test runner read the worktree, where it did. Both sides correct about different trees; no round could
+// close it. The decision is taken from the ChangeSet BEFORE any lens, test runner or fixer is called, so an empty
+// diff costs nothing instead of three rounds.
+//   proceed   — there is a diff, or this is a legacy ChangeSet that never reported bytes and declared surfaces.
+//   measure   — nothing reported and nothing declared: ask once rather than assume.
+//   recapture — empty, but the task has dependencies, so the work may legitimately already sit in its base.
+//                Re-diff against the RUN base, which shows the cumulative change, before concluding anything.
+//   refuse    — empty with no dependency to explain it, or still empty after a re-capture. Refuse honestly.
+function emptyDiffAction({ diff_bytes, touched_surfaces_count, has_deps, recaptured }) {
+  if (diff_bytes > 0) return 'proceed'
+  if (diff_bytes == null) return (touched_surfaces_count > 0) ? 'proceed' : 'measure'
+  if (has_deps && !recaptured) return 'recapture'
+  return 'refuse'
+}
+
 // Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
 // overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
 // count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
@@ -331,15 +353,17 @@ async function runTask({ spec, task, spec_ref }) {
   const [changeSet0, testSet] = await parallel([
     () => vo ? agent(`VERIFY ONLY: the change already exists on branch ${branch}. Check it out: git worktree add ${wt} ${branch} (skip if ${wt} exists).
                  App at ${wt}/${APP}/ (npm ci there if node_modules is missing). Do NOT modify any code. Write the cumulative diff ${base}...${branch}
-                 (git diff ${base}...HEAD inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref; it must be non-empty,
-                 and if it is empty say so in notes. base_commit = the sha of ${base}; worktree = "${wt}"; revision 0; touched_surfaces from the diff.
+                 (git diff ${base}...HEAD inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return that path as diff_ref. ALSO report diff_bytes:
+                 the exact byte size of that file (wc -c). Report 0 honestly if it is empty — never omit it, never round it,
+                 and never substitute a different diff to make it non-empty. base_commit = the sha of ${base}; worktree = "${wt}"; revision 0; touched_surfaces from the diff.
                  Task: ${JSON.stringify(task)}.`,
       { label: `checkout:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     : agent(`Create a worktree of THIS repository on a new branch: git worktree add -b task/${task.id} ${wt} ${base} (skip if it exists).
                  ${extraMerges.length ? `First merge ${extraMerges.join(', ')} into the branch. ` : ''}The app is at ${wt}/${APP}/ (run npm ci there if node_modules is missing).
                  Implement this task there, staying inside owned surfaces (paths are repository-relative). Commit your work on the task branch.
                  Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
-                 and return that path as diff_ref; base_commit = the sha of ${base}; worktree = "${wt}".
+                 and return that path as diff_ref; ALSO report diff_bytes: the exact byte size of that file (wc -c), reported
+                 honestly as 0 if your commit added nothing to ${base}. base_commit = the sha of ${base}; worktree = "${wt}".
                  Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
@@ -349,16 +373,54 @@ async function runTask({ spec, task, spec_ref }) {
   ])
   if (!changeSet0 || !testSet) return null
 
-  let changeSet1 = changeSet0
+  // ---- Empty-diff gate: decided from the ChangeSet, before any lens, test runner or fixer is called ----
+  // A diff that measured empty is not a change to review. Letting the panel run on one is how t5i deadlocked: the
+  // lenses read a tree the fixer could not see. This costs at most one cheap re-capture, and usually nothing.
+  let cs = changeSet0
+  let recaptured = false
+  for (;;) {
+    const action = emptyDiffAction({
+      diff_bytes: cs.diff_bytes, touched_surfaces_count: (cs.touched_surfaces ?? []).length,
+      has_deps: deps.length > 0, recaptured,
+    })
+    if (action === 'proceed') break
+    if (action === 'measure' || action === 'recapture') {
+      const against = action === 'recapture' ? BASE : base
+      const re = await agent(`In worktree ${wt} on branch ${branch}, rewrite the cumulative diff against ${against}
+             (git diff ${against}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch and return the ChangeSet with that
+             path as diff_ref, base_commit = the sha of ${against}, and diff_bytes = the exact byte size of the file (wc -c).
+             Report 0 honestly if it is still empty. Change no code, commit nothing, and never substitute a different diff.
+             Previous ChangeSet: ${JSON.stringify({ ...cs, notes: undefined })}`,
+        { label: `rediff:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
+      if (!re) return { spec, task, passed: false, skipped: false }
+      recaptured = recaptured || action === 'recapture'
+      cs = { ...re, diff_bytes: re.diff_bytes ?? 0 }
+      continue
+    }
+    // refuse: nothing to review and no dependency left to explain it. Say so; spend no round on it.
+    const why = `${task.id}: the captured diff is EMPTY (${cs.diff_bytes} bytes) against ${recaptured ? BASE : base} on branch ${branch}`
+      + (deps.length ? `. Its dependency ${deps.map(d => d.task.id).join(', ')} may already carry this task's work — check whether that implementer wrote outside its owned surfaces.` : '.')
+    log(why)
+    const esc = await agent(`Write an Escalation for a human. Reason: cannot_repro. History: ${JSON.stringify([why])}.
+                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                             ${specText}. The task produced no reviewable change, so no panel was run and no round was spent.
+                             One-line hypothesis for why the diff is empty. Options: guide, direct_drive, kill_to_spec.`,
+      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
+    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'cannot_repro', repeats: [], disputes_lost: [] })
+    return { spec, task, passed: false, skipped: false }
+  }
+
+  let changeSet1 = cs
   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
     log(`canary: injecting a deliberate defect into ${task.id}`)
     const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch ${branch})
                                  apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
                                  the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
-                                 Then rewrite the cumulative diff vs ${base} to ${changeSet0.diff_ref} and return the ChangeSet unchanged except notes = "canary".
-                                 ChangeSet: ${JSON.stringify(changeSet0)}`,
+                                 Then rewrite the cumulative diff vs ${changeSet1.base_commit} to ${changeSet1.diff_ref} and return the ChangeSet unchanged
+                                 except notes = "canary" and diff_bytes = the new byte size of that file.
+                                 ChangeSet: ${JSON.stringify(changeSet1)}`,
       { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
-    if (mutated) changeSet1 = { ...mutated, notes: undefined }
+    if (mutated) changeSet1 = { ...mutated, notes: undefined, diff_bytes: mutated.diff_bytes ?? changeSet1.diff_bytes }
   }
 
   // Lens re-run policy: after a fix, re-run only the lenses that failed until they pass, then confirm the ones that had passed.

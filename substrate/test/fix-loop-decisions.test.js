@@ -242,3 +242,49 @@ test('runTask builds a spec summary without referencing its own binding when no 
     'the else branch must not read specText inside its own initializer — that is a temporal dead zone ReferenceError that crashed every task on any call without spec_ref')
   assert.match(initializer, /acceptance/, 'with no ref to point at, the spec is inlined whole including its acceptance criteria')
 })
+
+// ---- Added by hand (direct_driver): the empty-diff deadlock from run t5i. ----
+
+test('emptyDiffAction never lets a panel run on a diff that measured empty', () => {
+  const text = readWorkflowText()
+  const { block } = extractBlock(text)
+  const { emptyDiffAction } = new Function(block + '\nreturn { emptyDiffAction }')()
+
+  // There is something to review.
+  assert.equal(emptyDiffAction({ diff_bytes: 42, touched_surfaces_count: 1, has_deps: true, recaptured: false }), 'proceed')
+
+  // Legacy ChangeSet: no bytes reported, but surfaces declared. Proceed — no new agent call on the old path.
+  assert.equal(emptyDiffAction({ diff_bytes: null, touched_surfaces_count: 2, has_deps: false, recaptured: false }), 'proceed')
+  assert.equal(emptyDiffAction({ diff_bytes: undefined, touched_surfaces_count: 1, has_deps: false, recaptured: false }), 'proceed')
+
+  // Nothing reported and nothing declared: ask once rather than assume either way.
+  assert.equal(emptyDiffAction({ diff_bytes: null, touched_surfaces_count: 0, has_deps: false, recaptured: false }), 'measure')
+
+  // The t5i shape: empty, but a dependency could legitimately already carry the work. Re-diff against the run base.
+  assert.equal(emptyDiffAction({ diff_bytes: 0, touched_surfaces_count: 0, has_deps: true, recaptured: false }), 'recapture')
+
+  // Still empty after the re-capture, or empty with no dependency to explain it: refuse. Never a second re-capture.
+  assert.equal(emptyDiffAction({ diff_bytes: 0, touched_surfaces_count: 0, has_deps: true, recaptured: true }), 'refuse')
+  assert.equal(emptyDiffAction({ diff_bytes: 0, touched_surfaces_count: 0, has_deps: false, recaptured: false }), 'refuse')
+
+  // An empty diff is refused even when surfaces were declared — the declaration is not the change.
+  assert.equal(emptyDiffAction({ diff_bytes: 0, touched_surfaces_count: 5, has_deps: false, recaptured: false }), 'refuse')
+})
+
+test('the empty-diff gate sits before any lens, test runner or fixer call', () => {
+  const text = readWorkflowText()
+  const gate = text.indexOf('Empty-diff gate')
+  assert.ok(gate > 0, 'the gate must exist')
+
+  // It must be reached before the panel: the first lens( call in runTask comes after it.
+  const firstLens = text.indexOf('lens(', gate)
+  const firstRun = text.indexOf('run:${task.id}', gate)
+  assert.ok(firstLens > gate, 'no lens may be called before the emptiness decision')
+  assert.ok(firstRun > gate, 'the test runner may not be called before the emptiness decision')
+
+  // A refusal must escalate honestly with the contract's existing reason, never invent one.
+  const section = text.slice(gate, text.indexOf('let changeSet1'))
+  assert.match(section, /cannot_repro/, 'a refused task escalates with the existing cannot_repro reason')
+  assert.ok(!/max_rounds|repeat_finding/.test(section), 'an empty diff is not a round-count or repeat failure')
+  assert.match(section, /owned surfaces/, 'the refusal must point at the likely cause: a dependency that wrote outside its owned surfaces')
+})
