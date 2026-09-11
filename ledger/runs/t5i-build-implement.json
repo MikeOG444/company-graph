@@ -1,0 +1,1204 @@
+{
+  "entry": {
+    "id": "t5i-build-implement",
+    "run_id": "t5i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-11T14:49:27.856Z",
+    "finished_at": "2026-09-11T15:52:06.872Z",
+    "wall_clock_sec": 3759,
+    "result_ref": "ledger/runs/t5i-build-implement.json",
+    "artifact_count": 13,
+    "escalations": 1,
+    "tokens": 2454097,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 927005,
+      "claude-sonnet-5": 1359575,
+      "claude-opus-5": 167517
+    },
+    "cost_est_usd": 6.28,
+    "agents": 48,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t5i",
+      "created_at": "2026-09-11T14:50:00Z"
+    },
+    "trace_ref": ".artifacts/traces/t5i-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-t5i",
+    "project_id": "toy",
+    "iteration": 5,
+    "artifact_ref": "integration/t5i",
+    "integration_commit": "bfde356e5a498ded9bd7aa9cbe8d677e5e59b51e",
+    "specs": [
+      "spec-wi-opp-p5-5"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "t1-implement-ledger-from-output-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Checked all 17 acceptance criteria: AC-12 requires m2-maintain-triage to be marked with wall_clock_unknown:true in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json after the change. The diff does not include these modifications—the row remains unchanged in both files despite being in the touched_surfaces envelope.",
+              "Verified diff stays within touched_surfaces: Both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json are explicitly in touched_surfaces. The diff modifies neither file to mark the m2 row, failing to address a required surface update.",
+              "Verified the spec goal is met: The spec's stated goal is 'The one already-corrupt row is MARKED, never guessed at.' The diff adds the mechanism (schema field, code logic, display rendering) but leaves the actual row unmarked. Row 24 of ledger/index.jsonl still carries started_at 03:36:00Z (after) and finished_at 03:33:58.960Z (before) with 338,559 tokens and wall_clock_sec:0—exactly the corruption the work item exists to stop—and AC-12's marking is absent."
+            ],
+            "confidence": 0.95,
+            "findings": [
+              {
+                "id": "F1-AC12-missing-marking",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "ledger/index.jsonl:24",
+                "claim": "AC-12 acceptance criterion not addressed: m2-maintain-triage row must be marked with wall_clock_unknown:true but the diff does not modify the row",
+                "evidence": "The diff adds wall_clock_unknown to contracts.schema.json ($defs/LedgerEntry) and adds handling logic to substrate/ledger.js (lines 229-233), but does not modify ledger/index.jsonl line 24 or ledger/runs/m2-maintain-triage.json to add the field. AC-12 explicitly states 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)'. The repository-committed row remains unmarked.",
+                "dedupe_key": "ledger/index.jsonl:24|AC-12 m2-maintain-triage not marked with wall_clock_unknown",
+                "status": "open"
+              },
+              {
+                "id": "F2-AC12-missing-marking-runs-file",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "ledger/runs/m2-maintain-triage.json:2",
+                "claim": "AC-12 acceptance criterion not addressed: m2-maintain-triage entry block must be marked with wall_clock_unknown:true in the runs file but the diff does not modify it",
+                "evidence": "AC-12 requires marking in 'BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)'. The diff does not show any changes to ledger/runs/m2-maintain-triage.json to add wall_clock_unknown:true to the entry object (lines 2-29). The spec touched_surfaces list includes this file, placing it in scope.",
+                "dedupe_key": "ledger/runs/m2-maintain-triage.json:2|AC-12 m2-maintain-triage entry not marked with wall_clock_unknown",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "t1-implement-ledger-from-output-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "confidence": 0.95,
+            "attempts": [
+              "Path Traversal via --from-output with /etc/passwd: blocked by file format validation (must be valid JSON with workflow_agent entries)",
+              "Negative Wall Clock Injection via undefined timestamps: blocked by explicit validation refusing wall_clock_sec=0 with non-zero tokens (lines 148-150)",
+              "Shell Injection via run_id parameter: blocked by safe() function stripping all non-alphanumeric characters except ._- (line 21)",
+              "Schema Bypass via invalid result fields: blocked by pre-write LedgerEntry validation enforcing additionalProperties=false (lines 185-186)",
+              "JSON DoS via deeply nested objects: blocked by JSON.parse robustness and defensive typeof checks (lines 306-313)",
+              "Model Name Injection: blocked by normalizeModel regex safety and use only as object keys, never in execution contexts"
+            ],
+            "findings": [],
+            "change_set_id": "t1-implement-ledger-from-output-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Verified acceptance criteria coverage by comparing spec's 17 criteria (AC-1 through AC-17) against test results' 16 criteria (missing AC-12 from coverage list). Found mismatch: 16 of 17 criteria tested.",
+              "Attempt 2: Searched test file ledger-from-output.test.js for AC-12 test implementation (16 total test() calls found; grep for 'AC-12' or 'm2-maintain-triage' or 'wall_clock_unknown.*m2' returned no results). Confirmed: no test for the requirement to mark existing m2 row.",
+              "Attempt 3: Inspected worktree's ledger/index.jsonl line 24 and ledger/runs/m2-maintain-triage.json entry block (lines 2-28) for presence of 'wall_clock_unknown: true'. Both files lack this field on the m2 row; spec AC-12 requires it in BOTH locations with all other fields preserved unchanged."
+            ],
+            "findings": [
+              {
+                "id": "AC-12-missing-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/tests/t1-implement-ledger-from-output/ledger-from-output.test.js",
+                "claim": "No test exists for AC-12 (marking the existing m2-maintain-triage row with wall_clock_unknown: true)",
+                "evidence": "ledger-from-output.test.js contains 16 test() blocks for AC-1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17; AC-12 completely absent. Grep for 'AC-12', 'm2-maintain-triage', or 'wall_clock_unknown.*true.*m2' returns no matches.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/tests/t1-implement-ledger-from-output/ledger-from-output.test.js|AC-12-test-missing",
+                "status": "open"
+              },
+              {
+                "id": "AC-12-missing-implementation",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/index.jsonl:24",
+                "claim": "The m2-maintain-triage row does not carry wall_clock_unknown: true as required by AC-12",
+                "evidence": "Line 24 of ledger/index.jsonl contains m2-maintain-triage with wall_clock_sec:0, tokens:338559 but no 'wall_clock_unknown' field. Spec AC-12 WHEN clause states 'the repository is inspected after the change' THEN 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json'.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/index.jsonl:24|AC-12-m2-row-unmarked",
+                "status": "open"
+              },
+              {
+                "id": "AC-12-missing-entry-marking",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/runs/m2-maintain-triage.json:2-28",
+                "claim": "The m2-maintain-triage.json entry block does not carry wall_clock_unknown: true as required by AC-12",
+                "evidence": "The entry block (lines 2-28) of ledger/runs/m2-maintain-triage.json has wall_clock_sec:0 and tokens:338559 but no 'wall_clock_unknown' field. Spec AC-12 requires the flag 'in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)', with every other field left exactly as is.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/runs/m2-maintain-triage.json:2-28|AC-12-entry-block-unmarked",
+                "status": "open"
+              },
+              {
+                "id": "criteria-coverage-mismatch",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/.artifacts/results/t1-implement-ledger-from-output.r1.json:10-27",
+                "claim": "Test results' criteria_coverage list omits AC-12, showing 16 of 17 acceptance criteria tested",
+                "evidence": "criteria_coverage array in test results contains [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-13, AC-14, AC-15, AC-16, AC-17]; AC-12 is missing. Spec contains 17 acceptance criteria (lines 6-124 of spec JSON list AC-1 through AC-17).",
+                "dedupe_key": "/home/user/company-graph/.artifacts/results/t1-implement-ledger-from-output.r1.json|criteria-coverage-missing-AC-12",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.99,
+            "change_set_id": "t1-implement-ledger-from-output-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F1-AC12-missing-marking",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "ledger/index.jsonl:24",
+            "claim": "AC-12 acceptance criterion not addressed: m2-maintain-triage row must be marked with wall_clock_unknown:true but the diff does not modify the row",
+            "evidence": "The diff adds wall_clock_unknown to contracts.schema.json ($defs/LedgerEntry) and adds handling logic to substrate/ledger.js (lines 229-233), but does not modify ledger/index.jsonl line 24 or ledger/runs/m2-maintain-triage.json to add the field. AC-12 explicitly states 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)'. The repository-committed row remains unmarked.",
+            "dedupe_key": "ledger/index.jsonl:24|AC-12 m2-maintain-triage not marked with wall_clock_unknown",
+            "status": "open"
+          },
+          {
+            "id": "F2-AC12-missing-marking-runs-file",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "ledger/runs/m2-maintain-triage.json:2",
+            "claim": "AC-12 acceptance criterion not addressed: m2-maintain-triage entry block must be marked with wall_clock_unknown:true in the runs file but the diff does not modify it",
+            "evidence": "AC-12 requires marking in 'BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)'. The diff does not show any changes to ledger/runs/m2-maintain-triage.json to add wall_clock_unknown:true to the entry object (lines 2-29). The spec touched_surfaces list includes this file, placing it in scope.",
+            "dedupe_key": "ledger/runs/m2-maintain-triage.json:2|AC-12 m2-maintain-triage entry not marked with wall_clock_unknown",
+            "status": "open"
+          },
+          {
+            "id": "AC-12-missing-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/tests/t1-implement-ledger-from-output/ledger-from-output.test.js",
+            "claim": "No test exists for AC-12 (marking the existing m2-maintain-triage row with wall_clock_unknown: true)",
+            "evidence": "ledger-from-output.test.js contains 16 test() blocks for AC-1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17; AC-12 completely absent. Grep for 'AC-12', 'm2-maintain-triage', or 'wall_clock_unknown.*true.*m2' returns no matches.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/tests/t1-implement-ledger-from-output/ledger-from-output.test.js|AC-12-test-missing",
+            "status": "open"
+          },
+          {
+            "id": "AC-12-missing-implementation",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/index.jsonl:24",
+            "claim": "The m2-maintain-triage row does not carry wall_clock_unknown: true as required by AC-12",
+            "evidence": "Line 24 of ledger/index.jsonl contains m2-maintain-triage with wall_clock_sec:0, tokens:338559 but no 'wall_clock_unknown' field. Spec AC-12 WHEN clause states 'the repository is inspected after the change' THEN 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json'.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/index.jsonl:24|AC-12-m2-row-unmarked",
+            "status": "open"
+          },
+          {
+            "id": "AC-12-missing-entry-marking",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/runs/m2-maintain-triage.json:2-28",
+            "claim": "The m2-maintain-triage.json entry block does not carry wall_clock_unknown: true as required by AC-12",
+            "evidence": "The entry block (lines 2-28) of ledger/runs/m2-maintain-triage.json has wall_clock_sec:0 and tokens:338559 but no 'wall_clock_unknown' field. Spec AC-12 requires the flag 'in BOTH ledger/index.jsonl and ledger/runs/m2-maintain-triage.json (entry block)', with every other field left exactly as is.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/ledger/runs/m2-maintain-triage.json:2-28|AC-12-entry-block-unmarked",
+            "status": "open"
+          },
+          {
+            "id": "criteria-coverage-mismatch",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "/home/user/company-graph/.artifacts/results/t1-implement-ledger-from-output.r1.json:10-27",
+            "claim": "Test results' criteria_coverage list omits AC-12, showing 16 of 17 acceptance criteria tested",
+            "evidence": "criteria_coverage array in test results contains [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-13, AC-14, AC-15, AC-16, AC-17]; AC-12 is missing. Spec contains 17 acceptance criteria (lines 6-124 of spec JSON list AC-1 through AC-17).",
+            "dedupe_key": "/home/user/company-graph/.artifacts/results/t1-implement-ledger-from-output.r1.json|criteria-coverage-missing-AC-12",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t1-implement-ledger-from-output-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to append with wall_clock_sec=0 and tokens>0 via --from-output → exits code 2 per ledger.js:105 validation check; test confirms nothing written",
+              "Attempt to append with started_at after finished_at (m2 case) → exits code 2 per ledger.js:104 validation (no Math.max clamping); regression test at ledger.test.js:543-556 verifies refusal",
+              "Attempt to mark additional ledger rows beyond m2-maintain-triage with wall_clock_unknown flag → only m2 row in ledger/index.jsonl:24 and ledger/runs/m2-maintain-triage.json carry the field; all 36 other rows remain unmarked"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "t1-implement-ledger-from-output-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Remove timestamp derivation from --from-output: Test 1 checks exact started_at and finished_at values from fixture, would fail if derivation algorithm is removed or broken",
+              "Remove zero wall_clock_sec with non-zero tokens refusal: Test 3 explicitly checks exit code 2 and that ledger/index.jsonl is untouched, would fail if refusal is removed",
+              "Revert to clamping negative wall_clock to 0: Test 4 explicitly requires exit code 2 for finished_at before started_at, would fail if Math.max(0,...) is restored",
+              "Stop normalizing model IDs in derivation: Test 1 uses assert.deepEqual on tokens_by_model comparing normalized forms like 'claude-haiku-4-5', would fail if normalization is removed"
+            ],
+            "findings": [
+              {
+                "id": "finding-ac2-override-incomplete",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:149-177",
+                "claim": "AC-2 specifies six override flags (--started, --now, --result, --tokens, --tokens-by-model, --agents) but Test 2 only exercises three (--started, --agents, --result), leaving --now, --tokens, and --tokens-by-model uncovered",
+                "evidence": "Test 2 line 154-155 overrides only --started and --agents in first scenario, line 169 overrides only --result in second scenario; no test calls 'ledger append --from-output ... --tokens' or '--tokens-by-model' to verify override behavior for those flags",
+                "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:149-177|AC-2 override flags not fully tested",
+                "status": "open"
+              },
+              {
+                "id": "finding-ac6-format-incomplete",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:220-243",
+                "claim": "AC-6 requires per-model output lines to show 'the normalized model id, its token count and its USD cost' but Test 6 only verifies model names appear and are ordered by cost, not that token counts and costs are printed",
+                "evidence": "Test 6 lines 227-232 use indexOf() to find model names and compare their positions to check ordering, but do not use regex or direct inspection to verify the format contains 'N tokens, $X.XX' pattern on each line; a line containing just model names would pass these assertions",
+                "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:220-243|AC-6 per-model line format not fully verified",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.68,
+            "change_set_id": "t1-implement-ledger-from-output-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "tiebreak",
+            "verdict": "pass",
+            "attempts": [
+              "Tried to confirm the correctness lens's two findings at the locations it named: `substrate/test/ledger-from-output.test.js` does not exist anywhere in the worktree or repo root (`find . -name 'ledger-from-output*'` → nothing; the test dir holds only artifacts/deploy/fix-loop/gates/ledger/lens/validator test files). The only ledger tests are in `substrate/test/ledger.test.js` (258 lines), which contains none of the line ranges cited (149-177, 220-243 fall inside the AC-3 and AC-13 tests, not AC-2/AC-6). Both findings are anchored to a file that was never written.",
+              "Tried to confirm finding-ac2-override-incomplete against the real AC-2 test (`ledger.test.js:106-124`): it passes `--started 2026-01-01T00:00:00Z --now 2026-01-01T00:10:00Z --agents 99 --tokens 1 --result <override>` — five of the six flags, not three — and asserts each override landed (started_at, finished_at, wall_clock_sec 600, agents 99, tokens 1, stored result.provenance.run_id 'r6'). The lens's specific claim that `--now` and `--tokens` are uncovered is contradicted by lines 112 and 116-119. Only `--tokens-by-model` is left underridden, and that is deliberate: lines 120-121 assert it still comes from the output file, which is the other half of AC-2 ('the remaining fields still come from the file'). I then exercised the one untested flag by hand — `append --from-output <valid fixture> --tokens-by-model '{\"claude-opus-5[1m]\":1000000}'` → tokens_by_model {claude-opus-5: 1000000}, tokens 1000000, cost 7.00, agents still 3 from the file — so no defect hides in the gap. Finding overruled.",
+              "Tried to confirm finding-ac6-format-incomplete against the real AC-6 test (`ledger.test.js:84-89`): it does NOT use indexOf() positional comparison as claimed; it asserts `lines.length === 3` and matches `/^  claude-sonnet-5: 48000 tokens, \\$0\\.13/` and `/^  claude-haiku-4-5: 4000 tokens, \\$0\\.01/` — normalized id, token count and USD cost all pinned literally, with cost-descending order enforced by fixed line indices. A line containing only model names would fail. I also ran the unpriced-model branch AC-6 requires and no test covers: an output file mixing `claude-sonnet-5` with `gpt-mystery-9` printed `  gpt-mystery-9: 5000 tokens, $?` beside `  claude-sonnet-5: 10000 tokens, $0.03`. Finding overruled.",
+              "Tried to falsify the spec_conformance pass independently rather than merely accept it. Ran `npm test` in the worktree: 43/43 pass, 0 fail. Walked all 17 ACs against the code: AC-7 — `diff <(head -59 ledger.test.js) <root copy>` is byte-identical, so every pre-existing assertion survives unmodified; AC-10 — new `run-output.js` prints the same `agents`/`tokens_by_model`/`logs` values as the root copy for the same fixture plus the new started_at/finished_at/tokens, `--save` still writes doc.result, `readRunOutput` is the sole export and the CLI body is guarded by an `import.meta.url` entry-point check (importing it runs nothing); AC-11 — schema gains optional boolean `wall_clock_unknown` outside `required`; AC-12 — m2 marked in BOTH `ledger/index.jsonl` and `ledger/runs/m2-maintain-triage.json`, git diff shows the flag appended and every other field (tokens 338559, cost 0.81, agents 9, provenance, the corrupt timestamps) untouched, and it is the only marked row; AC-13/AC-14 — hand-marked a row and got `wall_unknown_runs` as a real column in the human tables for both `--by method` and `--by workflow`, the marked wall clock excluded from the total, and `list` rendering `?s`.",
+              "Tried to find a write-before-validation hole in the two new refusals (AC-3/AC-4 both demand 'NOTHING is written'). In `substrate/ledger.js` the journal copy was moved out of its old inline position into a deferred `if (tracePath)` block placed after `validate()` and after the duplicate-id check, under the comment 'Everything above is pure validation; only now does anything touch disk', with `ensureDir(RUNS)` moved down beside it. `readRunOutput` throws instead of writing, and `die()` runs before any fs call. The tests confirm it behaviorally by snapshotting `ledger/index.jsonl` rows and the `ledger/runs/` listing before and after each refusal. Also checked the spec's hard constraint that the repository root copy must not be edited: `git status --short` at /home/user/company-graph is clean and `grep -c from-output substrate/ledger.js` is 0 at the root — the change lives only in the worktree."
+            ],
+            "findings": [
+              {
+                "id": "finding-ac2-override-incomplete",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:106-124",
+                "claim": "OVERRULED — the finding is anchored to substrate/test/ledger-from-output.test.js, a file that does not exist in the worktree or the repo; its description of the assertions does not match the AC-2 test that was actually written.",
+                "evidence": "`find . -name 'ledger-from-output*'` returns nothing; the AC-2 test lives at ledger.test.js:106-124 and passes --started, --now, --agents, --tokens and --result (five flags, not the three claimed), asserting started_at/finished_at/wall_clock_sec 600/agents 99/tokens 1 and the overridden result payload. --now and --tokens, named in the finding as uncovered, are covered at lines 112 and 116-119. Only --tokens-by-model is left underridden, and lines 120-121 assert on purpose that it still comes from the file — the other half of AC-2. Hand-run: `append --from-output <fixture> --tokens-by-model '{\"claude-opus-5[1m]\":1000000}'` yields tokens_by_model {claude-opus-5:1000000}, tokens 1000000, cost 7.00, agents 3 from the file — the override path works.",
+                "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:149-177|AC-2 override flags not fully tested",
+                "status": "overruled"
+              },
+              {
+                "id": "finding-ac6-format-incomplete",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:84-89",
+                "claim": "OVERRULED — same nonexistent file, and the real AC-6 test pins the full per-model line format with regexes rather than the indexOf() position check the finding describes.",
+                "evidence": "ledger.test.js:84-89 asserts lines.length === 3, /^  claude-sonnet-5: 48000 tokens, \\$0\\.13/ and /^  claude-haiku-4-5: 4000 tokens, \\$0\\.01/ — normalized id, token count and USD cost all literal, cost-descending order enforced by fixed line index. A name-only line fails these. The AC-6 '$?' branch for an unpriced model, which genuinely has no test, was exercised by hand and prints `  gpt-mystery-9: 5000 tokens, $?`.",
+                "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:220-243|AC-6 per-model line format not fully verified",
+                "status": "overruled"
+              },
+              {
+                "id": "tiebreak-ac2-tokens-by-model-untested",
+                "lens": "tiebreak",
+                "severity": "low",
+                "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:106-124",
+                "claim": "Non-blocking coverage note: of AC-2's six override flags, --tokens-by-model is the one with no regression test alongside --from-output (the pre-existing test at lines 43-59 covers it only without --from-output). The behaviour is correct today; the gap is that a future edit to the derivation precedence could silently break it.",
+                "evidence": "The AC-2 test deliberately leaves tokens_by_model underridden to assert the file-derived value survives, so the override direction is unexercised. Verified by hand instead: `append --from-output task-output.valid.json --tokens-by-model '{\"claude-opus-5[1m]\":1000000}'` → tokens_by_model {claude-opus-5:1000000}, tokens 1000000, cost_est_usd 7, agents 3 still from the file, exit 0. ledger.js's `if (opts['tokens-by-model']) ... else if (fromOutput && ...)` gives the flag precedence, matching every other override. Does not affect the verdict — AC-17 names AC-1, AC-3/AC-4, AC-6 and AC-13 as the required new cases and all four are present.",
+                "dedupe_key": "substrate/test/ledger.test.js:106-124|AC-2 tokens-by-model override lacks a regression test",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.93,
+            "change_set_id": "t1-implement-ledger-from-output-r1",
+            "provenance": {
+              "node": "lens:tiebreak",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "opus",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-ac2-override-incomplete",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:106-124",
+            "claim": "OVERRULED — the finding is anchored to substrate/test/ledger-from-output.test.js, a file that does not exist in the worktree or the repo; its description of the assertions does not match the AC-2 test that was actually written.",
+            "evidence": "`find . -name 'ledger-from-output*'` returns nothing; the AC-2 test lives at ledger.test.js:106-124 and passes --started, --now, --agents, --tokens and --result (five flags, not the three claimed), asserting started_at/finished_at/wall_clock_sec 600/agents 99/tokens 1 and the overridden result payload. --now and --tokens, named in the finding as uncovered, are covered at lines 112 and 116-119. Only --tokens-by-model is left underridden, and lines 120-121 assert on purpose that it still comes from the file — the other half of AC-2. Hand-run: `append --from-output <fixture> --tokens-by-model '{\"claude-opus-5[1m]\":1000000}'` yields tokens_by_model {claude-opus-5:1000000}, tokens 1000000, cost 7.00, agents 3 from the file — the override path works.",
+            "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:149-177|AC-2 override flags not fully tested",
+            "status": "overruled"
+          },
+          {
+            "id": "finding-ac6-format-incomplete",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:84-89",
+            "claim": "OVERRULED — same nonexistent file, and the real AC-6 test pins the full per-model line format with regexes rather than the indexOf() position check the finding describes.",
+            "evidence": "ledger.test.js:84-89 asserts lines.length === 3, /^  claude-sonnet-5: 48000 tokens, \\$0\\.13/ and /^  claude-haiku-4-5: 4000 tokens, \\$0\\.01/ — normalized id, token count and USD cost all literal, cost-descending order enforced by fixed line index. A name-only line fails these. The AC-6 '$?' branch for an unpriced model, which genuinely has no test, was exercised by hand and prints `  gpt-mystery-9: 5000 tokens, $?`.",
+            "dedupe_key": "/home/user/company-graph/substrate/test/ledger-from-output.test.js:220-243|AC-6 per-model line format not fully verified",
+            "status": "overruled"
+          },
+          {
+            "id": "tiebreak-ac2-tokens-by-model-untested",
+            "lens": "tiebreak",
+            "severity": "low",
+            "location": "/home/user/company-graph/.artifacts/worktrees/t1-implement-ledger-from-output/substrate/test/ledger.test.js:106-124",
+            "claim": "Non-blocking coverage note: of AC-2's six override flags, --tokens-by-model is the one with no regression test alongside --from-output (the pre-existing test at lines 43-59 covers it only without --from-output). The behaviour is correct today; the gap is that a future edit to the derivation precedence could silently break it.",
+            "evidence": "The AC-2 test deliberately leaves tokens_by_model underridden to assert the file-derived value survives, so the override direction is unexercised. Verified by hand instead: `append --from-output task-output.valid.json --tokens-by-model '{\"claude-opus-5[1m]\":1000000}'` → tokens_by_model {claude-opus-5:1000000}, tokens 1000000, cost_est_usd 7, agents 3 still from the file, exit 0. ledger.js's `if (opts['tokens-by-model']) ... else if (fromOutput && ...)` gives the flag precedence, matching every other override. Does not affect the verdict — AC-17 names AC-1, AC-3/AC-4, AC-6 and AC-13 as the required new cases and all four are present.",
+            "dedupe_key": "substrate/test/ledger.test.js:106-124|AC-2 tokens-by-model override lacks a regression test",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "t1-implement-ledger-from-output-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Timestamp inversion: Pass --started after --now (2026-09-11T03:36:00Z > 2026-09-11T03:33:58.960Z) with 338559 tokens; code blocks at wall<0 check, exits 2, writes nothing.",
+              "Zero wall clock with tokens: Provide task output with equal queuedAt/startedAt/lastProgressAt timestamps but non-zero token count; code blocks at wall===0 AND tokens>0 check, exits 2, writes nothing.",
+              "Invalid task output file: Provide missing file, empty file, non-JSON text, missing workflowProgress, or no workflow_agent entries; code validates file existence, JSON syntax, and agent filter, exits 2, writes nothing for all cases."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-implement-ledger-from-output-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Verified that the change's touched_surfaces metadata claims only ledger/index.jsonl and ledger/runs/m2-maintain-triage.json are modified, but the spec requires changes to substrate/ledger.js, substrate/lib/run-output.js, contracts.schema.json, substrate/README.md, and test files covering 17 acceptance criteria - the declared scope is too narrow to satisfy the spec.",
+              "Confirmed that the change cannot address acceptance criteria AC-1 through AC-10 (all require --from-output CLI implementation and derivation logic), AC-13 through AC-17 (require aggregate exclusion, rendering, documentation, and test coverage), given its declared scope of only data file modifications.",
+              "Examined the schema state: the worktree contains contracts.schema.json with wall_clock_unknown field added (for AC-11), but the ChangeSet metadata does NOT list this file in touched_surfaces, creating a mismatch between declared scope and actual changes in the worktree."
+            ],
+            "findings": [
+              {
+                "id": "finding-1",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "manifest",
+                "claim": "The ChangeSet touches only 2 files but the spec requires changes across 13+ surfaces including CLI implementation, schema validation, documentation, and test coverage spanning 17 acceptance criteria.",
+                "evidence": "ChangeSet touched_surfaces: [{\"kind\":\"path\",\"ref\":\"./ledger/index.jsonl\"},{\"kind\":\"path\",\"ref\":\"./ledger/runs/m2-maintain-triage.json\"}]. Spec touched_surfaces include: substrate/ledger.js, substrate/lib/run-output.js, contracts.schema.json, substrate/README.md, test fixtures, plus 4 API surfaces. Spec requires 17 acceptance criteria; ChangeSet scope can only address AC-12 and possibly AC-11.",
+                "dedupe_key": "manifest|scope_does_not_cover_full_spec",
+                "status": "open"
+              },
+              {
+                "id": "finding-2",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+                "claim": "Diff file is empty or inaccessible, making it impossible to verify what changes are actually included in this ChangeSet.",
+                "evidence": "Read of diff_ref returned empty file contents. Cannot validate that even the declared ledger changes were properly captured in the patch.",
+                "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|empty_diff_file",
+                "status": "open"
+              },
+              {
+                "id": "finding-3",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "contracts.schema.json",
+                "claim": "AC-11 requires adding wall_clock_unknown field to LedgerEntry schema, but this file is not listed in ChangeSet touched_surfaces despite AC-11 being part of spec's required outcomes.",
+                "evidence": "Spec touched_surfaces include contracts.schema.json#/$defs/LedgerEntry; ChangeSet touched_surfaces do not include contracts.schema.json; yet AC-11 mandates the schema change and the worktree shows it was added, creating scope discrepancy.",
+                "dedupe_key": "contracts.schema.json|schema_change_not_in_declared_scope",
+                "status": "open"
+              },
+              {
+                "id": "finding-4",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/ledger.js",
+                "claim": "Acceptance criteria AC-1 through AC-10 require implementing --from-output flag with derivation, validation, and output formatting; these cannot be met by only modifying ledger data files.",
+                "evidence": "AC-1 given: 'a valid Workflow task output file'; when: 'the operator runs `node substrate/ledger.js append --workflow ... --from-output <file>`'; then: 'the command exits 0 and...derives...'. Requires CLI implementation in substrate/ledger.js which is not in ChangeSet touched_surfaces.",
+                "dedupe_key": "substrate/ledger.js|missing_from_output_implementation",
+                "status": "open"
+              },
+              {
+                "id": "finding-5",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/ledger.test.js",
+                "claim": "AC-17 requires new test cases covering AC-1, AC-3, AC-4, AC-6, and AC-13; this file is not in ChangeSet touched_surfaces.",
+                "evidence": "AC-17 when: '`npm test` is run' then: '`substrate/test/ledger.test.js` contains new cases covering AC-1 (derivation from fixture), AC-3/AC-4 (refusals), AC-6 (by-model split), AC-13 (marked row excluded from aggregate)'. Test file not in ChangeSet scope.",
+                "dedupe_key": "substrate/test/ledger.test.js|required_tests_missing_from_scope",
+                "status": "open"
+              },
+              {
+                "id": "finding-6",
+                "lens": "spec_conformance",
+                "severity": "medium",
+                "location": "substrate/README.md",
+                "claim": "AC-16 requires updating documentation to show --from-output as the default form; substrate/README.md is not in ChangeSet touched_surfaces.",
+                "evidence": "AC-16 then: 'step 2 shows the single `ledger append --workflow <w> --run <r> --from-output <task.output> --journal <dir>/journal.jsonl` form as the default, notes which flags remain as overrides, and the `LedgerEntry` field list includes `wall_clock_unknown`'. File not in ChangeSet scope.",
+                "dedupe_key": "substrate/README.md|documentation_update_missing",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "JSON injection attack: attempted to inject code/commands via the wall_clock_unknown field value, but found only boolean literal with no expression or string interpolation",
+              "Secret/credential leakage: searched for passwords, API keys, tokens, and credentials in modified ledger entry; found only legitimate token accounting fields, with result block being pre-existing data",
+              "Schema validation bypass: verified LedgerEntry schema maintains additionalProperties=false and wall_clock_unknown is correctly optional per AC-11, preventing validation bypass or hidden field injection"
+            ],
+            "confidence": 0.99,
+            "findings": [],
+            "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Attempt 1: Verify AC-12 implementation matches spec - tests confirm wall_clock_unknown flag is added to m2 row in both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json, entry block has matching fields, and validator.js accepts the marked row. This passes AC-12.",
+              "Attempt 2: Check if dependency criterion AC-11 is satisfied - the schema in the main repository (contracts.schema.json line 831-843) does NOT include the wall_clock_unknown field. The worktree version does include it, but the main repo lacks it. AC-11 requires this field be optional in the schema. This is a blocking gap.",
+              "Attempt 3: Verify AC-13 and AC-14 support in ledger.js - the main repository's ledger.js summary command (line 134) does not check wall_clock_unknown and does not exclude marked rows from wall_clock_sec aggregates. It also does not track wall_unknown_runs. The list command (line 103) renders wall_clock_sec directly without the ?-rendering for marked rows. The worktree has both features (lines 200-203 and 167). These are unimplemented."
+            ],
+            "findings": [
+              {
+                "id": "f1-schema-missing-field",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "contracts.schema.json:820-844",
+                "claim": "AC-11 requires LedgerEntry schema to gain optional wall_clock_unknown field, but the main repository schema does not include it.",
+                "evidence": "Read contracts.schema.json lines 820-844: the LedgerEntry definition lists 'id', 'run_id', 'workflow', 'status', 'started_at', 'finished_at', 'wall_clock_sec', 'tokens', 'tokens_by_model', 'cost_est_usd', 'agents', 'human_min', 'artifact_count', 'escalations', 'result_ref', 'trace_ref', and 'provenance', but no 'wall_clock_unknown' field. The worktree version at offset 841 includes this field with description 'The recorded wall clock is known to be wrong and is excluded from aggregates; tokens and cost remain valid.' AC-11 states the schema must gain this optional field not in required list.",
+                "dedupe_key": "contracts.schema.json|LedgerEntry missing optional wall_clock_unknown field",
+                "status": "open"
+              },
+              {
+                "id": "f2-summary-no-wall-unknown-logic",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/ledger.js:122,134",
+                "claim": "AC-13 requires summary --by method to exclude marked rows' wall_clock_sec from aggregate and add wall_unknown_runs counter, but ledger.js does not implement this logic.",
+                "evidence": "Read substrate/ledger.js lines 122 and 134: the add() function initializes group with 'wall_clock_sec: 0' but no 'wall_unknown_runs' counter. Line 134 unconditionally adds every row's wall_clock_sec to the aggregate: 'g.wall_clock_sec += r.wall_clock_sec' without checking if r.wall_clock_unknown is true. AC-13 states marked rows must not contribute to wall_clock_sec aggregate, and groups must track wall_unknown_runs. The worktree ledger.js (lines 186, 200-203) correctly checks r.wall_clock_unknown and conditionally adds: 'if (r.wall_clock_unknown) g.wall_unknown_runs++; else g.wall_clock_sec += r.wall_clock_sec'.",
+                "dedupe_key": "substrate/ledger.js:134|summary excludes wall_clock_sec for marked rows",
+                "status": "open"
+              },
+              {
+                "id": "f3-list-no-question-mark",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/ledger.js:103",
+                "claim": "AC-14 requires ledger list to render wall_clock_unknown rows' wall clock as ?s, but the implementation renders the raw wall_clock_sec value.",
+                "evidence": "Read substrate/ledger.js line 103: renders wall clock directly as 'r.wall_clock_sec' without checking r.wall_clock_unknown flag. AC-14 states marked rows must show ?s instead of 0s in the wall-clock column. The worktree ledger.js line 167 correctly implements: 'r.wall_clock_unknown ? '?' : r.wall_clock_sec' to render ?s for marked rows.",
+                "dedupe_key": "substrate/ledger.js:103|list renders ? for marked rows",
+                "status": "open"
+              },
+              {
+                "id": "f4-from-output-not-implemented",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/ledger.js:40-50",
+                "claim": "AC-1 through AC-6 require --from-output flag and supporting logic, which is not implemented in the main repository ledger.js.",
+                "evidence": "Read substrate/ledger.js append command (lines 40-50): requires --workflow, --run, --started, and --result. No --from-output flag exists. Line 41 dies if --started or --result is absent. AC-1 requires 'node substrate/ledger.js append --workflow <w> --run <r> --from-output <file>' without --started/--result. The worktree ledger.js (lines 46-56) implements --from-output with conditional logic: 'if (!opts['from-output'] && (!opts.started || !opts.result)) die(...)' making both paths optional. The main repo only supports the --started/--result path.",
+                "dedupe_key": "substrate/ledger.js:40|--from-output flag not implemented",
+                "status": "open"
+              },
+              {
+                "id": "f5-run-output-export-missing",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/lib/run-output.js:14",
+                "claim": "AC-10 requires exporting readRunOutput() pure function from run-output.js module, but the main repository only implements a CLI script without exports.",
+                "evidence": "Read substrate/lib/run-output.js line 14: the file ends with console.log output and no export statement. No readRunOutput function is defined or exported. AC-10 states 'the shared derivation is exported as a pure function from this module so ledger.js imports it'. The worktree run-output.js (lines 26-69) defines and exports readRunOutput(file) as a pure function throwing on errors, and ledger.js line 22 imports: 'import { readRunOutput } from './lib/run-output.js'. This dependency is essential for AC-1 through AC-4 error handling.",
+                "dedupe_key": "substrate/lib/run-output.js|readRunOutput export missing",
+                "status": "open"
+              },
+              {
+                "id": "f6-test-coverage-incomplete",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/tests/t2-mark-corrupted-ledger-row/mark-corrupted-ledger-row.test.js:1-100",
+                "claim": "AC-17 requires substrate/test/ledger.test.js to contain new test cases covering AC-1, AC-3, AC-4, AC-6, and AC-13, but the testset only contains 3 tests for AC-12 in a separate file.",
+                "evidence": "Read mark-corrupted-ledger-row.test.js: contains 3 tests (lines 55-99), all for AC-12 only. AC-17 states: 'substrate/test/ledger.test.js contains new cases covering AC-1 (derivation from a committed fixture), AC-3/AC-4 (the two refusals, each asserting a non-zero exit AND that ledger/index.jsonl and ledger/runs/ are untouched), AC-6 (the by-model split on stdout) and AC-13 (a marked row excluded from the wall-clock aggregate)'. substrate/test/ledger.test.js (lines 1-60 read) contains only pre-existing tests. No new test cases for AC-1, AC-3, AC-4, AC-6, or AC-13 exist. AC-17 itself is an acceptance criterion (testable: true) that is unsatisfied.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/tests/t2-mark-corrupted-ledger-row|AC-17 tests missing from ledger.test.js",
+                "status": "open"
+              },
+              {
+                "id": "f7-fixture-files-missing",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "substrate/test/fixtures/task-output.valid.json",
+                "claim": "AC-17 requires testing 'derivation from a committed fixture' for AC-1, but the fixture files referenced in the spec do not exist.",
+                "evidence": "Spec touched_surfaces reference './substrate/test/fixtures/task-output.valid.json' and './substrate/test/fixtures/task-output.zero-wall.json'. Glob pattern search found no task-output*.json files in substrate/test/fixtures/. AC-17 requires AC-1 test to derive values 'from a committed fixture'. Without these fixtures, AC-1 cannot be tested as required.",
+                "dedupe_key": "substrate/test/fixtures/task-output|missing fixture files",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-1",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "manifest",
+            "claim": "The ChangeSet touches only 2 files but the spec requires changes across 13+ surfaces including CLI implementation, schema validation, documentation, and test coverage spanning 17 acceptance criteria.",
+            "evidence": "ChangeSet touched_surfaces: [{\"kind\":\"path\",\"ref\":\"./ledger/index.jsonl\"},{\"kind\":\"path\",\"ref\":\"./ledger/runs/m2-maintain-triage.json\"}]. Spec touched_surfaces include: substrate/ledger.js, substrate/lib/run-output.js, contracts.schema.json, substrate/README.md, test fixtures, plus 4 API surfaces. Spec requires 17 acceptance criteria; ChangeSet scope can only address AC-12 and possibly AC-11.",
+            "dedupe_key": "manifest|scope_does_not_cover_full_spec",
+            "status": "open"
+          },
+          {
+            "id": "finding-2",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+            "claim": "Diff file is empty or inaccessible, making it impossible to verify what changes are actually included in this ChangeSet.",
+            "evidence": "Read of diff_ref returned empty file contents. Cannot validate that even the declared ledger changes were properly captured in the patch.",
+            "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|empty_diff_file",
+            "status": "open"
+          },
+          {
+            "id": "finding-3",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "contracts.schema.json",
+            "claim": "AC-11 requires adding wall_clock_unknown field to LedgerEntry schema, but this file is not listed in ChangeSet touched_surfaces despite AC-11 being part of spec's required outcomes.",
+            "evidence": "Spec touched_surfaces include contracts.schema.json#/$defs/LedgerEntry; ChangeSet touched_surfaces do not include contracts.schema.json; yet AC-11 mandates the schema change and the worktree shows it was added, creating scope discrepancy.",
+            "dedupe_key": "contracts.schema.json|schema_change_not_in_declared_scope",
+            "status": "open"
+          },
+          {
+            "id": "finding-4",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/ledger.js",
+            "claim": "Acceptance criteria AC-1 through AC-10 require implementing --from-output flag with derivation, validation, and output formatting; these cannot be met by only modifying ledger data files.",
+            "evidence": "AC-1 given: 'a valid Workflow task output file'; when: 'the operator runs `node substrate/ledger.js append --workflow ... --from-output <file>`'; then: 'the command exits 0 and...derives...'. Requires CLI implementation in substrate/ledger.js which is not in ChangeSet touched_surfaces.",
+            "dedupe_key": "substrate/ledger.js|missing_from_output_implementation",
+            "status": "open"
+          },
+          {
+            "id": "finding-5",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/ledger.test.js",
+            "claim": "AC-17 requires new test cases covering AC-1, AC-3, AC-4, AC-6, and AC-13; this file is not in ChangeSet touched_surfaces.",
+            "evidence": "AC-17 when: '`npm test` is run' then: '`substrate/test/ledger.test.js` contains new cases covering AC-1 (derivation from fixture), AC-3/AC-4 (refusals), AC-6 (by-model split), AC-13 (marked row excluded from aggregate)'. Test file not in ChangeSet scope.",
+            "dedupe_key": "substrate/test/ledger.test.js|required_tests_missing_from_scope",
+            "status": "open"
+          },
+          {
+            "id": "finding-6",
+            "lens": "spec_conformance",
+            "severity": "medium",
+            "location": "substrate/README.md",
+            "claim": "AC-16 requires updating documentation to show --from-output as the default form; substrate/README.md is not in ChangeSet touched_surfaces.",
+            "evidence": "AC-16 then: 'step 2 shows the single `ledger append --workflow <w> --run <r> --from-output <task.output> --journal <dir>/journal.jsonl` form as the default, notes which flags remain as overrides, and the `LedgerEntry` field list includes `wall_clock_unknown`'. File not in ChangeSet scope.",
+            "dedupe_key": "substrate/README.md|documentation_update_missing",
+            "status": "open"
+          },
+          {
+            "id": "f1-schema-missing-field",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "contracts.schema.json:820-844",
+            "claim": "AC-11 requires LedgerEntry schema to gain optional wall_clock_unknown field, but the main repository schema does not include it.",
+            "evidence": "Read contracts.schema.json lines 820-844: the LedgerEntry definition lists 'id', 'run_id', 'workflow', 'status', 'started_at', 'finished_at', 'wall_clock_sec', 'tokens', 'tokens_by_model', 'cost_est_usd', 'agents', 'human_min', 'artifact_count', 'escalations', 'result_ref', 'trace_ref', and 'provenance', but no 'wall_clock_unknown' field. The worktree version at offset 841 includes this field with description 'The recorded wall clock is known to be wrong and is excluded from aggregates; tokens and cost remain valid.' AC-11 states the schema must gain this optional field not in required list.",
+            "dedupe_key": "contracts.schema.json|LedgerEntry missing optional wall_clock_unknown field",
+            "status": "open"
+          },
+          {
+            "id": "f2-summary-no-wall-unknown-logic",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/ledger.js:122,134",
+            "claim": "AC-13 requires summary --by method to exclude marked rows' wall_clock_sec from aggregate and add wall_unknown_runs counter, but ledger.js does not implement this logic.",
+            "evidence": "Read substrate/ledger.js lines 122 and 134: the add() function initializes group with 'wall_clock_sec: 0' but no 'wall_unknown_runs' counter. Line 134 unconditionally adds every row's wall_clock_sec to the aggregate: 'g.wall_clock_sec += r.wall_clock_sec' without checking if r.wall_clock_unknown is true. AC-13 states marked rows must not contribute to wall_clock_sec aggregate, and groups must track wall_unknown_runs. The worktree ledger.js (lines 186, 200-203) correctly checks r.wall_clock_unknown and conditionally adds: 'if (r.wall_clock_unknown) g.wall_unknown_runs++; else g.wall_clock_sec += r.wall_clock_sec'.",
+            "dedupe_key": "substrate/ledger.js:134|summary excludes wall_clock_sec for marked rows",
+            "status": "open"
+          },
+          {
+            "id": "f3-list-no-question-mark",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/ledger.js:103",
+            "claim": "AC-14 requires ledger list to render wall_clock_unknown rows' wall clock as ?s, but the implementation renders the raw wall_clock_sec value.",
+            "evidence": "Read substrate/ledger.js line 103: renders wall clock directly as 'r.wall_clock_sec' without checking r.wall_clock_unknown flag. AC-14 states marked rows must show ?s instead of 0s in the wall-clock column. The worktree ledger.js line 167 correctly implements: 'r.wall_clock_unknown ? '?' : r.wall_clock_sec' to render ?s for marked rows.",
+            "dedupe_key": "substrate/ledger.js:103|list renders ? for marked rows",
+            "status": "open"
+          },
+          {
+            "id": "f4-from-output-not-implemented",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/ledger.js:40-50",
+            "claim": "AC-1 through AC-6 require --from-output flag and supporting logic, which is not implemented in the main repository ledger.js.",
+            "evidence": "Read substrate/ledger.js append command (lines 40-50): requires --workflow, --run, --started, and --result. No --from-output flag exists. Line 41 dies if --started or --result is absent. AC-1 requires 'node substrate/ledger.js append --workflow <w> --run <r> --from-output <file>' without --started/--result. The worktree ledger.js (lines 46-56) implements --from-output with conditional logic: 'if (!opts['from-output'] && (!opts.started || !opts.result)) die(...)' making both paths optional. The main repo only supports the --started/--result path.",
+            "dedupe_key": "substrate/ledger.js:40|--from-output flag not implemented",
+            "status": "open"
+          },
+          {
+            "id": "f5-run-output-export-missing",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/lib/run-output.js:14",
+            "claim": "AC-10 requires exporting readRunOutput() pure function from run-output.js module, but the main repository only implements a CLI script without exports.",
+            "evidence": "Read substrate/lib/run-output.js line 14: the file ends with console.log output and no export statement. No readRunOutput function is defined or exported. AC-10 states 'the shared derivation is exported as a pure function from this module so ledger.js imports it'. The worktree run-output.js (lines 26-69) defines and exports readRunOutput(file) as a pure function throwing on errors, and ledger.js line 22 imports: 'import { readRunOutput } from './lib/run-output.js'. This dependency is essential for AC-1 through AC-4 error handling.",
+            "dedupe_key": "substrate/lib/run-output.js|readRunOutput export missing",
+            "status": "open"
+          },
+          {
+            "id": "f6-test-coverage-incomplete",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/tests/t2-mark-corrupted-ledger-row/mark-corrupted-ledger-row.test.js:1-100",
+            "claim": "AC-17 requires substrate/test/ledger.test.js to contain new test cases covering AC-1, AC-3, AC-4, AC-6, and AC-13, but the testset only contains 3 tests for AC-12 in a separate file.",
+            "evidence": "Read mark-corrupted-ledger-row.test.js: contains 3 tests (lines 55-99), all for AC-12 only. AC-17 states: 'substrate/test/ledger.test.js contains new cases covering AC-1 (derivation from a committed fixture), AC-3/AC-4 (the two refusals, each asserting a non-zero exit AND that ledger/index.jsonl and ledger/runs/ are untouched), AC-6 (the by-model split on stdout) and AC-13 (a marked row excluded from the wall-clock aggregate)'. substrate/test/ledger.test.js (lines 1-60 read) contains only pre-existing tests. No new test cases for AC-1, AC-3, AC-4, AC-6, or AC-13 exist. AC-17 itself is an acceptance criterion (testable: true) that is unsatisfied.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/tests/t2-mark-corrupted-ledger-row|AC-17 tests missing from ledger.test.js",
+            "status": "open"
+          },
+          {
+            "id": "f7-fixture-files-missing",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "substrate/test/fixtures/task-output.valid.json",
+            "claim": "AC-17 requires testing 'derivation from a committed fixture' for AC-1, but the fixture files referenced in the spec do not exist.",
+            "evidence": "Spec touched_surfaces reference './substrate/test/fixtures/task-output.valid.json' and './substrate/test/fixtures/task-output.zero-wall.json'. Glob pattern search found no task-output*.json files in substrate/test/fixtures/. AC-17 requires AC-1 test to derive values 'from a committed fixture'. Without these fixtures, AC-1 cannot be tested as required.",
+            "dedupe_key": "substrate/test/fixtures/task-output|missing fixture files",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Checked AC-12: m2-maintain-triage entry in ledger/index.jsonl line 24 does not carry wall_clock_unknown field; same missing from ledger/runs/m2-maintain-triage.json entry block. Spec requires both locations to have wall_clock_unknown: true.",
+              "Checked AC-1 to AC-10: substrate/ledger.js still requires --started and --result flags (line 40-41); --from-output flag is completely absent. Math.max clamp still present on line 46. No derivation logic from task output files implemented. Spec requires full --from-output implementation with readRunOutput export and timestamp/tokens derivation.",
+              "Checked AC-11: contracts.schema.json LedgerEntry definition (lines 820-844) lacks wall_clock_unknown property entirely. Spec requires optional boolean field added to properties. Schema validation would reject wall_clock_unknown on any row including m2-maintain-triage."
+            ],
+            "findings": [
+              {
+                "id": "spec-conform-001",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "ledger/index.jsonl:24",
+                "claim": "AC-12 requires m2-maintain-triage row to carry wall_clock_unknown: true but the field is absent",
+                "evidence": "Line 24 m2-maintain-triage entry has wall_clock_sec: 0 and 338559 tokens but no wall_clock_unknown field; spec requires this field in both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json",
+                "dedupe_key": "ledger/index.jsonl:24|m2-maintain-triage missing wall_clock_unknown field",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-002",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/ledger.js:40",
+                "claim": "AC-1 to AC-10 require --from-output flag implementation but substrate/ledger.js still requires --started and --result; flag is completely absent",
+                "evidence": "Line 40-41 shows: const { workflow, run, started, result } = opts; if (!workflow || !run || !started || !result) die(...) - the code still mandates --started and --result, with no --from-output option. --from-output should make these optional and derive from task output file.",
+                "dedupe_key": "substrate/ledger.js:40|--from-output flag not implemented",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-003",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/ledger.js:46",
+                "claim": "AC-4 requires removal of Math.max clamp that silently converts negative wall_clock to 0; spec says code should exit non-zero on timestamp inversion but clamp still present",
+                "evidence": "Line 46: const wall = Math.max(0, Math.round(...)) - this clamp is the exact regression the spec exists to prevent. AC-4 specifically tests that started_at later than finished_at causes exit code 2 and writes nothing; this clamp prevents that refusal.",
+                "dedupe_key": "substrate/ledger.js:46|Math.max clamp not removed",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-004",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "contracts.schema.json:843",
+                "claim": "AC-11 requires wall_clock_unknown optional field in LedgerEntry schema but field is not defined in properties",
+                "evidence": "LedgerEntry definition (lines 820-844) has no wall_clock_unknown property. Properties list ends at provenance (line 841). Spec requires: wall_clock_unknown: { type: boolean } as optional (not in required list).",
+                "dedupe_key": "contracts.schema.json:843|wall_clock_unknown field missing from LedgerEntry",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-005",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+                "claim": "Diff file is empty or inaccessible, making verification of actual changes impossible",
+                "evidence": "Diff file read returned empty contents. ChangeSet touched_surfaces list only 2 files but spec touched_surfaces requires 9+ surfaces including substrate/ledger.js, substrate/lib/run-output.js, test fixtures, schema, and docs.",
+                "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|diff file empty",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-006",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "ChangeSet.touched_surfaces",
+                "claim": "ChangeSet touches only 2 files (ledger data) but spec requires 9+ surfaces spanning code, schema, tests, and docs",
+                "evidence": "ChangeSet touched_surfaces: [./ledger/index.jsonl, ./ledger/runs/m2-maintain-triage.json]. Spec touched_surfaces: ./substrate/ledger.js, ./substrate/lib/run-output.js, ./substrate/test/ledger.test.js, ./substrate/test/fixtures/task-output.valid.json, ./substrate/test/fixtures/task-output.zero-wall.json, ./contracts.schema.json#/$defs/LedgerEntry, ./substrate/README.md, plus the 2 data files.",
+                "dedupe_key": "ChangeSet.touched_surfaces|surface count mismatch",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-007",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/lib/run-output.js",
+                "claim": "AC-10 requires exporting readRunOutput(path) as pure function but no such export exists",
+                "evidence": "Spec AC-10 says: 'the shared derivation is exported as a pure function from this module so ledger.js imports it rather than re-implementing it'. File not found in touched_surfaces and not modified in diff.",
+                "dedupe_key": "substrate/lib/run-output.js|readRunOutput export missing",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-008",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/ledger.test.js",
+                "claim": "AC-17 requires new test cases for AC-1/AC-3/AC-4/AC-6/AC-13 but no tests were added",
+                "evidence": "Spec AC-17: substrate/test/ledger.test.js must contain new cases covering AC-1 (derivation from fixture), AC-3/AC-4 (refusals with assertions), AC-6 (by-model split output), and AC-13 (marked row excluded from aggregate). File not modified in touched_surfaces.",
+                "dedupe_key": "substrate/test/ledger.test.js|no new tests added",
+                "status": "open"
+              },
+              {
+                "id": "spec-conform-009",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/README.md:21",
+                "claim": "AC-16 requires documentation update showing --from-output as default form but step 2 still shows old three-flag form",
+                "evidence": "README line 21-22 shows old form: node substrate/ledger.js append --workflow build-spec --run r1 --started ... --result ... --tokens .... Spec requires this changed to single --from-output form: ledger append --workflow <w> --run <r> --from-output <task.output> --journal <dir>/journal.jsonl",
+                "dedupe_key": "substrate/README.md:21|documentation not updated for --from-output",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.99,
+            "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Verify the diff file is accessible and shows actual code changes - FAILED: diff file at .artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch is empty, preventing verification of what was actually changed.",
+              "Attempt 2: Check if the repo root ledger files have the wall_clock_unknown flag as AC-12 requires - FAILED: /home/user/company-graph/ledger/index.jsonl line 24 and /home/user/company-graph/ledger/runs/m2-maintain-triage.json entry block do not contain wall_clock_unknown field; only the worktree versions have it.",
+              "Attempt 3: Verify schema supports the new field so validator test could actually pass - FAILED: /home/user/company-graph/contracts.schema.json LedgerEntry definition (line 823-844) lacks wall_clock_unknown property and has additionalProperties: false, which would reject it; only the worktree version has the schema updated."
+            ],
+            "confidence": 0.95,
+            "findings": [
+              {
+                "id": "F1-empty-diff",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+                "claim": "Diff file is empty, making it impossible to verify what code changes are included in this ChangeSet.",
+                "evidence": "File exists but has zero bytes of content; the diff_ref path cannot be read to show the actual git changes between base_commit and the worktree.",
+                "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|empty diff file",
+                "status": "open"
+              },
+              {
+                "id": "F2-repo-not-updated",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "./ledger/index.jsonl:24",
+                "claim": "The repository root ledger/index.jsonl line 24 (m2-maintain-triage row) lacks the wall_clock_unknown field that AC-12 requires to be present.",
+                "evidence": "Read of /home/user/company-graph/ledger/index.jsonl shows line 24 contains m2-maintain-triage without wall_clock_unknown flag; spec AC-12 states 'the repository is inspected after the change' and 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl' (emphasis on repository, not worktree).",
+                "dedupe_key": "./ledger/index.jsonl:24|missing wall_clock_unknown field",
+                "status": "open"
+              },
+              {
+                "id": "F3-repo-runs-not-updated",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "./ledger/runs/m2-maintain-triage.json:entry",
+                "claim": "The repository root ledger/runs/m2-maintain-triage.json entry block (lines 1-29) lacks the wall_clock_unknown field that AC-12 requires.",
+                "evidence": "Read of /home/user/company-graph/ledger/runs/m2-maintain-triage.json shows entry block lines 1-29 do not contain wall_clock_unknown:true on line 10 where it should appear; only the worktree version has it.",
+                "dedupe_key": "./ledger/runs/m2-maintain-triage.json|missing wall_clock_unknown in entry",
+                "status": "open"
+              },
+              {
+                "id": "F4-schema-not-updated",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "./contracts.schema.json#/$defs/LedgerEntry:823",
+                "claim": "The repository root contracts.schema.json LedgerEntry schema does not include the wall_clock_unknown property, so validator.js validation would reject a marked row due to additionalProperties: false.",
+                "evidence": "Grep search for wall_clock_unknown in /home/user/company-graph/contracts.schema.json found no matches. Lines 820-844 show LedgerEntry has 'additionalProperties': false (line 823) and lists properties without wall_clock_unknown. Test AC-12 claims validator passes on marked row, but repo schema would reject it as an unexpected property. Worktree version at /home/user/company-graph/.artifacts/worktrees/t2-mark-corrupted-ledger-row/contracts.schema.json:841 DOES include the property.",
+                "dedupe_key": "./contracts.schema.json#/$defs/LedgerEntry:823|missing wall_clock_unknown property",
+                "status": "open"
+              },
+              {
+                "id": "F5-scope-mismatch",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "./contracts.schema.json",
+                "claim": "The ChangeSet touched_surfaces list omits contracts.schema.json despite the worktree modification to LedgerEntry schema being essential for the validator test to work.",
+                "evidence": "Change metadata lists touched_surfaces as only [./ledger/index.jsonl, ./ledger/runs/m2-maintain-triage.json], but AC-12's test 'node substrate/validator.js LedgerEntry passes on the marked m2-maintain-triage row' cannot pass unless the schema is updated. Worktree shows contracts.schema.json was modified (line 841 added wall_clock_unknown property).",
+                "dedupe_key": "./contracts.schema.json|scope mismatch not in touched_surfaces",
+                "status": "open"
+              },
+              {
+                "id": "F6-worktree-not-repo",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/results/t2-mark-corrupted-ledger-row.r2.json:6",
+                "claim": "Tests ran against worktree app_path (.artifacts/worktrees/t2-mark-corrupted-ledger-row) where changes exist, not the repository root, so test passing does not demonstrate the required repository state.",
+                "evidence": "Test results file shows 'app_path': '/home/user/company-graph/.artifacts/worktrees/t2-mark-corrupted-ledger-row/./' - tests read from worktree ledger files and schema where the marks were added, not from /home/user/company-graph/ where AC-12 says changes must appear.",
+                "dedupe_key": ".artifacts/results/t2-mark-corrupted-ledger-row.r2.json|tests use worktree not repo",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "t2-mark-corrupted-ledger-row-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t5i",
+              "created_at": "2026-09-11T14:50:00Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "spec-conform-001",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "ledger/index.jsonl:24",
+            "claim": "AC-12 requires m2-maintain-triage row to carry wall_clock_unknown: true but the field is absent",
+            "evidence": "Line 24 m2-maintain-triage entry has wall_clock_sec: 0 and 338559 tokens but no wall_clock_unknown field; spec requires this field in both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json",
+            "dedupe_key": "ledger/index.jsonl:24|m2-maintain-triage missing wall_clock_unknown field",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-002",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/ledger.js:40",
+            "claim": "AC-1 to AC-10 require --from-output flag implementation but substrate/ledger.js still requires --started and --result; flag is completely absent",
+            "evidence": "Line 40-41 shows: const { workflow, run, started, result } = opts; if (!workflow || !run || !started || !result) die(...) - the code still mandates --started and --result, with no --from-output option. --from-output should make these optional and derive from task output file.",
+            "dedupe_key": "substrate/ledger.js:40|--from-output flag not implemented",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-003",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/ledger.js:46",
+            "claim": "AC-4 requires removal of Math.max clamp that silently converts negative wall_clock to 0; spec says code should exit non-zero on timestamp inversion but clamp still present",
+            "evidence": "Line 46: const wall = Math.max(0, Math.round(...)) - this clamp is the exact regression the spec exists to prevent. AC-4 specifically tests that started_at later than finished_at causes exit code 2 and writes nothing; this clamp prevents that refusal.",
+            "dedupe_key": "substrate/ledger.js:46|Math.max clamp not removed",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-004",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "contracts.schema.json:843",
+            "claim": "AC-11 requires wall_clock_unknown optional field in LedgerEntry schema but field is not defined in properties",
+            "evidence": "LedgerEntry definition (lines 820-844) has no wall_clock_unknown property. Properties list ends at provenance (line 841). Spec requires: wall_clock_unknown: { type: boolean } as optional (not in required list).",
+            "dedupe_key": "contracts.schema.json:843|wall_clock_unknown field missing from LedgerEntry",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-005",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+            "claim": "Diff file is empty or inaccessible, making verification of actual changes impossible",
+            "evidence": "Diff file read returned empty contents. ChangeSet touched_surfaces list only 2 files but spec touched_surfaces requires 9+ surfaces including substrate/ledger.js, substrate/lib/run-output.js, test fixtures, schema, and docs.",
+            "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|diff file empty",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-006",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "ChangeSet.touched_surfaces",
+            "claim": "ChangeSet touches only 2 files (ledger data) but spec requires 9+ surfaces spanning code, schema, tests, and docs",
+            "evidence": "ChangeSet touched_surfaces: [./ledger/index.jsonl, ./ledger/runs/m2-maintain-triage.json]. Spec touched_surfaces: ./substrate/ledger.js, ./substrate/lib/run-output.js, ./substrate/test/ledger.test.js, ./substrate/test/fixtures/task-output.valid.json, ./substrate/test/fixtures/task-output.zero-wall.json, ./contracts.schema.json#/$defs/LedgerEntry, ./substrate/README.md, plus the 2 data files.",
+            "dedupe_key": "ChangeSet.touched_surfaces|surface count mismatch",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-007",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/lib/run-output.js",
+            "claim": "AC-10 requires exporting readRunOutput(path) as pure function but no such export exists",
+            "evidence": "Spec AC-10 says: 'the shared derivation is exported as a pure function from this module so ledger.js imports it rather than re-implementing it'. File not found in touched_surfaces and not modified in diff.",
+            "dedupe_key": "substrate/lib/run-output.js|readRunOutput export missing",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-008",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/ledger.test.js",
+            "claim": "AC-17 requires new test cases for AC-1/AC-3/AC-4/AC-6/AC-13 but no tests were added",
+            "evidence": "Spec AC-17: substrate/test/ledger.test.js must contain new cases covering AC-1 (derivation from fixture), AC-3/AC-4 (refusals with assertions), AC-6 (by-model split output), and AC-13 (marked row excluded from aggregate). File not modified in touched_surfaces.",
+            "dedupe_key": "substrate/test/ledger.test.js|no new tests added",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-009",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/README.md:21",
+            "claim": "AC-16 requires documentation update showing --from-output as default form but step 2 still shows old three-flag form",
+            "evidence": "README line 21-22 shows old form: node substrate/ledger.js append --workflow build-spec --run r1 --started ... --result ... --tokens .... Spec requires this changed to single --from-output form: ledger append --workflow <w> --run <r> --from-output <task.output> --journal <dir>/journal.jsonl",
+            "dedupe_key": "substrate/README.md:21|documentation not updated for --from-output",
+            "status": "open"
+          },
+          {
+            "id": "F1-empty-diff",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+            "claim": "Diff file is empty, making it impossible to verify what code changes are included in this ChangeSet.",
+            "evidence": "File exists but has zero bytes of content; the diff_ref path cannot be read to show the actual git changes between base_commit and the worktree.",
+            "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|empty diff file",
+            "status": "open"
+          },
+          {
+            "id": "F2-repo-not-updated",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "./ledger/index.jsonl:24",
+            "claim": "The repository root ledger/index.jsonl line 24 (m2-maintain-triage row) lacks the wall_clock_unknown field that AC-12 requires to be present.",
+            "evidence": "Read of /home/user/company-graph/ledger/index.jsonl shows line 24 contains m2-maintain-triage without wall_clock_unknown flag; spec AC-12 states 'the repository is inspected after the change' and 'that row carries wall_clock_unknown: true in BOTH ledger/index.jsonl' (emphasis on repository, not worktree).",
+            "dedupe_key": "./ledger/index.jsonl:24|missing wall_clock_unknown field",
+            "status": "open"
+          },
+          {
+            "id": "F3-repo-runs-not-updated",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "./ledger/runs/m2-maintain-triage.json:entry",
+            "claim": "The repository root ledger/runs/m2-maintain-triage.json entry block (lines 1-29) lacks the wall_clock_unknown field that AC-12 requires.",
+            "evidence": "Read of /home/user/company-graph/ledger/runs/m2-maintain-triage.json shows entry block lines 1-29 do not contain wall_clock_unknown:true on line 10 where it should appear; only the worktree version has it.",
+            "dedupe_key": "./ledger/runs/m2-maintain-triage.json|missing wall_clock_unknown in entry",
+            "status": "open"
+          },
+          {
+            "id": "F4-schema-not-updated",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "./contracts.schema.json#/$defs/LedgerEntry:823",
+            "claim": "The repository root contracts.schema.json LedgerEntry schema does not include the wall_clock_unknown property, so validator.js validation would reject a marked row due to additionalProperties: false.",
+            "evidence": "Grep search for wall_clock_unknown in /home/user/company-graph/contracts.schema.json found no matches. Lines 820-844 show LedgerEntry has 'additionalProperties': false (line 823) and lists properties without wall_clock_unknown. Test AC-12 claims validator passes on marked row, but repo schema would reject it as an unexpected property. Worktree version at /home/user/company-graph/.artifacts/worktrees/t2-mark-corrupted-ledger-row/contracts.schema.json:841 DOES include the property.",
+            "dedupe_key": "./contracts.schema.json#/$defs/LedgerEntry:823|missing wall_clock_unknown property",
+            "status": "open"
+          },
+          {
+            "id": "F5-scope-mismatch",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "./contracts.schema.json",
+            "claim": "The ChangeSet touched_surfaces list omits contracts.schema.json despite the worktree modification to LedgerEntry schema being essential for the validator test to work.",
+            "evidence": "Change metadata lists touched_surfaces as only [./ledger/index.jsonl, ./ledger/runs/m2-maintain-triage.json], but AC-12's test 'node substrate/validator.js LedgerEntry passes on the marked m2-maintain-triage row' cannot pass unless the schema is updated. Worktree shows contracts.schema.json was modified (line 841 added wall_clock_unknown property).",
+            "dedupe_key": "./contracts.schema.json|scope mismatch not in touched_surfaces",
+            "status": "open"
+          },
+          {
+            "id": "F6-worktree-not-repo",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/results/t2-mark-corrupted-ledger-row.r2.json:6",
+            "claim": "Tests ran against worktree app_path (.artifacts/worktrees/t2-mark-corrupted-ledger-row) where changes exist, not the repository root, so test passing does not demonstrate the required repository state.",
+            "evidence": "Test results file shows 'app_path': '/home/user/company-graph/.artifacts/worktrees/t2-mark-corrupted-ledger-row/./' - tests read from worktree ledger files and schema where the marks were added, not from /home/user/company-graph/ where AC-12 says changes must appear.",
+            "dedupe_key": ".artifacts/results/t2-mark-corrupted-ledger-row.r2.json|tests use worktree not repo",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      }
+    ],
+    "suite": {
+      "passed": 60,
+      "failed": 0,
+      "results_ref": "/home/user/company-graph/.artifacts/integration/t5i.json"
+    },
+    "tests_landed": [
+      "ledger-from-output.test.js"
+    ],
+    "tests_skipped": [],
+    "escalations": [
+      {
+        "task_id": "t2-mark-corrupted-ledger-row",
+        "reason": "repeat_finding",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (13 findings); 9 deferred past the fixer cap (finding-5, f1-schema-missing-field, f2-summary-no-wall-unknown-logic, f3-list-no-question-mark, f4-from-output-not-implemented, f5-run-output-export-missing, f6-test-coverage-incomplete, finding-6, f7-fixture-files-missing)",
+          "r1: judge OVERRULED finding-1 (manifest, scope_does_not_cover_full_spec) — t2 owns only AC-12; sibling t1 landed the other surfaces in e11d73d and t2 is built on top of it; touched_surfaces is a work-item envelope, not a per-task checklist (repo precedent commit 05109f1).",
+          "r1: judge OVERRULED finding-2 (.artifacts/diffs/t2-...r0.patch empty) — verification was possible via git log/show; ruled a tooling/capture gap, not a defect.",
+          "r1: judge OVERRULED finding-3 (contracts.schema.json not in ChangeSet) — the schema field landed in t1's commit e11d73d; crediting it to t2 would misattribute t1's work.",
+          "r1: judge OVERRULED finding-4 (substrate/ledger.js --from-output missing) — --from-output exists at e11d73d, an ancestor of t2's HEAD; 11/11 ledger.test.js pass in the t2 worktree.",
+          "r2 [spec_conformance,correctness]: fail (15 findings); 11 deferred past the fixer cap (spec-conform-005..009, F1-empty-diff, F2-repo-not-updated, F3-repo-runs-not-updated, F4-schema-not-updated, F5-scope-mismatch, F6-worktree-not-repo)",
+          "r2: judge UPHELD spec-conform-001 (ledger/index.jsonl:24) — inspected at repository HEAD 74aabe1: grep -c wall_clock_unknown ledger/index.jsonl returns 0 and the runs file has no mark either; the fixer's 'already present, verified' claim does not match that tree.",
+          "r2: judge OVERRULED spec-conform-002 (substrate/ledger.js:40) — the quoted code is the repository-root copy, which the spec forbids touching; the worktree copy implements --from-output and passes 11/11.",
+          "r2: judge OVERRULED spec-conform-003 (substrate/ledger.js:46 Math.max clamp) — clamp removed at e11d73d; the AC-4 refusals exit 2 and write nothing; reproduced.",
+          "r2: judge OVERRULED spec-conform-004 (contracts.schema.json:843) — wall_clock_unknown is present in the worktree LedgerEntry properties and absent from required, exactly as AC-11 asks.",
+          "escalation (independently verified just now): task/t1-implement-ledger-from-output and task/t2-mark-corrupted-ledger-row are THE SAME REF (both 311140b), so a base..head diff for t2 is necessarily empty — which is why .artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch is 0 bytes.",
+          "escalation: neither 311140b nor e11d73d is an ancestor of repository HEAD 74aabe1 (git merge-base --is-ancestor fails for both). The repository root therefore has none of the work: 0 hits for wall_clock_unknown in ledger/index.jsonl and contracts.schema.json at root, 1 hit each in the t2 worktree copies.",
+          "escalation: tests run against app_path .artifacts/worktrees/t2-mark-corrupted-ledger-row (per .artifacts/results/t2-mark-corrupted-ledger-row.r2.json) and pass 3/3, so the green test signal and the red lens findings are reading two different trees and neither side can move the other."
+        ],
+        "repeats": [
+          {
+            "id": "spec-conform-002",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/ledger.js:40",
+            "claim": "AC-1 to AC-10 require --from-output flag implementation but substrate/ledger.js still requires --started and --result; flag is completely absent",
+            "evidence": "Line 40-41 shows: const { workflow, run, started, result } = opts; if (!workflow || !run || !started || !result) die(...) - the code still mandates --started and --result, with no --from-output option. --from-output should make these optional and derive from task output file.",
+            "dedupe_key": "substrate/ledger.js:40|--from-output flag not implemented",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-003",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/ledger.js:46",
+            "claim": "AC-4 requires removal of Math.max clamp that silently converts negative wall_clock to 0; spec says code should exit non-zero on timestamp inversion but clamp still present",
+            "evidence": "Line 46: const wall = Math.max(0, Math.round(...)) - this clamp is the exact regression the spec exists to prevent. AC-4 specifically tests that started_at later than finished_at causes exit code 2 and writes nothing; this clamp prevents that refusal.",
+            "dedupe_key": "substrate/ledger.js:46|Math.max clamp not removed",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-004",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "contracts.schema.json:843",
+            "claim": "AC-11 requires wall_clock_unknown optional field in LedgerEntry schema but field is not defined in properties",
+            "evidence": "LedgerEntry definition (lines 820-844) has no wall_clock_unknown property. Properties list ends at provenance (line 841). Spec requires: wall_clock_unknown: { type: boolean } as optional (not in required list).",
+            "dedupe_key": "contracts.schema.json:843|wall_clock_unknown field missing from LedgerEntry",
+            "status": "open"
+          },
+          {
+            "id": "spec-conform-005",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch",
+            "claim": "Diff file is empty or inaccessible, making verification of actual changes impossible",
+            "evidence": "Diff file read returned empty contents. ChangeSet touched_surfaces list only 2 files but spec touched_surfaces requires 9+ surfaces including substrate/ledger.js, substrate/lib/run-output.js, test fixtures, schema, and docs.",
+            "dedupe_key": ".artifacts/diffs/t2-mark-corrupted-ledger-row.r0.patch|diff file empty",
+            "status": "open"
+          }
+        ],
+        "hypothesis": "The loop cannot converge because the lenses and the fixer are reading two different trees: t2's diff capture emits a 0-byte patch (task/t1 and task/t2 are the same ref 311140b, so base..head is empty), so each lens falls back to the repository root at HEAD 74aabe1 — where none of the work exists, since neither e11d73d nor 311140b is an ancestor of it — while the fixer and the test runner read the worktree where all of it exists and passes, making both sides factually correct, the judge's rulings tree-dependent, and the same four findings regenerable forever without any code change.",
+        "options": [
+          "direct_drive",
+          "guide"
+        ],
+        "disputes_lost": [
+          {
+            "id": "spec-conform-001",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "ledger/index.jsonl:24",
+            "claim": "AC-12 requires m2-maintain-triage row to carry wall_clock_unknown: true but the field is absent",
+            "evidence": "Line 24 m2-maintain-triage entry has wall_clock_sec: 0 and 338559 tokens but no wall_clock_unknown field; spec requires this field in both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json",
+            "dedupe_key": "ledger/index.jsonl:24|m2-maintain-triage missing wall_clock_unknown field",
+            "status": "disputed"
+          }
+        ]
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 456917,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t5i",
+      "created_at": "2026-09-11T14:50:00Z"
+    }
+  }
+}
