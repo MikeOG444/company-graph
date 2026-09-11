@@ -82,3 +82,22 @@ test('AC-17: contracts.schema.json is untouched by the cost-stop change — the 
   const reasonEnum = schema.$defs.Escalation.properties.reason.enum
   assert.deepEqual(reasonEnum, ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'])
 })
+
+// ---- Added by hand (direct_driver): the Spec Gate was openable but unverifiable. ----
+
+test('build-implement refuses a gate:"pending" spec without a decided spec_gate record', () => {
+  const text = readWorkflowText()
+
+  // The guard must exist, and must read the gate FILE rather than trusting args.
+  assert.match(text, /pendingSpecs/, 'build-implement must detect specs still carrying gate:"pending"')
+  assert.match(text, /gates\.js show/, 'the decision must be read from gates/, not taken from args')
+
+  // It must require all four facts. A guard that accepts a record merely existing, or one decided the other way,
+  // is a check that passes by default — the shape the operating conventions forbid.
+  const guard = text.slice(text.indexOf('const pendingSpecs'), text.indexOf("phase('Implement+Verify')"))
+  assert.ok(guard.includes('g.found'), 'must require the record was found')
+  assert.ok(guard.includes("g.status === 'decided'"), 'must require the record is decided, not still open')
+  assert.ok(guard.includes("g.gate === 'spec_gate'"), 'must require it is a spec_gate and not some other closed gate')
+  assert.ok(guard.includes("g.option === 'approve'"), 'must require approve — revise and kill are not authorisation')
+  assert.ok(/refused:\s*true/.test(guard), 'a failed check must refuse the run, not log and continue')
+})

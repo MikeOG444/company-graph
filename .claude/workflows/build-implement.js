@@ -20,6 +20,9 @@ export const meta = {
 //   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
 //         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
 //   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
+//   gate: { gate_id } — REQUIRED when any spec carries gate:"pending". The closed spec_gate record is read from
+//         gates/ by a mechanical agent and must say decided/spec_gate/approve, or the run refuses. A decision in
+//         args alone is never trusted.
 //   verify_only: { [task_id]: { branch, base } } — re-panel an EXISTING branch: no implementer; a mechanical agent checks it out
 //         and writes the diff base...branch; test author, panel, fix loop and integration run as usual. For re-verification
 //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
@@ -245,6 +248,33 @@ function shouldEscalate(ctx, findings) {
 // ---- END fix-loop decisions ----
 
 // =====================================================================
+// ---- Spec Gate check: a high-risk spec may not be built on the caller's word ----
+// build-spec marks a high-risk spec gate:"pending" and opens a spec_gate record. Until now NOTHING closed that
+// loop: the human decided in gates/, nothing wrote the decision back into the Spec artifact, and this workflow
+// never looked. A pending spec built exactly as readily as an approved one — a check that passes by default, which
+// is the one shape the operating conventions forbid. The gate FILE is the signature, never args (the Phase 3
+// convention, and the same guard /build-reentry puts on the sev1 page).
+const GateCheck = { type: 'object', additionalProperties: false, required: ['found', 'status', 'gate', 'option'],
+  properties: { found: { type: 'boolean' }, status: { type: 'string' }, gate: { type: 'string' },
+    option: { type: 'string' }, decided_by: { type: 'string' }, decided_at: { type: 'string' }, note: { type: 'string' } } }
+const pendingSpecs = A.specs.filter(s => s.spec?.gate === 'pending')
+if (pendingSpecs.length) {
+  if (!A.gate?.gate_id) {
+    return { refused: true, reason: `${pendingSpecs.length} spec(s) are gate:"pending" (${pendingSpecs.map(s => s.spec.id).join(', ')}) and no gate_id was passed. A high-risk spec is built only after a decided spec_gate, and the decision is read from gates/, not from args.`,
+      provenance: stamp('build-implement', 'n/a', 'hotl') }
+  }
+  const g = await agent(`Run from the repository root: node substrate/gates.js show ${A.gate.gate_id}. Report found, status, gate,
+       decision.option ("" if none), decision.decided_by, decision.decided_at and decision.note ("" if absent).
+       Copy the values, never interpret them. If the command fails, found=false and the error text in note.`,
+    { label: 'gate:spec_gate', model: MODEL.cheap, ...AT('mechanical'), schema: GateCheck })
+  const ok = g && g.found && g.status === 'decided' && g.gate === 'spec_gate' && g.option === 'approve'
+  if (!ok) {
+    return { refused: true, reason: `spec_gate ${A.gate.gate_id} does not authorise this build: ${JSON.stringify(g ?? { found: false })}. Required: found, status "decided", gate "spec_gate", option "approve".`,
+      provenance: stamp('build-implement', 'n/a', 'hotl') }
+  }
+  log(`spec_gate ${A.gate.gate_id} verified: ${g.option} by ${g.decided_by ?? 'unknown'} — ${pendingSpecs.length} gated spec(s) cleared`)
+}
+
 phase('Implement+Verify')
 // Topological order on depends_on (code). Dependents start after their dependency and branch from its task branch.
 function topo(items) {
