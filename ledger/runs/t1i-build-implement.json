@@ -1,0 +1,129 @@
+{
+  "entry": {
+    "id": "t1i-build-implement",
+    "run_id": "t1i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-11T03:55:53.000Z",
+    "finished_at": "2026-09-11T04:06:53.000Z",
+    "wall_clock_sec": 660,
+    "result_ref": "ledger/runs/t1i-build-implement.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-sonnet-5": 72614,
+      "claude-haiku-4-5": 149205
+    },
+    "tokens": 221819,
+    "cost_est_usd": 0.41,
+    "agents": 7,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t1i",
+      "created_at": "2026-09-11T03:55:53Z"
+    },
+    "trace_ref": ".artifacts/traces/t1i-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-t1i",
+    "project_id": "toy",
+    "iteration": "t1",
+    "artifact_ref": "integration/t1i",
+    "specs": [
+      "spec-wi-patch-sig-p4-merged"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "changeset-task-fix-items-filter-defects-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verify the pipeline order is corrected from sort→limit→filter to filter→sort→limit by checking that AC-2 (q=an&limit=2 returns [banana,mango] not [banana]) and AC-3 (q=an&sort=name&limit=1 returns [banana]) are satisfied",
+              "Verify the needle is correctly implemented as q.toLowerCase() rather than undefined normalizeNeedle(q), and that case-insensitive matching in AC-4 works for q=BAN, q=ban, q=Ban all matching name='Banana'",
+              "Verify no trimming and no regex per AC-5 by confirming the needle is q.toLowerCase() without .trim() and .includes() uses literal string matching such that q=' an' doesn't match 'banana' and q='a.c' doesn't match 'abc'"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "changeset-task-fix-items-filter-defects-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t1i",
+              "created_at": "2026-09-11T03:55:53Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Regex Injection: Passed ?q=.*|^|$ expecting regex metacharacter execution. Code uses .includes() for literal string matching; no regex engine involved.",
+              "Prototype Pollution: Attempted dynamic property access via ?q=__proto__ and ?q=constructor. Code accesses only item.name directly without bracket notation or computed properties.",
+              "Locale-Aware Case Folding Bypass: Tested UTF-8 characters like ß where locale-aware folding would differ. JavaScript toLowerCase() applies Unicode folding consistently without locale awareness, matching spec requirement of 'no locale folding'."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "changeset-task-fix-items-filter-defects-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t1i",
+              "created_at": "2026-09-11T03:55:53Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "The code attempts to call undefined normalizeNeedle(q), causing ReferenceError and 500 response on any non-empty q parameter; AC-1 would fail with status 500 instead of 200. The fix inlines q.toLowerCase() as the needle, making it defined and executable.",
+              "The q-filter block runs after the sort and limit cap stages instead of before them, so limit=2 truncates [banana,apple,cherry,mango] to [banana,apple] before q=an filter narrows it to [banana] instead of the correct [banana,mango]. AC-2 test would fail expecting both matching items. The fix moves the filter block before sort, restoring correct order.",
+              "Both q and item.name strings are compared without calling toLowerCase() first, so q=BAN does not match name='Banana' (case-sensitive substring test). AC-4 explicitly tests case variants (BAN, ban, Ban) and would fail. The fix adds toLowerCase() to both sides of the includes() call."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "changeset-task-fix-items-filter-defects-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t1i",
+              "created_at": "2026-09-11T03:55:53Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      }
+    ],
+    "suite": {
+      "passed": 35,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/t1i.json"
+    },
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 76638,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t1i",
+      "created_at": "2026-09-11T03:55:53Z"
+    }
+  }
+}

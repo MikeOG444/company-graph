@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fb-p5-1",
+    "channel": "client_channel",
+    "received_at": "2026-09-11T02:12:00Z",
+    "from": "client (self) — the admin page team",
+    "subject": "The list view still cannot page",
+    "body": "We render the items list with ?sort=name&limit=25. When there are more than 25 the response looks exactly like a complete answer: a JSON array of 25 items and nothing else. There is no total, no next cursor, no flag saying it was cut. Our workaround is to re-request with limit=500 whenever we get back exactly the limit we asked for, which is wrong when the real total happens to be 25 and wasteful the rest of the time. We would take a total count in a header or an envelope, whichever is easier, but we need something.",
+    "rating": 2,
+    "asks_for": "some indication that a capped response was capped"
+  },
+  {
+    "id": "fb-p5-2",
+    "channel": "founder_review_queue",
+    "received_at": "2026-09-11T03:05:00Z",
+    "from": "HE (founder), auditing the gate queue",
+    "subject": "Nine specs, nine low, zero gate firings — is the router calibrated or is the toy just easy?",
+    "body": "Every spec the line has written so far has routed low and the Spec Gate has never fired on a real run. That is either correct (the toy really is all additive low-risk work) or it is a router that says low to everything, and from the outside those two look identical. The same worry applies to the Verifier Panel: the lenses pass most things, and I have no measurement telling me whether that is because the changes are good. The two defects that reached main in Phase 4 were planted by hand and never passed a panel, so they prove nothing either way. I want a number, not a feeling: something that would fail if a lens were rubber-stamping.",
+    "rating": 3,
+    "asks_for": "a measurable check that the risk router and the verifier lenses are not passing by default"
+  },
+  {
+    "id": "fb-p5-3",
+    "channel": "support",
+    "received_at": "2026-09-11T03:48:00Z",
+    "from": "HE (founder), operating the line",
+    "subject": "I cannot see what a run cost without three commands",
+    "body": "After every workflow I run run-output.js, then ledger append with a hand-assembled --tokens-by-model, then ledger summary --by model to find out what just happened. The number I actually want (what did this run cost, and by which model) exists in the task output already; I am retyping it into a CLI to get it back out. Twice now I have got the started/finished times wrong by rounding and put a zero-second wall clock in the ledger, which then lies in every summary that reads it. The ledger is the point of the whole model and it is the part with the most manual typing in it.",
+    "rating": 2,
+    "asks_for": "the per-run cost without hand-assembling it, and a wall clock that cannot be fat-fingered"
+  }
+]
