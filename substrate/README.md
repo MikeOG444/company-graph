@@ -32,7 +32,36 @@ A human gate is a workflow boundary (CLAUDE.md rule 8). One stretch of the line 
    The record moves to `gates/closed/` and the command prints the `args` fragment the next workflow takes.
 5. Run the next workflow with that decision in `args`.
 
+### Step 3a: split the result into the artifact store
+
+Nested artifacts are **never written by an agent**. A cheap model asked to retype a `Patch` hoisted three of `repro`'s
+fields to the root (run `m1b`); `validator.js` caught it, and the agent reported the failure verbatim rather than editing
+the artifact, which is the safety net working — but the transcription should not exist. So a workflow returns its
+artifacts, already stamped, and the main session writes them with `node`, between the ledger append and the gate:
+
+```
+node -e "const fs=require('node:fs');const o=JSON.parse(fs.readFileSync('/tmp/<run>.json','utf8'));const d='.artifacts/maintain/<run>';
+  fs.mkdirSync(d+'/patches',{recursive:true});const w=(p,v)=>fs.writeFileSync(p,JSON.stringify(v,null,2)+'\n');
+  w(d+'/health.json',o.health);w(d+'/patches.json',o.patches);for(const p of o.patches)w(d+'/patches/'+p.id+'.json',p);
+  if(o.incident)w(d+'/incident.json',o.incident);if(o.mitigation)w(d+'/mitigation.json',o.mitigation)"
+```
+
+then `validator.js` each one. Each workflow's header carries its own version of this command. The one thing a run must
+write itself is the seen-set (`.artifacts/maintain/known-issues.json`), because the next run's Deduper reads it; it is a
+flat list of fingerprints, so there is nothing to mis-nest.
+
+### The gates of each stretch
+
 The Create + Launch stretch has two gates, both opened this way. `brief_approval` is opened on the drafted `ProjectBrief` (options `sign,revise`) and `/create-project` verifies the closed record before provisioning. `launch_approval` is opened on the `ReviewPackage` that `/launch` returns, with the package's own `options` (`approve,veto` on a go; `veto,approve_override` on a no-go), and `/deploy` verifies that record before it starts a canary. Neither workflow trusts a decision passed in `args` alone; the gate file is the signature.
+
+Maintain adds two more. `sev1_page` is opened on the `IncidentRecord` that `/maintain-triage` returns, with the options the
+incident itself carries — `keep_mitigation,lift_mitigation` when the mitigation landed, `direct_drive,accept_unmitigated`
+when it did not, so an unmitigated sev1 has to be acknowledged by name. The mitigation is already applied and its evidence
+file already on disk when that record is created: on run `m2`, `.artifacts/maintain/m2/mitigation.evidence.json` at
+03:30:02 and `gates/open/m2-sev1_page.json` at 03:34:10. `/build-reentry` then reads the **closed** record by id and
+refuses to plan a sev1 patch without it. `ratio_gate` is opened on the `ReentryPlan` only when `plan.gate_required` is
+true, which needs a maintain-share breach in two consecutive iterations; a single breach is recorded in the plan and
+pages nobody.
 
 `gates/` and `ledger/` are committed. They are the plant's memory of every human decision and every run's cost; `.artifacts/` is not committed.
 

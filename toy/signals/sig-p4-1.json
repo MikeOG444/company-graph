@@ -1,0 +1,16 @@
+{
+  "ticket": "SUP-418",
+  "reported_by": "client (self) — two users of the items API",
+  "summary": "Search misses items when a page size is given",
+  "body": "When I search and also ask for a page size I get fewer results than there are matches. On our staging data GET /items?q=an&limit=2 comes back with one item, but GET /items?q=an (no limit) comes back with two and both of them match. It looks like the page size is being taken off the front of the whole list before the search runs, so anything that matches further down is thrown away. Dropping the limit works, so we've told people to stop using it, which is not great for the list view. Nothing in the response says anything was truncated.",
+  "examples": [
+    { "request": "GET /items?q=an&limit=2", "observed_body": "[{\"id\":1,\"name\":\"banana\"}]", "expected_body": "two items: banana and mango, both of which contain \"an\"" },
+    { "request": "GET /items?q=an", "observed_body": "[{\"id\":1,\"name\":\"banana\"},{\"id\":4,\"name\":\"mango\"}]", "expected_body": "same — this one is correct" }
+  ],
+  "reproduction_data": "items created in this order: banana, apple, cherry, mango",
+  "occurrences": 3,
+  "first_seen": "2026-09-11T02:50:00Z",
+  "status_code_observed": 200,
+  "errors_logged": "none — the endpoint returns 200 with a short list",
+  "affected_clients": "the list view in the client's internal admin page"
+}

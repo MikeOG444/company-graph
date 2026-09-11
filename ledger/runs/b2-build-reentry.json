@@ -1,0 +1,153 @@
+{
+  "entry": {
+    "id": "b2-build-reentry",
+    "run_id": "b2",
+    "workflow": "build-reentry",
+    "status": "ok",
+    "started_at": "2026-09-11T03:37:20.000Z",
+    "finished_at": "2026-09-11T03:38:44.964Z",
+    "wall_clock_sec": 85,
+    "result_ref": "ledger/runs/b2-build-reentry.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 66845
+    },
+    "tokens": 66845,
+    "cost_est_usd": 0.09,
+    "agents": 3,
+    "human_min": 2,
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "b2",
+      "created_at": "2026-09-11T03:37:20Z"
+    },
+    "trace_ref": ".artifacts/traces/b2-build-reentry.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "work_items": [
+      {
+        "id": "wi-patch-sig-p4-2",
+        "project_id": "toy",
+        "source": "maintain_patch",
+        "title": "Fix GET /items search returning 500 on undefined normalizeNeedle",
+        "intent": "The GET /items endpoint breaks with a 500 error whenever a user supplies the q query parameter to filter items by name substring. The cause is that line 94 of toy/src/app.js calls normalizeNeedle(q), which is never defined anywhere in the app, throwing a ReferenceError synchronously inside the route handler. The fix replaces the undefined function call with q.toLowerCase() to perform the same lowercasing operation inline. Requests without the q parameter are unaffected and continue returning 200. A regression test exists on branch patch/sig-p4-2.m2 at toy/test/repro-sig-p4-2.test.js that validates the fix restores the search handler to return 200 with the correct case-insensitive substring-filtered item list.\n\n[re-entry] sev1, routine: sev1 page: the mitigation is held, so production is not serving the defect; shipping this patch is what lifts it (GET /items with q query parameter throws ReferenceError on undefined normalizeNeedle, blocking all substring search requests with 500 responses.) Cause: toy/src/app.js:94 — Inside the GET /items handler's q-filter block (`if (q) { ... }`), line 94 calls `normalizeNeedle(q)` to build the lowercased search needle, but `normalizeNeedle` is never defined, imported, or declared anywhere in app.js (or the rest of the toy app) — the only two references to the identifier in the whole tree are this call site and the repro test's own description of the bug. Because the call is a bare identifier lookup at runtime, evaluating it throws `ReferenceError: normalizeNeedle is not defined` synchronously inside the synchronous Express route handler; Express's default error-handling middleware catches that thrown error and responds with a generic 500, before the handler ever reaches `res.json(result)`. The `if (q)` guard means this line only executes when the request supplies a non-empty `q` query parameter — a request with no `q` (or an empty one) short-circuits past the filter block entirely and returns 200 normally, which is exactly the fingerprint in the triage/signal (only q-carrying GET /items requests error; every other route, including /health, stays green). A verified patch already exists on branch patch/sig-p4-2.m2 (base 243b72a2): the regression test fails at base and passes there, suite green. Re-verify that branch rather than re-implementing it.",
+        "priority": 1,
+        "deferred_iterations": 0,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          },
+          {
+            "kind": "path",
+            "ref": "toy/test/repro-sig-p4-2.test.js"
+          }
+        ],
+        "signal_ids": [
+          "sig-p4-2"
+        ],
+        "patch_ref": ".artifacts/maintain/m2/patches/patch-sig-p4-2.json",
+        "branch": "patch/sig-p4-2.m2",
+        "provenance": {
+          "node": "merge_planner",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "b2",
+          "created_at": "2026-09-11T03:37:20Z"
+        }
+      },
+      {
+        "id": "wi-imp-2",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Document every query parameter of GET /items in the README",
+        "intent": "The README does not list ?q, ?sort or ?limit, so clients discover them from support tickets. Document each parameter, its validation rule and its error body. Synthetic improve item for the Phase 4 Build re-entry drill, chosen to share no surface with anything else in the batch.",
+        "priority": 2,
+        "deferred_iterations": 1,
+        "budget": {
+          "tokens": 40000,
+          "wall_clock_min": 10
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/README.md"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "b2",
+          "created_at": "2026-09-11T03:37:20Z"
+        }
+      }
+    ],
+    "plan": {
+      "project_id": "toy",
+      "iteration": 2,
+      "ratio": {
+        "maintain": 0.4,
+        "improve": 0.6,
+        "rule": "default maintain 0.2; trend degrading → 0.4; hotfixes pre-empt and are counted in the actual share; each lane admits its first item even if it exceeds its share; measured in even share (100000 tokens/item: not every item carried a budget)",
+        "trend": "degrading",
+        "actual_maintain": 0.7143,
+        "guardrail": 0.5,
+        "breach": true,
+        "breach_streak": 1,
+        "history_known": true
+      },
+      "order": [
+        {
+          "work_item_id": "wi-patch-sig-p4-2",
+          "lane": "maintain",
+          "reason": "1. maintain lane, original priority 1; verified patch on patch/sig-p4-2.m2"
+        },
+        {
+          "work_item_id": "wi-imp-2",
+          "lane": "improve",
+          "reason": "2. improve lane, original priority 6"
+        }
+      ],
+      "overlaps": [],
+      "deferred": [],
+      "starved_items": [],
+      "capacity": {
+        "tokens": 200000,
+        "maintain_tokens": 100000,
+        "improve_tokens": 40000
+      },
+      "gate_required": false,
+      "provenance": {
+        "node": "build-reentry",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "b2",
+        "created_at": "2026-09-11T03:37:20Z"
+      }
+    },
+    "deferred": [],
+    "starved_items": [],
+    "refs": {
+      "dir": ".artifacts/reentry/b2",
+      "plan": ".artifacts/reentry/b2/plan.json",
+      "work_items": ".artifacts/reentry/b2/work-items.json"
+    },
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "b2",
+      "created_at": "2026-09-11T03:37:20Z"
+    }
+  }
+}

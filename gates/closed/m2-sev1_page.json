@@ -1,0 +1,104 @@
+{
+  "id": "m2-sev1_page",
+  "gate": "sev1_page",
+  "run_id": "m2",
+  "workflow": "maintain-triage",
+  "status": "decided",
+  "opened_at": "2026-09-11T03:34:10.090Z",
+  "options": [
+    "keep_mitigation",
+    "lift_mitigation"
+  ],
+  "provenance": {
+    "node": "sev1_page",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "m2",
+    "created_at": "2026-09-11T03:34:10.090Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-reentry",
+  "payload": {
+    "id": "inc-m2",
+    "project_id": "toy",
+    "severity": "sev1",
+    "signal_ids": [
+      "sig-p4-2"
+    ],
+    "opened_at": "2026-09-11T03:36:00Z",
+    "status": "mitigated",
+    "summary": "The item search endpoint has been throwing errors on every request since a deployment introduced a missing function reference. The system already rolled the service back to the prior version on its own, before anyone was paged, and that stopped the errors.",
+    "impact": "Many users were affected: anyone searching the item list got a failed request instead of results. At least 147 failed requests were logged in the six minutes before the rollback. No user data was put at risk, and there is no security exposure.",
+    "mitigation": {
+      "id": "mit-m2",
+      "project_id": "toy",
+      "signal_ids": [
+        "sig-p4-2"
+      ],
+      "strategy": "rollback",
+      "applied": true,
+      "reversible": true,
+      "applied_at": "2026-09-11T03:36:00Z",
+      "env": "prod",
+      "from_sha": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+      "to_sha": "bfb99434d516151954e210f437d76bc1098c315d",
+      "to_ref": "bfb99434d516151954e210f437d76bc1098c315d",
+      "reason": "prod served a sev1 defect; rolled back to bfb99434d516151954e210f437d76bc1098c315d (bfb99434) while diagnosis ran",
+      "lift_means": "prod returns to 243b72a2, which carries the defect, before a fix has shipped",
+      "evidence_ref": ".artifacts/maintain/m2/mitigation.evidence.json",
+      "deployment": {
+        "project_id": "toy",
+        "env": "prod",
+        "url": "http://127.0.0.1:3100",
+        "port": 3100,
+        "ref": "bfb99434d516151954e210f437d76bc1098c315d",
+        "sha": "bfb99434d516151954e210f437d76bc1098c315d",
+        "worktree": ".artifacts/deploy/toy/prod",
+        "app_dir": ".artifacts/deploy/toy/prod/toy",
+        "pid": 6349,
+        "started_at": "2026-09-11T03:36:00.000Z",
+        "log_ref": ".artifacts/deploy/toy/prod.log",
+        "status": "running"
+      },
+      "provenance": {
+        "node": "mitigator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "m2",
+        "created_at": "2026-09-11T03:36:00Z"
+      }
+    },
+    "timeline": [
+      {
+        "at": "2026-09-11T03:30:00Z",
+        "event": "Error tracking recorded the first failures on the item search endpoint."
+      },
+      {
+        "at": "2026-09-11T03:36:00Z",
+        "event": "The service was automatically rolled back to the last known-good version, which stopped the errors."
+      }
+    ],
+    "page_options": [
+      "keep_mitigation",
+      "lift_mitigation"
+    ],
+    "patch_ids": [
+      "patch-sig-p4-2"
+    ],
+    "provenance": {
+      "node": "incident_commander",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "sonnet",
+      "run_id": "m2",
+      "created_at": "2026-09-11T03:36:00Z"
+    }
+  },
+  "decision": {
+    "option": "keep_mitigation",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T03:37:13.483Z",
+    "note": "Production stays on the pre-defect sha; shipping patch-sig-p4-2 is what lifts it. Search is degraded to the known sev2 (q+limit) meanwhile, which is the trade I want."
+  }
+}

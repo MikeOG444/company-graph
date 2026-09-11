@@ -1,0 +1,22 @@
+{
+  "alert": "error-rate",
+  "monitor": "toy / prod / 5xx rate",
+  "triggered_at": "2026-09-11T03:30:00Z",
+  "summary": "500s on every GET /items request that carries a q parameter",
+  "window": "5 minutes",
+  "requests_in_window": 412,
+  "errors_in_window": 147,
+  "error_rate": 0.357,
+  "by_route": [
+    { "route": "GET /items", "requests": 260, "errors": 147, "note": "every request with a q parameter; requests without one are 200" },
+    { "route": "GET /items/:id", "requests": 74, "errors": 0 },
+    { "route": "POST /items", "requests": 52, "errors": 0 },
+    { "route": "GET /health", "requests": 26, "errors": 0, "note": "health is green, so the process is up" }
+  ],
+  "sample_request": "GET /items?q=ban",
+  "sample_status": 500,
+  "stack_tail": "ReferenceError: normalizeNeedle is not defined\n    at /app/toy/src/app.js:94:22\n    at Array.filter (<anonymous>)\n    at /app/toy/src/app.js:95:7",
+  "user_reports": 2,
+  "user_report_text": "Search is completely broken — every search returns a server error. Browsing the list works.",
+  "deployed_sha_note": "prod was last deployed from the branch tip; the previous prod sha served the same endpoint with 200s"
+}
