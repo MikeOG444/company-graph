@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "t7",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T18:58:28.032Z",
   "options": [
     "approve",
@@ -80,5 +80,11 @@
     ],
     "decomposition_guidance_result": "Explicit guidance in project_context (prefer ONE task; depends_on only where one task reads another output; ordering is not a dependency) took the graph from 3 chained tasks to 2, but did NOT prevent a false edge or a misassigned criterion. Prompting a cheap model out of this is not reliable; a code-level graph lint would have caught both in zero tokens.",
     "recommendation": "approve — the spec is sound and the two decomposition defects are corrected in the stored graph."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T19:05:00.000Z",
+    "note": "HE approved in chat. Additive schema change (Finding gains an optional target). The gate fired on the code rule, not an agent vote. Two decomposition defects were corrected in the stored graph before approval: AC-12 moved from t2 to t1, which owns the file it requires, and the t2->t1 false edge dropped. All 18 criteria assigned exactly once; graph has no edges."
   }
 }
