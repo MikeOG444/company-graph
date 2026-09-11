@@ -75,6 +75,13 @@ export function createApp() {
 
     let result = [...items.values()]
 
+    // ?q substring filter — narrow the full insertion-ordered list first,
+    // so a limit cap never counts an item that q excluded.
+    if (q) {
+      const needle = q.toLowerCase()
+      result = result.filter((item) => item.name.toLowerCase().includes(needle))
+    }
+
     // sort stage — plain code-unit comparison, no locale/case folding.
     // sort === 'id' (or absent) keeps the existing insertion order, which
     // already matches ascending id order, so no reordering is needed. The
@@ -87,12 +94,6 @@ export function createApp() {
     // cap stage — apply limit if present
     if (limit !== undefined) {
       result = result.slice(0, limit)
-    }
-
-    // ?q substring filter — narrow the page we are about to return
-    if (q) {
-      const needle = normalizeNeedle(q)
-      result = result.filter((item) => item.name.toLowerCase().includes(needle))
     }
 
     res.json(result)
