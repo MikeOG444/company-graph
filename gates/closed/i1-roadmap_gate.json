@@ -3,7 +3,7 @@
   "gate": "roadmap_gate",
   "run_id": "i1",
   "workflow": "improve-analyze",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T04:30:36.649Z",
   "options": [
     "keep",
@@ -261,5 +261,21 @@
       "found": true
     },
     "note": "ONE record. decision.option = the verdict (keep|sell|kill|pivot); decision.selection = the Opportunity ids you approve."
+  },
+  "decision": {
+    "option": "keep",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T05:35:00.000Z",
+    "note": "HE approved all 8 in chat. Rationale given: the toy exists to validate the process as we build, and these improve it. Recorded as stated; note that 7 of the 8 change the plant (substrate/ and .claude/workflows/) and only opp-p5-3 is a toy product feature.",
+    "selection": [
+      "opp-p5-2",
+      "opp-p5-5",
+      "opp-p5-1",
+      "opp-p5-6",
+      "opp-p5-3",
+      "opp-p5-4",
+      "opp-p5-7",
+      "opp-p5-8"
+    ]
   }
 }
