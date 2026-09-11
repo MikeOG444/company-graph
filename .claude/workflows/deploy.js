@@ -91,7 +91,8 @@ const [base, can] = await parallel([
   () => agent(`Baseline. From the repo root: ${CLI} status --project ${project} --env prod. If it prints a record with alive=true and healthy=true,
        return ok=true, healthy=true and that record (drop the alive/healthy fields) as deployment.
        Otherwise${A.baseline_ref ? `: ${CLI} start --project ${project} --env prod --port ${PROD.port} --app ${A.repo} --ref ${A.baseline_ref} --now ${A.now}; return ok=true,
-       healthy=true and the printed record as deployment; if it exits non-zero, ok=false with the error text.` : ` return ok=false, healthy=false, error="prod not running and no baseline_ref".`}`,
+       healthy=true and the printed record as deployment; if it exits non-zero, ok=false with its stderr as error. NEVER substitute another ref (not HEAD, not a branch
+       you think is equivalent): the baseline is ${A.baseline_ref} or nothing (c1v: a mechanical agent swapped an unresolvable ref for HEAD and the LaunchRecord lied).` : ` return ok=false, healthy=false, error="prod not running and no baseline_ref".`}`,
     { label: 'deploy:baseline', model: MODEL.cheap, ...AT('mechanical'), schema: DeployStep }),
   () => agent(`Candidate. From the repo root: 1) ${CLI} checkout --project ${project} --env canary --ref ${pkg.artifact_sha} --app ${A.repo}.
        ${A.seed_regression ? `2) SEEDED REGRESSION DRILL, on purpose: in the worktree it printed, apply exactly this change to the app under ${A.repo}/ and commit it there

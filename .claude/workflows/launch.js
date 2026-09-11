@@ -64,7 +64,8 @@ const [pre, notes] = await parallel([
            results_ref="", migration_files=[], files_changed=0 and stop. 2) git worktree add --detach .artifacts/launch/${digest.release_candidate_id} <sha>
            (if that path exists and is at <sha>, reuse it). 3) In <worktree>/${A.repo}/ run npm ci (if node_modules missing) then npm test; write
            {passed, failed, output_tail} to .artifacts/launch/${digest.release_candidate_id}.suite.json and return the counts and that path.
-           4) files_changed = git diff --name-only $(git merge-base ${BASE} <sha>) <sha> | wc -l; migration_files = those paths matching /migrat|schema\\.sql|\\.sql$/i.`,
+           4) files_changed = git diff --name-only $(git merge-base ${BASE} <sha>) <sha> | wc -l; migration_files = those paths matching /migrat|schema\\.sql|\\.sql$/i.
+           If any git command fails (e.g. ${BASE} does not resolve), report it in notes and return exists=false; never substitute another ref or base.`,
         { label: 'artifact', model: MODEL.cheap, ...AT('mechanical'), schema: ArtifactCheck }),
       () => agent(`Run from the repo root: node substrate/gates.js list --json. Return every OPEN record as {id, gate, project_id (or "" if absent)}.`,
         { label: 'gate-queue', model: MODEL.cheap, ...AT('mechanical'), schema: GateQueue }),
