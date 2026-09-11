@@ -45,4 +45,16 @@ Strong: spec writing, tiebreak, escalation packaging, opportunity synthesis, int
 Mid: implement, test author, fixer, fix planner, root cause, dispute ruling (moved from Strong after Phase 2: Opus rulings were the largest cost line; the Tiebreak Judge stays Strong and the ledger watches ruling quality).
 Cheap: risk router, decomposer, all verifier lenses, triage, feedback analyst, and every mechanical agent (run tests, merge patches, read/write artifacts).
 
+## Runtime facts learned by measurement
+
+- **Agent definitions register from the committed tree, on a delay.** Committing a new `.claude/agents/*.md` is
+  necessary but not sufficient: the runtime rescans on its own schedule, so a definition committed mid-session is
+  missing from the next run and present a few minutes later (measured on runs `i1`/`mr1`). A workflow must therefore
+  be able to run without a type it expects — pass `missing_agent_types: [...]` to drop only the unresolvable ones
+  rather than losing every definition to the blunt `agent_types: false` hatch. A dropped type takes its role prompt
+  with it, so state every constraint that matters inline in the workflow prompt too.
+- **`.artifacts/` is gitignored, so anything a run leaves there is gone with the container.** A `*_ref`, a
+  `WorkItem.branch`, an `EvidenceBundle.artifact_ref` — all die. Whatever the next stretch needs must be committed,
+  pushed, or carried as a sha.
+
 When writing a workflow, use `/workflow-authoring` first for the runtime reference, then apply the rules above. Where this file and the runtime reference conflict on mechanics, the runtime wins; where they conflict on structure (what is an edge, what is a barrier), this file wins.

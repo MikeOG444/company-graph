@@ -78,7 +78,13 @@ const Escalation = { type: 'object', additionalProperties: false,
     options: { type: 'array', items: { enum: ['guide', 'direct_drive', 'kill_to_spec'] } } } }
 const Suite = { type: 'object', additionalProperties: false, required: ['artifact_ref', 'passed', 'failed', 'results_ref', 'conflicts'],
   properties: { artifact_ref: { type: 'string' }, passed: { type: 'integer' }, failed: { type: 'integer' },
-    results_ref: { type: 'string' }, conflicts: { type: 'array', items: { type: 'string' } } } }
+    results_ref: { type: 'string' }, conflicts: { type: 'array', items: { type: 'string' } },
+    // artifact_ref is a BRANCH NAME and dies with its container. This sha is the durable handle on what the run
+    // shipped, and it is the hop Company Memory's Lens Calibrator needs to join Cause.suspect_commit back to a
+    // PanelResult (OPERATING_MODEL 8). Stamped into EvidenceBundle.integration_commit below.
+    integration_commit: { type: 'string', description: 'full sha of the integration branch HEAD after merging and landing tests' },
+    tests_landed: { type: 'array', items: { type: 'string' }, description: 'TestSet files copied into the repo test dir and committed' },
+    tests_skipped: { type: 'array', items: { type: 'string' }, description: 'TestSet files NOT copied because a file of that name already exists. Reported, never overwritten.' } } }
 
 // ---- pure-code edges ----
 const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
@@ -363,13 +369,31 @@ async function runTask({ spec, task, spec_ref }) {
 phase('Integrate')   // the one earned barrier
 const passing = finished.filter(f => f.passed).map(f => f.changeSet)   // `finished` is already in topological order
 const passingBranches = finished.filter(f => f.passed).map(f => f.branch ?? `task/${f.task.id}`)
+const passingTests = finished.filter(f => f.passed).map(f => f.testSet?.tests_ref).filter(Boolean)
 log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} escalated; ${finished.filter(f => f.skipped).length} skipped on a failed dependency`)
 
+// The TestSets land HERE, not in the task worktrees. The Test Author writes from the spec alone and must never see
+// the implementation, so it keeps writing to the artifact store; but a TestSet that stays there is run once and lost,
+// which is exactly how 12 work items produced a suite where not one test passed ?q. Landing them at the barrier keeps
+// the information asymmetry AND puts the tests in the repo, so the suite number this run reports is the real one.
+const landing = passingTests.length
+  ? `\n                           BEFORE running the suite, land the tests. For each path in ${JSON.stringify(passingTests)}:
+                           that path may be a FILE or a DIRECTORY (both have occurred) — if it is a directory copy every *.test.js
+                           inside it, if it is a file copy that file. Copy into <worktree>/${APP}/test/ under its own basename.
+                           NEVER overwrite a file that already exists there — skip it and list it in tests_skipped; the repo's
+                           copy wins. Do NOT copy helpers.js or any non-test file: the repo has its own helpers and an
+                           artifact-store copy may carry absolute worktree paths that would break once moved. Then
+                           \`git add -A && git commit -m "tests: land TestSets for ${A.run_id}"\` in the worktree.
+                           List what you copied in tests_landed. If a landed test then FAILS, report the failure verbatim in
+                           the suite counts — never delete, skip or edit a test to make the suite green.`
+  : ''
 const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
                            (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
-                           ${JSON.stringify(passingBranches)}. Resolve conflicts minimally and list any files you touched in conflicts.
+                           ${JSON.stringify(passingBranches)}. Resolve conflicts minimally and list any files you touched in conflicts.${landing}
                            Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
-                           Write results to ${ART}/integration/${A.run_id}.json and return the summary.`,
+                           Write results to ${ART}/integration/${A.run_id}.json.
+                           Finally run \`git rev-parse HEAD\` in the worktree and return its FULL 40-character sha as integration_commit.
+                           Copy that sha exactly; if the command fails, leave integration_commit out rather than guessing one.`,
   { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
 
 // AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
@@ -380,7 +404,10 @@ if (suite && (suite.conflicts?.length || suite.failed > 0) && passing.length > 1
                                 A mechanical merge reported conflicts in ${JSON.stringify(suite.conflicts ?? [])} and ${suite.failed} failing test(s) (results at ${suite.results_ref}).
                                 Re-examine each conflicted file against the task branches' intents and make the integration branch carry ALL merged behaviors
                                 correctly. Commit. Re-run the full suite of the app at <worktree>/${APP}/, write results to ${ART}/integration/${A.run_id}.json
-                                and return the summary with artifact_ref = "integration/${A.run_id}" and conflicts = the files you changed.`,
+                                and return the summary with artifact_ref = "integration/${A.run_id}" and conflicts = the files you changed.
+                                Carry forward tests_landed ${JSON.stringify(suite.tests_landed ?? [])} and tests_skipped ${JSON.stringify(suite.tests_skipped ?? [])} unchanged
+                                unless you changed which tests are present. Then run \`git rev-parse HEAD\` in that worktree and return its FULL
+                                40-character sha as integration_commit — your commit, not the one the mechanical merge reported. Copy it exactly; omit it if the command fails.`,
     { label: 'integrate:resolve', model: MODEL.strong, schema: Suite })
   if (resolved) finalSuite = resolved
 }
@@ -392,9 +419,15 @@ return {
   project_id: A.project_id,
   iteration: A.iteration,
   artifact_ref: finalSuite?.artifact_ref ?? 'INTEGRATION_FAILED',
+  // The durable handle on what this run shipped. Company Memory joins Cause.suspect_commit to this to find the
+  // PanelResult that passed a defect; a branch name cannot do that job once the container is gone. Omitted, never
+  // faked, when the Integrator could not report one.
+  ...(finalSuite?.integration_commit ? { integration_commit: finalSuite.integration_commit } : {}),
   specs: A.specs.map(s => s.spec.id),
   panel_results: panelResults,
   suite: { passed: finalSuite?.passed ?? 0, failed: finalSuite?.failed ?? 0, results_ref: finalSuite?.results_ref ?? '' },
+  tests_landed: finalSuite?.tests_landed ?? [],
+  tests_skipped: finalSuite?.tests_skipped ?? [],
   escalations,
   starved_items: [],
   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.

@@ -52,11 +52,13 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-// .claude/agents/ definitions register from the COMMITTED tree, but the runtime's scan has lag: agents committed
-// during a session are not necessarily available to that session's next run (observed on run i1/mr1 — committing
-// them was not enough). missing_agent_types names the ones this session cannot resolve, so a run can proceed with
-// the definitions it does have instead of losing them all to the blunt agent_types:false hatch. When a type is
-// dropped its ROLE PROMPT is dropped with it, so every constraint that matters is also stated inline below.
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule, so an agent committed mid-session is unavailable to the next run and available some minutes later
+// (measured on i1/mr1 — committing was not enough; the same five types registered before the following turn).
+// Committing is necessary and not sufficient, and a run cannot wait the scan out. missing_agent_types names the
+// types THIS run cannot resolve, so it proceeds with the definitions it does have rather than losing them all to the
+// blunt agent_types:false hatch. When a type is dropped its ROLE PROMPT goes with it, so every constraint that
+// matters is also stated inline in the prompts below — which is why a run made without them is still sound.
 const MISSING = new Set(A.missing_agent_types ?? [])
 const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
@@ -264,10 +266,15 @@ if (killHit.length) {
   rule = `remaining_backlog_value (${remainingBacklogValue}) < projected cost (${projectedCost.toFixed(1)}) → §5.3 forces sell or kill; ${allMet ? 'all metrics met, so sell' : 'metrics unmet, so kill'}`
 } else if (allMet) {
   recommendation = within.length ? 'keep' : 'sell'
-  rule = `all ${metricsVsTargets.length} success metrics met → §5.3 allows keep or sell; ${within.length ? 'funded backlog remains, so keep' : 'nothing funded remains, so sell'}`
+  rule = `all ${metricsVsTargets.length} success metrics measured and met → §5.3 allows keep or sell; ${within.length ? 'funded backlog remains, so keep' : 'nothing funded remains, so sell'}`
 } else {
   recommendation = 'keep'
-  rule = `no kill criterion hit, backlog value (${remainingBacklogValue}) covers projected cost, ${metricsVsTargets.filter(m => m.met).length}/${metricsVsTargets.length} metrics met → keep`
+  // Count over MEASURED rows and name the unmeasured ones separately. "2/3 met" over a period that read only two
+  // of the three metrics is the overstatement run i1's rationale writer caught in this very line.
+  rule = `no kill criterion hit, backlog value (${remainingBacklogValue}) >= projected cost of the funded slice (${projectedCost.toFixed(1)}), `
+    + `${metCount}/${measuredRows.length} MEASURED metrics met`
+    + (unmeasured.length ? `, and ${unmeasured.length} metric(s) never measured this period (neither met nor missed): ${unmeasured.map(u => u.metric).join('; ')}` : '')
+    + ` → keep`
 }
 
 // ---- Verdict Evaluator, rationale half: an agent, and it is handed the recommendation, never asked for one. ----
@@ -282,6 +289,12 @@ const rationale = await agent(
    kill_criteria hit: ${JSON.stringify(killHit)}
    kill_criteria that could not be determined from the inputs: ${JSON.stringify(undeterminable)}
    remaining_backlog_value: ${remainingBacklogValue} (sum of expected_value x confidence over all opportunities)
+   projected_cost: ${projectedCost.toFixed(1)} (sum of estimated_cost.tokens over the opportunities that fit the remaining budget, in thousands of tokens).
+     These two are the §5.3 comparison. They are in DIFFERENT UNITS — value is an unitless value x confidence score,
+     cost is thousands of tokens — so say so if you quote the comparison; it is a threshold the model defines, not a ratio.
+   metrics: ${measuredRows.length} of ${metricsVsTargets.length} metrics were measured this period; ${metCount} of those measured are met.
+     A metric with measured=false was never read: it is neither met nor missed, and met=false on it only means it
+     could not satisfy the target, not that the target was missed. Never total it as a miss.
    burn: ${JSON.stringify(burn)}${burn.found ? '' : ' — the ledger read FAILED, so every budget statement below is unknown, not zero'}
    budget_exhausted: ${budgetExhausted}
    ranked opportunities: ${JSON.stringify(ranked.map(o => ({ rank: o.rank, id: o.id, hypothesis: o.hypothesis, score: o.score, within_budget: o.within_budget, metric_impacted: o.metric_impacted })))}

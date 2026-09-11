@@ -48,11 +48,13 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-// .claude/agents/ definitions register from the COMMITTED tree, but the runtime's scan has lag: agents committed
-// during a session are not necessarily available to that session's next run (observed on run i1/mr1 — committing
-// them was not enough). missing_agent_types names the ones this session cannot resolve, so a run can proceed with
-// the definitions it does have instead of losing them all to the blunt agent_types:false hatch. When a type is
-// dropped its ROLE PROMPT is dropped with it, so every constraint that matters is also stated inline below.
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule, so an agent committed mid-session is unavailable to the next run and available some minutes later
+// (measured on i1/mr1 — committing was not enough; the same five types registered before the following turn).
+// Committing is necessary and not sufficient, and a run cannot wait the scan out. missing_agent_types names the
+// types THIS run cannot resolve, so it proceeds with the definitions it does have rather than losing them all to the
+// blunt agent_types:false hatch. When a type is dropped its ROLE PROMPT goes with it, so every constraint that
+// matters is also stated inline in the prompts below — which is why a run made without them is still sound.
 const MISSING = new Set(A.missing_agent_types ?? [])
 const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
@@ -142,8 +144,12 @@ For each build-spec/build-implement run you can pair up, report the work type (u
 "maintain_patch", "improve", "brief" — or the workflow name when the source is not recorded), the budgeted token figure
 if one is recorded (WorkItem.budget.tokens or args budget), the actual tokens from the ledger row, and evidence_runs.
 Report ONLY pairs where you can read BOTH numbers. A row with a guessed estimate is worse than no row.
-Also set node_tokens_available: true only if you find at least one stored artifact whose provenance carries a
-"tokens" field. Check; do not assume. Compute no factors or ratios — that is done in script code.`,
+Also set node_tokens_available: true only if you find, IN A STORED RUN RESULT UNDER ${RUNS}/, at least one artifact
+whose provenance carries a "tokens" field. Files under substrate/test/ are FIXTURES, not runs: hand-written inputs to
+the validator's own tests, and they prove nothing about what the runtime records. On run mr1 a reader set this true
+off substrate/test/evidence-bundle.valid.json, which is exactly the mistake this sentence exists to stop. Anything
+outside ${RUNS}/ does not count; name in note the file you based the answer on so the claim can be checked.
+Compute no factors or ratios — that is done in script code.`,
     { label: 'estimate_inputs', phase: 'Read', model: MODEL.cheap, ...AT('memory-analyst'), schema: Estimates }),
 
   () => agent(`Read the stored run results under ${RUNS}/ and the repo, and extract two things.
@@ -268,6 +274,12 @@ const methodNote = mr.found === false
 // Models are priced separately because tokens are not comparable across tiers (substrate/README).
 const modelReport = (mr.models ?? []).map(m => ({ model: m.key, tokens: m.tokens ?? 0, cost_est_usd: Number((m.cost_est_usd ?? 0).toFixed(4)) }))
 
+const rollRuns = [...new Set([
+  ...(pf.runs_read ?? []),
+  ...(ex.patterns ?? []).flatMap(p => p.evidence_runs ?? []),
+  ...(est.rows ?? []).flatMap(r => r.evidence_runs ?? []),
+])].sort()
+
 const patterns = (ex.patterns ?? []).map(p => ({
   id: p.id, kind: p.kind, claim: p.claim, evidence_runs: p.evidence_runs, sample_size: p.sample_size,
 }))
@@ -283,7 +295,10 @@ return {
   roll: {
     project_id: A.project_id,
     period: A.period,
-    runs_read: pf.runs_read ?? [],
+    // The union of every run this roll actually rests on, not just the ones carrying panel_results. On mr1 the
+    // patterns cited b1-build-reentry and m1/m2-maintain-triage while runs_read listed only the 10 build-implement
+    // runs the panel scan saw — a roll that under-reports its own evidence.
+    runs_read: rollRuns,
     patterns,
     calibration,
     lens_catch_rates: lensCatchRates,

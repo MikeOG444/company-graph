@@ -1,0 +1,230 @@
+{
+  "entry": {
+    "id": "t2-build-spec",
+    "run_id": "t2",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T04:41:40.000Z",
+    "finished_at": "2026-09-11T04:45:33.000Z",
+    "wall_clock_sec": 233,
+    "result_ref": "ledger/runs/t2-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 121892,
+      "claude-opus-5": 71652
+    },
+    "tokens": 193544,
+    "cost_est_usd": 0.67,
+    "agents": 4,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t2",
+      "created_at": "2026-09-11T04:41:40Z"
+    },
+    "trace_ref": ".artifacts/traces/t2-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-imp-1",
+          "work_item_id": "wi-imp-1",
+          "goal": "Make GET /items self-describing about truncation by reporting the unpaged match count on every successful list response, without changing the response body. Today the handler runs filter -> sort -> cap and returns a bare JSON array, so a client that asked for ?limit=25 and received 25 items cannot tell a complete answer from a truncated one; telemetry for the 3-hour Phase 5 window shows 388 capped responses (68.8% of all limited requests) and 241 blind re-requests within 5s carrying the same q and sort with a larger limit, and client feedback fb-p5-1 (rating 2) reports the hand-rolled \"always re-request with limit=500\" workaround. The carrier is an additive response header, X-Total-Count, because all 46 existing tests assert a bare JSON array from GET /items and an envelope would be a breaking change requiring its own decision. X-Total-Count reports the number of items matching the request AFTER the ?q filter and BEFORE the ?limit cap — i.e. the length the response body would have had with no ?limit — so it agrees with the documented filter -> sort -> cap pipeline. It is present on every 200 response from GET /items, capped or not, because a signal that is absent exactly when the answer is complete is unusable: a client compares X-Total-Count to the number of items it received and re-requests only when the count is larger. Every existing route, query parameter, validation rule, error body, status code and test keeps passing byte-identically; the only behavioural change is one added response header on 200 GET /items, plus README documentation of it.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "A fresh app with 5 items created via POST /items (insertion order i1..i5) and no ?q in play",
+              "when": "GET /items?limit=2 is requested",
+              "then": "The response is 200; the parsed body is a JSON array of exactly [i1, i2] in insertion order (byte-identical to today's behaviour); and the response carries header X-Total-Count with the exact value \"5\", i.e. the unpaged match count, not the 2 items returned",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "A fresh app with 3 items created via POST /items",
+              "when": "GET /items is requested with no query parameters at all",
+              "then": "The response is 200 with all 3 items in the body and X-Total-Count is present with the exact value \"3\" — the header is emitted on uncapped responses too, not only on capped ones, so a client can always read it",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "A fresh app with exactly 2 items",
+              "when": "GET /items?limit=2 is requested (limit equals the match count) and, separately, GET /items?limit=10 is requested (limit exceeds the match count)",
+              "then": "Both responses are 200 with both items in the body and X-Total-Count \"2\" in each case; in both cases X-Total-Count equals the number of items in the body, which is the signal that the answer is complete — distinguishing this case from AC-1, where the same limit=2 request yields X-Total-Count \"5\"",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "A fresh app with 4 items named \"banana\", \"mango\", \"mandarin\", \"apple\" (3 of which contain the substring \"an\")",
+              "when": "GET /items?q=an&limit=1 is requested",
+              "then": "The response is 200, the body is a JSON array of exactly 1 item (unchanged from today), and X-Total-Count is \"3\" — counted after the ?q filter (so not \"4\") and before the ?limit cap (so not \"1\")",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "The same 4 items as AC-4",
+              "when": "GET /items?q=an&sort=name&limit=1 is requested, and separately GET /items?q=an&sort=id&limit=1",
+              "then": "Each response body is byte-identical to what the current implementation returns for that URL (for sort=name, the single item named \"banana\"), and X-Total-Count is \"3\" in both cases — the sort stage neither changes the count nor reorders the count's basis",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "A fresh app with an empty store, and separately an app with 3 items none of whose names contain \"zz\"",
+              "when": "GET /items is requested against the empty store, and GET /items?q=zz&limit=5 is requested against the populated one",
+              "then": "Both responses are 200 with body [] and X-Total-Count present with the exact value \"0\" — zero matches is reported as \"0\", never as an omitted header or an empty value",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "A fresh app with 12 items",
+              "when": "GET /items?limit=3 is requested and the raw response headers are inspected",
+              "then": "The header name is exactly X-Total-Count (matched case-insensitively per HTTP), it appears exactly once (not repeated), and its value matches /^(0|[1-9][0-9]*)$/ and equals \"12\" — a canonical decimal integer string with no leading zeros, sign, thousands separators, surrounding whitespace, or units",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "A fresh app with 3 items",
+              "when": "Each of GET /items?q[x]=y&sort=bogus&limit=0, GET /items?sort=bogus, GET /items?limit=0, GET /items?limit=1&limit=2 is requested",
+              "then": "Each responds 400 with exactly its existing JSON error body ({\"error\":\"invalid q\"}, {\"error\":\"invalid sort\"} or {\"error\":\"invalid limit\"} per the unchanged q -> sort -> limit precedence), and no 400 response carries an X-Total-Count header; the stored data is unchanged afterwards",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "A fresh app with 5 items",
+              "when": "GET /items?limit=2 is requested and the body is parsed",
+              "then": "Array.isArray(body) is true (a bare array, not an envelope object), each element deep-equals the Item object returned by its POST /items call with no added, removed or renamed fields, and `npm test` in toy/ passes all 46 pre-existing tests unmodified",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "A fresh app with at least one item and ADMIN_TOKEN configured",
+              "when": "GET /items/:id (hit and miss), POST /items (success and each 400), DELETE /items/:id (401, 404 and 204), GET /health, and a request to an unrouted path are exercised",
+              "then": "Every status code and response body is unchanged from the current implementation, none of these responses carries an X-Total-Count header, and the stdout request-log line format (METHOD PATH STATUS ELAPSED_MS, suppressed under NODE_ENV=test) is unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "toy/README.md as updated by this work item",
+              "when": "The GET /items section is read (or grepped for \"X-Total-Count\")",
+              "then": "It names the X-Total-Count response header, states that it is present on every 200 GET /items response including uncapped and empty ones, states that it counts matches after the ?q filter and before the ?limit cap, states that it is absent on 400 responses, and describes the client use: compare it to the number of items received and page or widen ?limit only when it is larger",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/total-count.test.js"
+            }
+          ],
+          "out_of_scope": [
+            "Changing the GET /items response body in any way — no envelope ({items, total}), no wrapper object, no added or renamed Item fields. The envelope is a breaking change and needs its own decision.",
+            "Offset/cursor pagination: no ?offset or ?page parameter, no Link / next-cursor headers, no has_more flag.",
+            "CORS: the app registers no CORS middleware today, so no Access-Control-Expose-Headers (or any other CORS header) is added; a cross-origin browser client being able to read X-Total-Count is a separate item.",
+            "Documenting ?q in the README — that is wi-imp-2; this item only adds the header's documentation to the existing GET /items section.",
+            "Any change to ?q, ?sort or ?limit parsing, validation rules, their q -> sort -> limit precedence, their 400 error bodies, or the filter -> sort -> cap order itself.",
+            "Reporting a store-wide total that ignores ?q — X-Total-Count is the filtered match count, not the size of the store.",
+            "Emitting X-Total-Count on any other route (GET /items/:id, POST /items, DELETE /items/:id, GET /health, the 404 catch-all) or on GET /items 400 responses.",
+            "HEAD/OPTIONS semantics, caching headers (ETag, Cache-Control), and content negotiation.",
+            "Performance work: the store is an in-memory Map and counting stays an O(n) pass over the already-filtered array; no indexing, memoization or store restructuring.",
+            "Auth, rate limiting, persistence, and the stdout request-logger line format."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Purely additive response header; response body (bare JSON array) unchanged and all 46 existing tests pass byte-identically per AC-9",
+            "No stored data shape change — Item objects and array serialization remain identical",
+            "No auth, secrets, payments, or infrastructure touched — isolated to HTTP response header on single endpoint",
+            "Fully backward compatible — existing clients ignoring the header continue working unchanged",
+            "No existing route contract broken — AC-1 through AC-11 preserve all status codes, body format, query validation, error responses, and filter/sort/cap ordering",
+            "Internal-only API with no external consumers; toy items API is the plant's own test service",
+            "Easily reversible; adding a header is a soft contract layer change"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t2",
+            "created_at": "2026-09-11T04:41:40Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-imp-1",
+          "tasks": [
+            {
+              "id": "implement-x-total-count-header",
+              "spec_id": "spec-wi-imp-1",
+              "description": "Add X-Total-Count response header to GET /items endpoint. The header reports the count of items matching the request after the ?q filter and before the ?limit cap. Must be present on all 200 responses (capped, uncapped, and empty), must be absent on 400 responses and all other routes. Header value must be a canonical decimal integer string (no leading zeros, sign, or units) matching /^(0|[1-9][0-9]*)$/. All 46 existing tests must pass without modification.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10"
+              ]
+            },
+            {
+              "id": "document-x-total-count-header",
+              "spec_id": "spec-wi-imp-1",
+              "description": "Update toy/README.md to document the X-Total-Count response header in the GET /items section. Include: (1) header name and presence on all 200 responses including uncapped and empty ones; (2) counting behavior (after ?q filter, before ?limit cap); (3) absence on 400 responses; (4) client usage pattern: compare X-Total-Count to items received and re-request only when count is larger.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/README.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-11"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t2",
+            "created_at": "2026-09-11T04:41:40Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t2",
+      "created_at": "2026-09-11T04:41:40Z"
+    }
+  }
+}

@@ -1,0 +1,375 @@
+{
+  "entry": {
+    "id": "mr2-memory-roll",
+    "run_id": "mr2",
+    "workflow": "memory-roll",
+    "status": "ok",
+    "started_at": "2026-09-11T04:41:40.000Z",
+    "finished_at": "2026-09-11T04:43:41.000Z",
+    "wall_clock_sec": 121,
+    "result_ref": "ledger/runs/mr2-memory-roll.json",
+    "artifact_count": 2,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 160812
+    },
+    "tokens": 160812,
+    "cost_est_usd": 0.23,
+    "agents": 4,
+    "provenance": {
+      "node": "memory-roll",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "mr2",
+      "created_at": "2026-09-11T04:41:40Z"
+    },
+    "trace_ref": ".artifacts/traces/mr2-memory-roll.jsonl"
+  },
+  "result": {
+    "roll": {
+      "project_id": "toy",
+      "period": {
+        "from": "2026-09-11T01:00:00Z",
+        "to": "2026-09-11T04:41:40Z"
+      },
+      "runs_read": [
+        "c1-build-implement",
+        "c1v-build-implement",
+        "i1-improve-analyze",
+        "r1-build-implement",
+        "r2-build-implement",
+        "r3-build-implement",
+        "r5-build-implement",
+        "r6-build-implement",
+        "r7-build-implement",
+        "r8-build-implement",
+        "t1i-build-implement"
+      ],
+      "patterns": [
+        {
+          "id": "pattern-p1",
+          "kind": "anti_pattern",
+          "claim": "Spec's touched_surfaces list can conflict with task decomposition's owned_surfaces, creating unsatisfiable requirements where the verifier lens repeatedly raises the same finding across multiple fixing rounds because the fixer cannot legally modify files outside their owned surfaces.",
+          "evidence_runs": [
+            "c1-build-implement"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p2",
+          "kind": "pattern",
+          "claim": "When a spec has internal contradictory acceptance criteria (e.g., AC-1 requires behavior identical to existing, while AC-2/AC-8 require exact response schemas with only subset of fields that existing behavior includes), the spec_conformance lens may pass while correctness lens fails on the same implementation, because spec_conformance tests against the spec text alone without checking for logical consistency.",
+          "evidence_runs": [
+            "r6-build-implement"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p3",
+          "kind": "pattern",
+          "claim": "Canonical integer validation using regex patterns like /^[1-9][0-9]*$/ correctly rejects non-canonical formats (leading zeros, negative signs, scientific notation, hex notation, whitespace) across multiple acceptance criteria and both security and correctness lenses validate this pattern works as intended.",
+          "evidence_runs": [
+            "r1-build-implement",
+            "r5-build-implement"
+          ],
+          "sample_size": 2
+        },
+        {
+          "id": "pattern-p4",
+          "kind": "anti_pattern",
+          "claim": "Exposed operational data (like process.uptime() returned in GET /health endpoint) creates multiple security vulnerabilities that security lens systematically discovers: server identity fingerprinting, deployment timing disclosure, and timing-based side-channel attacks for infrastructure reconnaissance.",
+          "evidence_runs": [
+            "r1-build-implement"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p5",
+          "kind": "pattern",
+          "claim": "Type-checking for non-string parameters (e.g., `typeof raw !== 'string'` before regex validation) successfully blocks array/object injection attacks via parameter pollution (?param=a&param=b or ?param[x]=value) across security, correctness and spec_conformance lenses.",
+          "evidence_runs": [
+            "r2-build-implement",
+            "r5-build-implement"
+          ],
+          "sample_size": 2
+        },
+        {
+          "id": "pattern-p6",
+          "kind": "anti_pattern",
+          "claim": "Repeated findings from the same lens across multiple fixing rounds, when the underlying issue is a metadata/scope mismatch rather than a code defect, causes escalation when the repeat count reaches the guardrail (2 repeats in c1-build-implement), because the fixer cannot resolve a finding in code they don't own.",
+          "evidence_runs": [
+            "c1-build-implement"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p7",
+          "kind": "pattern",
+          "claim": "Number.isSafeInteger() check combined with regex validation successfully prevents integer overflow attacks using values beyond JavaScript's MAX_SAFE_INTEGER range, tested and validated by both security and correctness lenses.",
+          "evidence_runs": [
+            "r1-build-implement",
+            "r5-build-implement"
+          ],
+          "sample_size": 2
+        },
+        {
+          "id": "pattern-p8",
+          "kind": "anti_pattern",
+          "claim": "Canary watch probes with fixed request shapes (e.g., substrate/deploy.js ROUTES list with no ?q parameter tests) cannot detect regressions confined to query parameters not in the probe list, even though those parameters represent significant traffic and user-visible failures.",
+          "evidence_runs": [
+            "i1-improve-analyze"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p9",
+          "kind": "pattern",
+          "claim": "UTF-16 code unit counting (not character counting or byte counting) for string length validation correctly handles emoji and surrogate pairs, and security lens tests for these boundary conditions (32 emojis = 64 units accepted, 33 emojis = 66 units rejected).",
+          "evidence_runs": [
+            "r2-build-implement"
+          ],
+          "sample_size": 1
+        },
+        {
+          "id": "pattern-p10",
+          "kind": "anti_pattern",
+          "claim": "Out-of-scope feature additions in implementations (like rate limiting added to /health endpoint when spec marked rate limiting as out-of-scope) cause spec_conformance lens to fail, because the implementation diverges from the spec's bounded API surface definition.",
+          "evidence_runs": [
+            "r1-build-implement"
+          ],
+          "sample_size": 1
+        }
+      ],
+      "calibration": [
+        {
+          "work_type": "(none)",
+          "factor": 1,
+          "sample_size": 0,
+          "basis": "run_level",
+          "estimated_tokens": 0,
+          "actual_tokens": 0
+        }
+      ],
+      "lens_catch_rates": [
+        {
+          "lens": "spec_conformance",
+          "panels_seen": 30,
+          "findings_raised": 39,
+          "findings_upheld": 39,
+          "escaped_defects_attributable": 0,
+          "catch_rate": null,
+          "unavailable_reason": "no escaped-defect denominator exists. A catch rate needs defects that passed a Verifier Panel and were later found by Maintain. The join is Cause.suspect_commit -> the run that shipped that commit -> that run's panel_results, and the middle hop is not recorded: EvidenceBundle.artifact_ref is a branch name, and the optional EvidenceBundle.integration_commit that would close it is stamped by nothing. 2 defect(s) (sig-p4-1, sig-p4-2) were planted by hand on a branch no panel ever saw; they are NOT lens misses and are excluded by name rather than counted."
+        },
+        {
+          "lens": "security",
+          "panels_seen": 27,
+          "findings_raised": 20,
+          "findings_upheld": 20,
+          "escaped_defects_attributable": 0,
+          "catch_rate": null,
+          "unavailable_reason": "no escaped-defect denominator exists. A catch rate needs defects that passed a Verifier Panel and were later found by Maintain. The join is Cause.suspect_commit -> the run that shipped that commit -> that run's panel_results, and the middle hop is not recorded: EvidenceBundle.artifact_ref is a branch name, and the optional EvidenceBundle.integration_commit that would close it is stamped by nothing. 2 defect(s) (sig-p4-1, sig-p4-2) were planted by hand on a branch no panel ever saw; they are NOT lens misses and are excluded by name rather than counted."
+        },
+        {
+          "lens": "correctness",
+          "panels_seen": 25,
+          "findings_raised": 28,
+          "findings_upheld": 28,
+          "escaped_defects_attributable": 0,
+          "catch_rate": null,
+          "unavailable_reason": "no escaped-defect denominator exists. A catch rate needs defects that passed a Verifier Panel and were later found by Maintain. The join is Cause.suspect_commit -> the run that shipped that commit -> that run's panel_results, and the middle hop is not recorded: EvidenceBundle.artifact_ref is a branch name, and the optional EvidenceBundle.integration_commit that would close it is stamped by nothing. 2 defect(s) (sig-p4-1, sig-p4-2) were planted by hand on a branch no panel ever saw; they are NOT lens misses and are excluded by name rather than counted."
+        }
+      ],
+      "canaries": [
+        {
+          "id": "canary-c1",
+          "defect_class": "missing_authorization_check",
+          "mutation": "in toy/src/app.js, in the DELETE /items/:id route handler, remove all code that checks req.headers.authorization and process.env.ADMIN_TOKEN, allowing the route to delete items without any token validation",
+          "origin": "r3-build-implement",
+          "expected_lens": "security"
+        },
+        {
+          "id": "canary-c2",
+          "defect_class": "information_disclosure_timing",
+          "mutation": "in toy/src/app.js, in the GET /health response, add an additional field that returns the process start timestamp derived from Date.now() - (process.uptime() * 1000), enabling attackers to infer exact deployment time",
+          "origin": "r1-build-implement",
+          "expected_lens": "security"
+        },
+        {
+          "id": "canary-c3",
+          "defect_class": "integer_overflow_bypass",
+          "mutation": "in toy/src/app.js, in the GET /items query parameter validation for ?offset=N, remove the Number.isSafeInteger() check and accept any parsed integer, allowing values beyond MAX_SAFE_INTEGER range to be passed to the array.slice() method",
+          "origin": "r1-build-implement",
+          "expected_lens": "correctness"
+        },
+        {
+          "id": "canary-c4",
+          "defect_class": "array_injection_via_parameter_pollution",
+          "mutation": "in toy/src/app.js, in the GET /items handler validation of ?limit=N parameter, remove the `typeof raw !== 'string'` check, allowing Express to pass an array like [1, 2] from ?limit=1&limit=2 directly to the limit validation logic",
+          "origin": "r5-build-implement",
+          "expected_lens": "security"
+        },
+        {
+          "id": "canary-c5",
+          "defect_class": "non_canonical_integer_bypass",
+          "mutation": "in toy/src/app.js, in the GET /items/:id route handler, replace the validation regex from /^\\d+$/ to /^[0-9]+$|^0x[0-9a-f]+$/i to accept hexadecimal notation like 0x1 as a valid ID format",
+          "origin": "r1-build-implement",
+          "expected_lens": "spec_conformance"
+        },
+        {
+          "id": "canary-c6",
+          "defect_class": "type_coercion_bypass",
+          "mutation": "in toy/src/app.js, in the POST /items name length validation, remove the check `typeof name !== 'string'` and instead attempt to call `.length` on the value directly, allowing objects with a length property to be processed as names",
+          "origin": "r2-build-implement",
+          "expected_lens": "security"
+        },
+        {
+          "id": "canary-c7",
+          "defect_class": "response_schema_mismatch",
+          "mutation": "in toy/src/app.js, in the GET /items/:id response, modify the response to include additional fields: created_at (ISO timestamp) and tags (empty array), changing the response shape from {id, name} to {id, name, created_at, tags}",
+          "origin": "r6-build-implement",
+          "expected_lens": "spec_conformance"
+        },
+        {
+          "id": "canary-c8",
+          "defect_class": "out_of_scope_feature_addition",
+          "mutation": "in toy/src/app.js, in the GET /health route, add rate limiting logic that returns HTTP 429 with Retry-After header when requests exceed 10 per 10 seconds, even though the spec lists 'rate limiting' in the out_of_scope section",
+          "origin": "r1-build-implement",
+          "expected_lens": "spec_conformance"
+        },
+        {
+          "id": "canary-c9",
+          "defect_class": "state_mutation_on_validation_failure",
+          "mutation": "in toy/src/app.js, in the POST /items handler, move the nextId counter increment to occur before the name validation check, so that invalid requests that fail the name length check still consume an ID number",
+          "origin": "r2-build-implement",
+          "expected_lens": "correctness"
+        },
+        {
+          "id": "canary-c10",
+          "defect_class": "validation_order_precedence_violation",
+          "mutation": "in toy/src/app.js, in the DELETE /items/:id handler, perform the ID format validation (checking if :id is a canonical integer) before checking the Authorization header, so that a request with no Authorization to a non-existent ID returns 404 instead of 401",
+          "origin": "r3-build-implement",
+          "expected_lens": "security"
+        }
+      ],
+      "method_report": [
+        {
+          "method": "hotl",
+          "runs": 21,
+          "tokens": 13375918,
+          "cost_est_usd": 40.53,
+          "escalations": 6,
+          "outcomes": {
+            "runs_ok": 21,
+            "escalated": 6
+          },
+          "human_min": 2
+        },
+        {
+          "method": "hitl",
+          "runs": 5,
+          "tokens": 532770,
+          "cost_est_usd": 1.42,
+          "escalations": 0,
+          "outcomes": {
+            "runs_ok": 5,
+            "escalated": 0
+          },
+          "human_min": 1
+        },
+        {
+          "method": "dark_factory",
+          "runs": 4,
+          "tokens": 381375,
+          "cost_est_usd": 0.53,
+          "escalations": 0,
+          "outcomes": {
+            "runs_ok": 4,
+            "escalated": 0
+          },
+          "human_min": 3
+        }
+      ],
+      "review_queue": [],
+      "provenance": {
+        "node": "memory-roll",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "mr2",
+        "created_at": "2026-09-11T04:41:40Z"
+      }
+    },
+    "aux": {
+      "model_report": [
+        {
+          "model": "claude-haiku-4-5",
+          "tokens": 7306158,
+          "cost_est_usd": 10.23
+        },
+        {
+          "model": "claude-sonnet-5",
+          "tokens": 3960131,
+          "cost_est_usd": 11.09
+        },
+        {
+          "model": "claude-opus-5",
+          "tokens": 3023774,
+          "cost_est_usd": 21.16
+        }
+      ],
+      "method_note": "outcomes carries runs_ok and escalated only. LedgerEntry has no outcome field, so \"did it ship\", \"was it vetoed\" and \"did it come back as a defect\" are NOT MEASURED — and that is the question §8 says the whole model exists to answer.",
+      "panels_total": 31,
+      "lens_facts": [
+        {
+          "lens": "spec_conformance",
+          "panels_seen": 30,
+          "verdict_pass": 17,
+          "verdict_fail": 13,
+          "findings_raised": 39,
+          "findings_overruled": 0,
+          "min_attempts_seen": 3
+        },
+        {
+          "lens": "security",
+          "panels_seen": 27,
+          "verdict_pass": 21,
+          "verdict_fail": 6,
+          "findings_raised": 20,
+          "findings_overruled": 0,
+          "min_attempts_seen": 3
+        },
+        {
+          "lens": "correctness",
+          "panels_seen": 25,
+          "verdict_pass": 17,
+          "verdict_fail": 8,
+          "findings_raised": 28,
+          "findings_overruled": 0,
+          "min_attempts_seen": 3
+        }
+      ],
+      "excluded_planted_defects": [
+        {
+          "id": "sig-p4-1",
+          "note": "Planted by hand on main in the Phase 4 Maintain drill (commit 243b72a2). It never passed a Verifier Panel because no panel ever saw it. NOT a lens miss."
+        },
+        {
+          "id": "sig-p4-2",
+          "note": "Planted by hand on main in the same commit. Never faced a Verifier Panel. NOT a lens miss."
+        }
+      ],
+      "notes": [
+        "Zero pairs reported. Budget data exists only at project level (toy/brief.json: 3M tokens) and WorkItem level (toy/backlog.json items carry individual budgets; build-reentry results store WorkItems with budgets), but neither is paired with the executed build-spec/build-implement phases in the stored run results under ledger/runs/. The four identified pairs (r1, r3, c1, t1/t1i) have actual tokens recorded but no budgeted figures readable from the same run result files. Per ledger/runs/mr1-memory-roll.json notes: 'Budget data exists only at project level and work-item level, but not paired with executed phases.' node_tokens_available=false: no provenance.tokens fields found in any ledger/runs/ artifacts (only in the test fixture substrate/test/fixtures/evidence-bundle.valid.json, which does not count)."
+      ]
+    },
+    "provenance": {
+      "node": "memory-roll",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "mr2",
+      "created_at": "2026-09-11T04:41:40Z"
+    }
+  }
+}
