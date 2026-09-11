@@ -203,7 +203,7 @@ const allHaveBudget = candidates.length > 0 && candidates.every(c => (c.item?.bu
 const DEFAULT_ITEM_TOKENS = candidates.length ? Math.floor((capTokens || candidates.length * 100000) / candidates.length) : 0
 const weight = (c) => c.item?.budget?.tokens ?? DEFAULT_ITEM_TOKENS
 const unit = allHaveBudget ? 'tokens (every item carried a budget)' : `even share (${DEFAULT_ITEM_TOKENS} tokens/item: not every item carried a budget)`
-const ratioRule = `default maintain ${R.default_maintain}; trend ${trend ?? 'unknown (treated as stable)'} → ${maintainShare}; hotfixes pre-empt and are counted in the actual share; measured in ${unit}`
+const ratioRule = `default maintain ${R.default_maintain}; trend ${trend ?? 'unknown (treated as stable)'} → ${maintainShare}; hotfixes pre-empt and are counted in the actual share; each lane admits its first item even if it exceeds its share; measured in ${unit}`
 
 // ---- Hotfix Lane + selection (code): hotfixes pre-empt, then each lane fills its own budget ----
 const bySeverityThenPriority = (a, b) => a.priority - b.priority || a.key.localeCompare(b.key)
@@ -214,18 +214,23 @@ let spentHotfix = 0
 for (const h of hotfix) spentHotfix += weight(h)
 const selected = [...hotfix]
 const deferred = []
-const fill = (lane, budget) => {
-  let spent = 0
+// A share is a share, not a starvation rule: each lane admits its highest-priority item even when that item is larger than
+// the lane's slice, and says so. Otherwise one verified patch is deferred forever by a 20% maintain share at N=1.
+const fill = (name, lane, budget) => {
+  let spent = 0, admitted = 0
   for (const c of lane) {
     const w = weight(c)
-    if (capTokens && spent + w > budget) { deferred.push(c); continue }
-    spent += w; selected.push(c)
+    if (capTokens && spent + w > budget) {
+      if (admitted === 0) { log(`${name} lane: ${c.key} (${w} tokens) exceeds its ${Math.round(budget)}-token share; admitted anyway as the lane's first item`) }
+      else { deferred.push(c); continue }
+    }
+    spent += w; selected.push(c); admitted++
   }
   return spent
 }
 const remaining = Math.max(0, capTokens - spentHotfix)
-const spentMaintain = fill(maintain, remaining * maintainShare)
-const spentImprove = fill(improve, remaining * (1 - maintainShare))
+const spentMaintain = fill('maintain', maintain, remaining * maintainShare)
+const spentImprove = fill('improve', improve, remaining * (1 - maintainShare))
 const maintainTokens = spentHotfix + spentMaintain
 const totalTokens = maintainTokens + spentImprove
 const actualMaintain = totalTokens > 0 ? maintainTokens / totalTokens : 0
