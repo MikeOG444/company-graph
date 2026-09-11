@@ -108,6 +108,7 @@ const Suite = { type: 'object', additionalProperties: false, required: ['artifac
     // shipped, and it is the hop Company Memory's Lens Calibrator needs to join Cause.suspect_commit back to a
     // PanelResult (OPERATING_MODEL 8). Stamped into EvidenceBundle.integration_commit below.
     integration_commit: { type: 'string', description: 'full sha of the integration branch HEAD after merging and landing tests' },
+    tests_found: { type: 'array', items: { type: 'string' }, description: 'EVERY .js basename found across the TestSet paths, before any copying. Reconciled in script against tests_landed + tests_skipped: a short list is how a TestSet silently half-lands.' },
     tests_landed: { type: 'array', items: { type: 'string' }, description: 'TestSet files copied into the repo test dir and committed' },
     tests_skipped: { type: 'array', items: { type: 'string' }, description: 'TestSet files NOT copied because a file of that name already exists. Reported, never overwritten.' } } }
 
@@ -681,6 +682,10 @@ async function runTask({ spec, task, spec_ref }) {
              requires is never a finding. If you believe the spec itself is unsafe, record ONE finding with severity "low" and a claim
              starting "SPEC-LEVEL:" and do not fail the change on it alone. ${criteriaScopeNote} ${overruledNote}
              ${specText}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
+             THE CHANGE UNDER REVIEW IS IN WORKTREE ${wt}, already committed on branch ${branch}. Your own working directory is the
+             repository root at the PRE-TASK commit and does NOT contain this change. Every file you open, read, grep or cite MUST be
+             under ${wt}/ and every location you report MUST be a path relative to it. A file read anywhere else shows you the state
+             BEFORE this change; a finding built on it is false, and re-reporting it is what a repeat finding is.
              Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".
              Every finding also needs target: "test" when the defect is really in a test assertion (even one whose location points at
              the code it covers) and you want it repaired by the Test Author rather than the code Fixer; "implementation" when it is a
@@ -933,13 +938,19 @@ log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} es
 // the information asymmetry AND puts the tests in the repo, so the suite number this run reports is the real one.
 const landing = passingTests.length
   ? `\n                           BEFORE running the suite, land the tests. For each path in ${JSON.stringify(passingTests)}:
-                           that path may be a FILE or a DIRECTORY (both have occurred) — if it is a directory copy every *.test.js
+                           that path may be a FILE or a DIRECTORY (both have occurred) — if it is a directory copy every *.js
                            inside it, if it is a file copy that file. Copy into <worktree>/${TEST_DIR}/ under its own basename.
+                           Copy the HELPER modules too, not only *.test.js: a landed test that imports a sibling module left
+                           behind fails at import, which is exactly how run t7i shipped a red suite (t2-doc-paths.js never landed).
                            NEVER overwrite a file that already exists there — skip it and list it in tests_skipped; the repo's
-                           copy wins. Do NOT copy helpers.js or any non-test file: the repo has its own helpers and an
-                           artifact-store copy may carry absolute worktree paths that would break once moved. Then
+                           copy wins, and that rule alone is what protects the repo's own helpers.js from an artifact-store copy
+                           carrying absolute worktree paths. Then
                            \`git add -A && git commit -m "tests: land TestSets for ${A.run_id}"\` in the worktree.
-                           List what you copied in tests_landed. If a landed test then FAILS, report the failure verbatim in
+                           ACCOUNT FOR EVERY FILE: return tests_found = every .js basename you found across those paths BEFORE
+                           copying anything, tests_landed = what you copied, tests_skipped = what you did not and why.
+                           tests_found must equal tests_landed plus tests_skipped. Returning a short list is a silent half-landing;
+                           if you could not read a path, say so rather than omitting its files.
+                           If a landed test then FAILS, report the failure verbatim in
                            the suite counts — never delete, skip or edit a test to make the suite green.`
   : ''
 const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
@@ -953,10 +964,22 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
 
 // AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
 let finalSuite = suite
-if (suite && (suite.conflicts?.length || suite.failed > 0) && passing.length > 1) {
-  log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s); strong-model resolution`)
+// Reconcile the landing in script (rule 3: edges are code). tests_found is what the lander SAW; anything it
+// neither landed nor skipped went missing silently — run t7i lost one of t2's two test files that way, with
+// tests_skipped empty and nothing to notice it.
+const landedSet = new Set([...(suite?.tests_landed ?? []), ...(suite?.tests_skipped ?? [])])
+const unaccounted = (suite?.tests_found ?? []).filter(f => !landedSet.has(f))
+if (unaccounted.length) log(`integration: ${unaccounted.length} TestSet file(s) neither landed nor skipped: ${unaccounted.join(', ')}`)
+
+// A conflict needs two branches to have one, so the >1 guard belongs to the conflicts case ALONE. A FAILING suite
+// or an unaccounted TestSet file is just as wrong with one passing task, and t7i proved it: one task passed, the
+// suite came back 62/63 red, and this step was skipped because passing.length was 1.
+if (suite && (suite.failed > 0 || unaccounted.length || (suite.conflicts?.length && passing.length > 1))) {
+  log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s), ${unaccounted.length} unaccounted TestSet file(s); strong-model resolution`)
   const resolved = await agent(`Integration branch integration/${A.run_id} in worktree ${ART}/worktrees/integration-${A.run_id} merged ${JSON.stringify(passingBranches)}.
                                 A mechanical merge reported conflicts in ${JSON.stringify(suite.conflicts ?? [])} and ${suite.failed} failing test(s) (results at ${suite.results_ref}).
+                                It also failed to account for these TestSet files, which it neither landed nor skipped: ${JSON.stringify(unaccounted)} — land any that are
+                                missing from <worktree>/${TEST_DIR}/ (helper modules included, never overwriting a file already there) before re-running.
                                 Re-examine each conflicted file against the task branches' intents and make the integration branch carry ALL merged behaviors
                                 correctly. Commit. Re-run the full suite of the app at <worktree>/${APP}/, write results to ${ART}/integration/${A.run_id}.json
                                 and return the summary with artifact_ref = "integration/${A.run_id}" and conflicts = the files you changed.

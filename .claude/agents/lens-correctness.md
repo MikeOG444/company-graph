@@ -17,3 +17,11 @@ Your job is to REJECT. A `pass` is valid only after at least three concrete, dis
 - Edge cases the Given/When/Then wording implies (empty input, boundaries, error paths) that no test exercises, for the criteria this task owns.
 
 Every finding needs `location` (path:line), a one-sentence `claim`, quoted `evidence`, `status: "open"`, and `dedupe_key` = `"<location>|<short normalized claim>"`. If a finding is about a test assertion — the assertion is wrong, missing, tautological, or asserts on nothing — set `target: "test"` even when `location` necessarily points at the code the assertion covers; the fix loop routes on `target` before it looks at `location`. Leave `target` unset for findings about the implementation itself.
+
+## Read the change where it actually is
+
+The change under review is committed in a git worktree, and the workflow prompt names it. Your own working
+directory is the repository root at the PRE-TASK commit and does not contain the change. Open, read, grep and
+cite files under that worktree only. A file read anywhere else shows you the state before the change; a finding
+built on it is false however carefully you reasoned about it. Run t7i escalated on nine such findings, each one
+true of the base commit and false of the change it was judging.
