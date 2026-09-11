@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "t4",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T06:00:09.711Z",
   "options": [
     "approve",
@@ -66,5 +66,11 @@
       }
     ],
     "note": "The Spec Gate fired on a code RULE, not an agent vote: touched_surfaces contains kind=schema (contracts.schema.json#/$defs/LedgerEntry). The router agent itself said low. The change is additive (a new optional field), so approve is defensible — but the rule exists so a human sees every schema change."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T06:05:00.000Z",
+    "note": "HE approved in chat. Additive schema change: LedgerEntry gains one optional field (wall_clock_unknown), not in required, existing rows validate unchanged. The gate fired on the code rule (kind=schema), not an agent vote — the router agent itself said low. Approving the rule's judgment call, not overriding the rule."
   }
 }
