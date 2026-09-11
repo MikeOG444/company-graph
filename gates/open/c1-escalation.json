@@ -1,0 +1,48 @@
+{
+  "id": "c1-escalation",
+  "gate": "escalation",
+  "run_id": "c1",
+  "workflow": "build-implement",
+  "status": "open",
+  "opened_at": "2026-09-11T01:30:00.000Z",
+  "options": [
+    "guide",
+    "direct_drive",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "c1",
+    "created_at": "2026-09-11T01:30:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-implement",
+  "payload": {
+    "task_id": "impl-offset",
+    "reason": "repeat_finding",
+    "hypothesis": "Not a code defect but an unsatisfiable surface list: spec.touched_surfaces names toy/test/offset.test.js while the decomposer excluded that path from impl-offset's owned_surfaces (build-implement.js has the separate test-author node write acceptance tests to .artifacts/tests/impl-offset/), and because the lens prompt is built from specText alone and never sees task.owned_surfaces, spec_conformance re-derives the same missing-file finding every round while the fixer is forbidden to create the file — so the loop can only repeat, never converge.",
+    "options": [
+      "kill_to_spec",
+      "guide"
+    ],
+    "history": [
+      "r1 [spec_conformance,security,correctness]: fail (1 findings)",
+      "r1: overruled spec_conformance at toy/test/offset.test.js|missing-file: the finding conflates two documents' surface lists — the spec's touched_surfaces names toy/test/offset.test.js as a placeholder for wherever the offset acceptance tests would live, but per .claude/workflows/build-implement.js the test-author node (a separate parallel agent, not the implementer) writes acceptance tests to .artifacts/tests/impl-offset/, never into toy/test/; the decomposition in .artifacts/c1-build-spec.json scopes impl-offset's owned_surfaces to toy/src/app.js, toy/test/integration-r5.test.js and toy/README.md only. Verified: npm test in toy/ passes 35/35 including the updated integration-r5.test.js line 125, and .artifacts/results/impl-offset.r1.json shows 17/17 offset acceptance tests passing. Nothing the spec requires is missing or broken.",
+      "r2 [spec_conformance]: fail (1 findings)",
+      "r2: spec_conformance re-raised the identical dedupe_key toy/test/offset.test.js|missing-file despite the overruled-findings note in its prompt; a second overrule at the same file trips the repeat guard, so the loop stops instead of buying a third round.",
+      "escalated: no code defect is in play — every round's only open finding is the metadata mismatch between spec.touched_surfaces and the task's owned_surfaces, and the fixer owns nothing it may change to clear it."
+    ],
+    "repeats": [
+      {
+        "lens": "spec_conformance",
+        "location": "toy/test/offset.test.js|missing-file",
+        "claim": "Specification requires toy/test/offset.test.js as a touched surface but this file is not created or modified in the diff"
+      }
+    ],
+    "branch": "task/impl-offset",
+    "acceptance_tests": ".artifacts/results/impl-offset.r1.json 17/17",
+    "suite_on_branch": "toy 35/35"
+  }
+}
