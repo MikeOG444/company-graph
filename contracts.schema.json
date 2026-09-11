@@ -168,7 +168,8 @@
         "claim":     { "type": "string" },
         "evidence":  { "type": "string" },
         "dedupe_key":{ "type": "string", "description": "Deterministic: hash(location + normalized claim)" },
-        "status":    { "type": "string", "enum": ["open", "fixed", "disputed", "overruled", "repeat"] }
+        "status":    { "type": "string", "enum": ["open", "fixed", "disputed", "overruled", "repeat"] },
+        "target":    { "type": "string", "enum": ["implementation", "test"], "description": "Which artifact the fix belongs in. Set by the lens; when absent, routing falls back to location (build-implement's routeFinding)." }
       },
       "required": ["id", "lens", "severity", "location", "claim", "evidence", "dedupe_key", "status"]
     },
