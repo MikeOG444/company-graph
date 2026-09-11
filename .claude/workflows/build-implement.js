@@ -135,10 +135,12 @@ function normalizeVerdict(v, tag) {
 // no majority rule. Security is a veto. Any other confident fail fails the panel. A fail held only at low confidence
 // (every failing lens < 0.7) goes to the Tiebreak Judge. r5 shipped four tasks over a failing lens under the old majority rule.
 const LOW_CONFIDENCE = 0.7
-function adjudicate(verdicts) {
-  const veto = verdicts.find(v => v.lens === VETO_LENS && v.verdict === 'fail')
+// Parameter named panelVerdicts, not verdicts, so this declaration's text differs from the call site further
+// down in the verify loop.
+function adjudicate(panelVerdicts) {
+  const veto = panelVerdicts.find(v => v.lens === VETO_LENS && v.verdict === 'fail')
   if (veto) return { result: 'fail', veto_by: veto.lens, split: false }
-  const fails = verdicts.filter(v => v.verdict === 'fail')
+  const fails = panelVerdicts.filter(v => v.verdict === 'fail')
   if (!fails.length) return { result: 'pass', split: false }
   if (fails.every(v => v.confidence < LOW_CONFIDENCE)) return { result: null, split: true }
   return { result: 'fail', split: false }
