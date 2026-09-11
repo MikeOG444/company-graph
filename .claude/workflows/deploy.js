@@ -125,7 +125,7 @@ let verdict = 'healthy', reasons = []
 if (!can?.ok || !can.deployment) { verdict = 'regressed'; reasons = [`canary failed to start: ${can?.error ?? 'no result'}`] }
 else {
   for (let r = 1; r <= W.rounds; r++) {
-    const raw = `${watchDir}/${rc}.r${r}.jsonl`
+    const raw = `${watchDir}/${rc}.${A.run_id}.r${r}.jsonl`   // keyed by run: the same rc can be deployed twice (c1v healthy, c1d drill)
     const probe = await agent(`Post-launch watch, round ${r}/${W.rounds}. From the repo root run (it takes ${W.round_seconds}s; give the Bash tool a timeout of ${(W.round_seconds + 60) * 1000} ms):
          ${CLI} probe --project ${project} --canary canary --baseline prod --seconds ${W.round_seconds} --out ${raw}
          Return ok=true, raw_ref="${raw}", and copy the printed summary's canary and baseline objects WITHOUT their by_route field
