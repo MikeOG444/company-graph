@@ -2,7 +2,7 @@
 
 A tiny in-memory items API. Exists so the production line has something to build against before venture 1.
 
-Routes: `GET /health`, `GET /items`, `POST /items`, `GET /items/:id`.
+Routes: `GET /health`, `GET /items`, `POST /items`, `GET /items/:id`, `DELETE /items/:id` (admin only: `Authorization: Bearer <ADMIN_TOKEN>`; 401 when the token is missing, wrong, or `ADMIN_TOKEN` is unset; 404 for an unknown id; 204 on success).
 
 `GET /items` runs a filter -> sort -> cap pipeline over the store and accepts
 two optional query parameters:

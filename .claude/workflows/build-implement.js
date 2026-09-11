@@ -83,6 +83,18 @@ const Suite = { type: 'object', additionalProperties: false, required: ['artifac
 // ---- pure-code edges ----
 const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
 
+// A verdict is derived from its findings, not declared beside them (r8: correctness listed a high-severity defect and said pass).
+// Findings are defects only, so any finding other than a SPEC-LEVEL note makes the lens a fail. Code decides; the lens only detects.
+const SPEC_LEVEL = /^SPEC-LEVEL:/
+function normalizeVerdict(v, tag) {
+  const defects = (v.findings ?? []).filter(f => !SPEC_LEVEL.test(String(f.claim)))
+  if (v.verdict === 'pass' && defects.length) {
+    log(`${tag} ${v.lens}: said pass but listed ${defects.length} defect(s); recorded as fail`)
+    return { ...v, verdict: 'fail' }
+  }
+  return v
+}
+
 // Lenses receive DIFFERENT inputs (OPERATING_MODEL §2.4): they are independent detectors, not redundant voters, so there is
 // no majority rule. Security is a veto. Any other confident fail fails the panel. A fail held only at low confidence
 // (every failing lens < 0.7) goes to the Tiebreak Judge. r5 shipped four tasks over a failing lens under the old majority rule.
@@ -217,7 +229,7 @@ async function runTask({ spec, task, spec_ref }) {
              ${specText}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
              Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
         { label: `lens:${name}:${task.id}:${tag}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
-        .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
+        .then(v => v && normalizeVerdict({ ...v, lens: name }, tag))   // the script names the lens; the agent does not
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const lensThunks = {
