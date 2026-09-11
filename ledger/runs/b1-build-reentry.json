@@ -1,0 +1,196 @@
+{
+  "entry": {
+    "id": "b1-build-reentry",
+    "run_id": "b1",
+    "workflow": "build-reentry",
+    "status": "ok",
+    "started_at": "2026-09-11T03:26:00.000Z",
+    "finished_at": "2026-09-11T03:27:39.906Z",
+    "wall_clock_sec": 100,
+    "result_ref": "ledger/runs/b1-build-reentry.json",
+    "artifact_count": 5,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 61763
+    },
+    "tokens": 61763,
+    "cost_est_usd": 0.09,
+    "agents": 2,
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "b1",
+      "created_at": "2026-09-11T03:26:00Z"
+    },
+    "trace_ref": ".artifacts/traces/b1-build-reentry.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "work_items": [
+      {
+        "id": "wi-patch-sig-p4-1",
+        "project_id": "toy",
+        "source": "maintain_patch",
+        "title": "Fix query filter and limit order in GET /items endpoint",
+        "intent": "The GET /items handler currently applies the limit cap before the ?q substring filter, causing it to discard matching items that appear beyond the limit in the insertion-ordered list. When users query with both ?q and ?limit parameters together, the endpoint returns incomplete results missing items that should be included—for example, GET /items?q=an&limit=2 over inserted items [banana, apple, cherry, mango] returns only [banana] instead of [banana, mango] (both match \"an\"). This violates the documented pipeline order (filter→sort→cap) and affects the admin page list view where users had to disable limit parameters as a workaround. A regression test confirming the bug and validating the fix already exists on branch patch/sig-p4-1.m1b and must pass after the fix is applied.\n\n[re-entry] sev2, routine: Sev2 data correctness issue with confirmed workaround (users can query without combining ?q and ?limit); fix is low-risk reordering that can merge in normal build cycle. Cause: toy/src/app.js:89 — In the GET /items handler, the pipeline runs sort, then the limit cap (`result = result.slice(0, limit)` at line 89), and only after that applies the `?q` substring filter (lines 92-96). Because `.slice(0, limit)` truncates the full insertion-ordered result set before `q` has narrowed it, any item that matches `q` but sits at or beyond index `limit` in the unfiltered list is discarded before the filter ever sees it, while items that don't match `q` but happen to fall within the first `limit` entries occupy slots a matching item could have filled. This is why `GET /items?q=an&limit=2` over items inserted as banana, apple, cherry, mango returns only `['banana']`: the cap keeps `[banana, apple]` (the first two inserted items) before filtering, then the q=an filter drops apple (no match) and never reaches mango (which does match `an`) because mango was already sliced off by the cap. The handler's own comment block (lines 55-56) documents the intended filter->sort->cap order, but the executable code performs sort->cap->filter — i.e. the cap stage at line 89 runs on the unfiltered list instead of running after the q-filter. A verified patch already exists on branch patch/sig-p4-1.m1b (base bfb99434): the regression test fails at base and passes there, suite green. Re-verify that branch rather than re-implementing it.",
+        "priority": 1,
+        "deferred_iterations": 0,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          },
+          {
+            "kind": "path",
+            "ref": "toy/test/repro-sig-p4-1.test.js"
+          }
+        ],
+        "signal_ids": [
+          "sig-p4-1"
+        ],
+        "patch_ref": ".artifacts/maintain/m1b/patches/patch-sig-p4-1.json",
+        "branch": "patch/sig-p4-1.m1b",
+        "provenance": {
+          "node": "merge_planner",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "b1",
+          "created_at": "2026-09-11T03:26:00Z"
+        }
+      },
+      {
+        "id": "wi-imp-1",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Report the unpaged match count when ?limit truncates a list",
+        "intent": "Clients using the list view cannot tell whether a capped response is the whole answer. GET /items should report how many items matched before the cap was applied, so a client can page or widen the query. Synthetic improve item for the Phase 4 Build re-entry drill: it stands in for an Opportunity that /improve-analyze will produce in Phase 5, and it deliberately touches the same surface as the maintain patch so the patch-before-feature rule has something to order.",
+        "priority": 2,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 120000,
+          "wall_clock_min": 25
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          },
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "b1",
+          "created_at": "2026-09-11T03:26:00Z"
+        }
+      },
+      {
+        "id": "wi-imp-2",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Document every query parameter of GET /items in the README",
+        "intent": "The README does not list ?q, ?sort or ?limit, so clients discover them from support tickets. Document each parameter, its validation rule and its error body. Synthetic improve item for the Phase 4 Build re-entry drill, chosen to share no surface with anything else in the batch.",
+        "priority": 3,
+        "deferred_iterations": 1,
+        "budget": {
+          "tokens": 40000,
+          "wall_clock_min": 10
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/README.md"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "b1",
+          "created_at": "2026-09-11T03:26:00Z"
+        }
+      }
+    ],
+    "plan": {
+      "project_id": "toy",
+      "iteration": 1,
+      "ratio": {
+        "maintain": 0.2,
+        "improve": 0.8,
+        "rule": "default maintain 0.2; trend stable → 0.2; hotfixes pre-empt and are counted in the actual share; each lane admits its first item even if it exceeds its share; measured in even share (133333 tokens/item: not every item carried a budget)",
+        "trend": "stable",
+        "actual_maintain": 0.4545,
+        "guardrail": 0.5,
+        "breach": false,
+        "breach_streak": 0,
+        "history_known": true
+      },
+      "order": [
+        {
+          "work_item_id": "wi-patch-sig-p4-1",
+          "lane": "maintain",
+          "reason": "1. maintain lane, original priority 2; patch before the feature(s) it overlaps (wi-imp-1); verified patch on patch/sig-p4-1.m1b"
+        },
+        {
+          "work_item_id": "wi-imp-1",
+          "lane": "improve",
+          "reason": "2. improve lane, original priority 4"
+        },
+        {
+          "work_item_id": "wi-imp-2",
+          "lane": "improve",
+          "reason": "3. improve lane, original priority 6"
+        }
+      ],
+      "overlaps": [
+        {
+          "surface": "path:toy/src/app.js",
+          "work_item_ids": [
+            "wi-patch-sig-p4-1",
+            "wi-imp-1"
+          ]
+        }
+      ],
+      "deferred": [],
+      "starved_items": [],
+      "capacity": {
+        "tokens": 400000,
+        "maintain_tokens": 133333,
+        "improve_tokens": 160000
+      },
+      "gate_required": false,
+      "provenance": {
+        "node": "build-reentry",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "b1",
+        "created_at": "2026-09-11T03:26:00Z"
+      }
+    },
+    "deferred": [],
+    "starved_items": [],
+    "refs": {
+      "dir": ".artifacts/reentry/b1",
+      "plan": ".artifacts/reentry/b1/plan.json",
+      "work_items": ".artifacts/reentry/b1/work-items.json"
+    },
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "b1",
+      "created_at": "2026-09-11T03:26:00Z"
+    }
+  }
+}

@@ -15,7 +15,7 @@
   ],
   "sample_request": "GET /items?q=ban",
   "sample_status": 500,
-  "stack_tail": "ReferenceError: normalizeNeedle is not defined\n    at /app/toy/src/app.js:93:22\n    at Array.filter (<anonymous>)\n    at /app/toy/src/app.js:92:7",
+  "stack_tail": "ReferenceError: normalizeNeedle is not defined\n    at /app/toy/src/app.js:94:22\n    at Array.filter (<anonymous>)\n    at /app/toy/src/app.js:95:7",
   "user_reports": 2,
   "user_report_text": "Search is completely broken — every search returns a server error. Browsing the list works.",
   "deployed_sha_note": "prod was last deployed from the branch tip; the previous prod sha served the same endpoint with 200s"

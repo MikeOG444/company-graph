@@ -1,0 +1,26 @@
+[
+  {
+    "id": "wi-imp-1",
+    "project_id": "toy",
+    "source": "improve",
+    "title": "Report the unpaged match count when ?limit truncates a list",
+    "intent": "Clients using the list view cannot tell whether a capped response is the whole answer. GET /items should report how many items matched before the cap was applied, so a client can page or widen the query. Synthetic improve item for the Phase 4 Build re-entry drill: it stands in for an Opportunity that /improve-analyze will produce in Phase 5, and it deliberately touches the same surface as the maintain patch so the patch-before-feature rule has something to order.",
+    "priority": 4,
+    "deferred_iterations": 0,
+    "budget": { "tokens": 120000, "wall_clock_min": 25 },
+    "surfaces": [{ "kind": "path", "ref": "toy/src/app.js" }, { "kind": "api", "ref": "GET /items" }],
+    "provenance": { "node": "backlog_emitter", "executor": "human_employee", "method": "human", "run_id": "seed-p4", "created_at": "2026-09-11T03:00:00Z" }
+  },
+  {
+    "id": "wi-imp-2",
+    "project_id": "toy",
+    "source": "improve",
+    "title": "Document every query parameter of GET /items in the README",
+    "intent": "The README does not list ?q, ?sort or ?limit, so clients discover them from support tickets. Document each parameter, its validation rule and its error body. Synthetic improve item for the Phase 4 Build re-entry drill, chosen to share no surface with anything else in the batch.",
+    "priority": 6,
+    "deferred_iterations": 1,
+    "budget": { "tokens": 40000, "wall_clock_min": 10 },
+    "surfaces": [{ "kind": "path", "ref": "toy/README.md" }],
+    "provenance": { "node": "backlog_emitter", "executor": "human_employee", "method": "human", "run_id": "seed-p4", "created_at": "2026-09-11T03:00:00Z" }
+  }
+]

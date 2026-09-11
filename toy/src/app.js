@@ -91,7 +91,7 @@ export function createApp() {
 
     // ?q substring filter — narrow the page we are about to return
     if (q) {
-      const needle = q.toLowerCase()
+      const needle = normalizeNeedle(q)
       result = result.filter((item) => item.name.toLowerCase().includes(needle))
     }
 
