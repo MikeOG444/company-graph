@@ -1,0 +1,41 @@
+{
+  "entry": {
+    "id": "b2r-build-reentry",
+    "run_id": "b2r",
+    "workflow": "build-reentry",
+    "status": "ok",
+    "started_at": "2026-09-11T03:39:00.000Z",
+    "finished_at": "2026-09-11T03:39:28.453Z",
+    "wall_clock_sec": 28,
+    "result_ref": "ledger/runs/b2r-build-reentry.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 12998
+    },
+    "tokens": 12998,
+    "cost_est_usd": 0.02,
+    "agents": 1,
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "b2r",
+      "created_at": "2026-09-11T03:39:00Z"
+    },
+    "trace_ref": ".artifacts/traces/b2r-build-reentry.jsonl"
+  },
+  "result": {
+    "refused": true,
+    "reason": "1 sev1 patch(es) and no gate_id: the sev1 page decides whether the mitigation is still holding, and it is read from gates/, not from args",
+    "provenance": {
+      "node": "build-reentry",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "b2r",
+      "created_at": "2026-09-11T03:39:00Z"
+    }
+  }
+}

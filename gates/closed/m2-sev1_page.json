@@ -3,7 +3,7 @@
   "gate": "sev1_page",
   "run_id": "m2",
   "workflow": "maintain-triage",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T03:34:10.090Z",
   "options": [
     "keep_mitigation",
@@ -94,5 +94,11 @@
       "run_id": "m2",
       "created_at": "2026-09-11T03:36:00Z"
     }
+  },
+  "decision": {
+    "option": "keep_mitigation",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T03:37:13.483Z",
+    "note": "Production stays on the pre-defect sha; shipping patch-sig-p4-2 is what lifts it. Search is degraded to the known sev2 (q+limit) meanwhile, which is the trade I want."
   }
 }
