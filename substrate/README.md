@@ -22,7 +22,7 @@ A human gate is a workflow boundary (CLAUDE.md rule 8). One stretch of the line 
    tokens and timing) and the `result` the workflow returned — so agents, tokens_by_model, tokens, both timestamps
    and the result payload are all derived, not retyped:
    ```
-   node substrate/ledger.js append --workflow build-spec --run r1 --from-output <task.output> --journal <transcript dir>/journal.jsonl
+   node substrate/ledger.js append --workflow <w> --run <r> --from-output <task.output> --journal <transcript dir>/journal.jsonl
    ```
    `--started`, `--now`, `--result`, `--tokens`, `--tokens-by-model` and `--agents` still work alongside
    `--from-output`; each one passed explicitly overrides the value derived from the output file for that field
