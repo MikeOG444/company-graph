@@ -52,7 +52,13 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but the runtime's scan has lag: agents committed
+// during a session are not necessarily available to that session's next run (observed on run i1/mr1 — committing
+// them was not enough). missing_agent_types names the ones this session cannot resolve, so a run can proceed with
+// the definitions it does have instead of losing them all to the blunt agent_types:false hatch. When a type is
+// dropped its ROLE PROMPT is dropped with it, so every constraint that matters is also stated inline below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const ART = A.artifact_dir ?? '.artifacts'
 const DIR = `${ART}/improve/${A.run_id}`

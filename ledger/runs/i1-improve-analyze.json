@@ -1,0 +1,790 @@
+{
+  "entry": {
+    "id": "i1-improve-analyze",
+    "run_id": "i1",
+    "workflow": "improve-analyze",
+    "status": "ok",
+    "started_at": "2026-09-11T04:18:06.000Z",
+    "finished_at": "2026-09-11T04:30:09.000Z",
+    "wall_clock_sec": 723,
+    "result_ref": "ledger/runs/i1-improve-analyze.json",
+    "artifact_count": 18,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 134689,
+      "claude-opus-5": 105966,
+      "claude-sonnet-5": 53472
+    },
+    "tokens": 294127,
+    "cost_est_usd": 1.08,
+    "agents": 6,
+    "provenance": {
+      "node": "improve-analyze",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "i1",
+      "created_at": "2026-09-11T04:18:06Z"
+    },
+    "trace_ref": ".artifacts/traces/i1-improve-analyze.jsonl"
+  },
+  "result": {
+    "opportunities": [
+      {
+        "id": "opp-p5-2",
+        "project_id": "toy",
+        "hypothesis": "The canary watch probes five hard-coded request shapes that exclude the query parameters clients actually send, so a regression confined to ?q — exactly the defect class that took prod down — produces a healthy verdict and cannot auto-roll back.",
+        "evidence": [
+          "substrate/deploy.js:144-150 ROUTES is a fixed list: GET /health, GET /items, POST /items, GET /items/1, GET /items?sort=name&limit=2 — no ?q request and no DELETE request in any round",
+          "telemetry http.query_parameter_usage_on_get_items: q 131 + q+limit 132 = 263 requests, 'every one of these 500ed during the window' — 14% of GET /items traffic in a shape the probe never sends",
+          "ledger/runs/c1v-deploy.json watch rounds 1-3: canary errors 0, error_rate 0 across 1150 requests per round, verdict healthy — the probe cannot distinguish a build with a working ?q from one without it",
+          "gates/closed/m2-sev1_page.json inc-m2: 'the item search endpoint has been throwing errors on every request since a deployment introduced a missing function reference', at least 147 failed requests before the rollback; that rollback came from maintain-triage mitigation, not from the deploy watch",
+          "substrate/lib/deploy-metrics.js counts only status >= 500 and unreachable as errors, so any regression that returns a wrong 200 or a 4xx is invisible to the watch regardless of route coverage",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from substrate/deploy.js (223 lines, the probe list and probe() are ~60 of them), substrate/test/deploy.test.js (68 lines) and .claude/workflows/deploy.js (199 lines); comparable small-surface round t1-build-spec 190k + t1i-build-implement 222k tokens"
+        ],
+        "metric_impacted": "seeded-regression drills that auto-roll back without a human",
+        "expected_value": 85,
+        "estimated_cost": {
+          "tokens": 450000,
+          "human_min": 15
+        },
+        "confidence": 0.8,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/lib/deploy-metrics.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/deploy.js"
+          },
+          {
+            "kind": "config",
+            "ref": "toy/brief.json#hosting"
+          }
+        ],
+        "score": 0.119298,
+        "rank": 1,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-5",
+        "project_id": "toy",
+        "hypothesis": "Every field ledger append needs already exists in the run output file, so the one manual step in the whole line is also the one that has already written a false zero into the Method Ledger.",
+        "evidence": [
+          "feedback fb-p5-3 (rating 2, from the founder operating the line): three commands per run, a hand-assembled --tokens-by-model, and 'twice now I have got the started/finished times wrong by rounding and put a zero-second wall clock in the ledger, which then lies in every summary that reads it'",
+          "ledger/index.jsonl confirms it: m2-maintain-triage has wall_clock_sec 0 with 338,559 tokens recorded — an impossible run that every ledger summary now averages in",
+          "20 of 28 ledger rows carry no human_min at all, so the line's own human-action number cannot be recomputed from the ledger",
+          "substrate/lib/run-output.js (14 lines) already prints {agents, tokens_by_model} from the task output and substrate/ledger.js append already accepts exactly those flags — the gap is that the human is the pipe between them",
+          "substrate/ledger.js append takes --started as free text and only checks Date.parse, so a typed timestamp is never cross-checked against the output file",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from substrate/ledger.js (147 lines), substrate/lib/run-output.js (14) and substrate/test/ledger.test.js (59); comparable small-surface round t1-build-spec 190k + t1i-build-implement 222k tokens"
+        ],
+        "metric_impacted": "",
+        "expected_value": 60,
+        "estimated_cost": {
+          "tokens": 450000,
+          "human_min": 15
+        },
+        "confidence": 0.9,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/lib/run-output.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/test/ledger.test.js"
+          }
+        ],
+        "score": 0.094737,
+        "rank": 2,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-1",
+        "project_id": "toy",
+        "hypothesis": "Prod is serving a commit that exists on no branch, and work that /deploy already promoted is not in main: the line has no step that reconciles the promoted artifact with the trunk, so a promotion is lost and a rollback strands prod behind main with a shipped fix unshipped.",
+        "evidence": [
+          "ledger/runs/c1v-deploy.json: watch_result healthy, promoted artifact_ref integration/c1v, artifact_sha 44df6d7adf44108db3062bc590ee4cc7677a68b7",
+          "git branch -a lists no integration/c1v branch; the promoted sha is reachable from nothing in the repo today",
+          "git log -S\"offset\" -- toy/src/app.js returns no commits, and HEAD:toy/src/app.js contains zero occurrences of 'offset' — the ?offset parameter named in ProjectBrief.initial_scope and in the c1v release notes is not in the trunk even though it was promoted to prod",
+          "gates/closed/m2-sev1_page.json: mitigation rolled prod from 243b72a2 to bfb99434, and lift_means says 'prod returns to 243b72a2, which carries the defect'; bfb99434 predates the ?q fix in 5aac020/ef60140, so prod is behind main on a defect main has already fixed",
+          "HealthReport: patches_shipped 0, patches_drafted 1, availability actual 0.643 against a 0.99 target, trend degrading",
+          ".claude/workflows/deploy.js:150 promotes the canary sha to prod and writes a LaunchRecord; no node in launch.js or deploy.js compares prod's live sha to main or merges artifact_ref back",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from .claude/workflows/launch.js (132 lines), .claude/workflows/deploy.js (199 lines), substrate/deploy.js (223 lines) and the comparable c1 round in ledger/index.jsonl (c1-build-spec 190k + c1-build-implement 438k + c1v re-panel 203k tokens)"
+        ],
+        "metric_impacted": "healthy launches promoted to prod through /launch + /deploy",
+        "expected_value": 90,
+        "estimated_cost": {
+          "tokens": 700000,
+          "human_min": 25
+        },
+        "confidence": 0.85,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/deploy.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/launch.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "schema",
+            "ref": "contracts.schema.json#/$defs/LaunchRecord"
+          }
+        ],
+        "score": 0.085,
+        "rank": 3,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-6",
+        "project_id": "toy",
+        "hypothesis": "The line's own human-action count drops escalation gates, so a path that actually cost three human decisions is reported as the two the design budgets for.",
+        "evidence": [
+          "telemetry line.human_actions_by_stretch: the spec -> implement stretch shows design_calls_for 0 and actual 1, noted as 'c1 escalation: a lens read touched_surfaces as a mandate; not a gate the design asks for'",
+          "the reported metric value is '1 + 1 = 2' — it sums brief -> workspace and launch -> prod only and silently omits the escalation on the same Brief-to-URL path",
+          "gates/closed/c1-escalation.json is a real decided gate on the c1 path between the signed Brief and the live URL, with an HE decision recorded ('HE: guide')",
+          "ledger/index.jsonl: human_min is absent on 20 of 28 rows, present only on c1-create-project (1), c1v-build-implement (2), c1v-deploy (1) and b2-build-reentry (2) — the ledger cannot independently confirm or refute the count",
+          "gates/closed/ holds 12 decided gates across the run history, 6 of them escalations; escalation is the common case, not the exception",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from substrate/ledger.js (147 lines), substrate/gates.js (107) and .claude/workflows/improve-analyze.js (335); comparable small-surface round t1-build-spec 190k + t1i-build-implement 222k tokens"
+        ],
+        "metric_impacted": "human actions from Brief to live URL",
+        "expected_value": 50,
+        "estimated_cost": {
+          "tokens": 400000,
+          "human_min": 15
+        },
+        "confidence": 0.8,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/gates.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/improve-analyze.js"
+          }
+        ],
+        "score": 0.076923,
+        "rank": 4,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-3",
+        "project_id": "toy",
+        "hypothesis": "A capped GET /items response is indistinguishable from a complete one, so clients guess: 388 responses came back at the cap and 241 of them were immediately re-requested with a larger limit.",
+        "evidence": [
+          "telemetry http.responses_at_the_limit_cap: 388 capped responses, 68.8% of all limited requests, 'a capped response carries no indication that it was capped'",
+          "telemetry http.repeat_requests_within_5s_after_a_capped_response: 241, same q and sort with a larger limit — measured client-side retry waste",
+          "feedback fb-p5-1 (rating 2, client channel): 'a JSON array of 25 items and nothing else. There is no total, no next cursor, no flag saying it was cut' — asks for any indication that a capped response was capped",
+          "toy/src/app.js cap stage: result = result.slice(0, limit) then res.json(result) — the handler returns a bare array with no envelope, header or count",
+          "sig-p4-1 (the earlier sev2 ticket) closed with the same complaint unaddressed: 'Nothing in the response says anything was truncated'",
+          "duplicates existing backlog item wi-imp-1 ('Report the unpaged match count when ?limit truncates a list'), seeded by hand for the Phase 4 drill and now demand-proven rather than synthetic",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from toy/src/app.js (217 lines) plus the three test files that assert the bare-array shape (toy/test/items.test.js 190, q-filter.test.js 201, integration-r5.test.js 353 lines); the comparable ?offset round cost 190k + 438k + 203k tokens end to end"
+        ],
+        "metric_impacted": "",
+        "expected_value": 70,
+        "estimated_cost": {
+          "tokens": 800000,
+          "human_min": 15
+        },
+        "confidence": 0.92,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          },
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          },
+          {
+            "kind": "path",
+            "ref": "toy/README.md"
+          }
+        ],
+        "score": 0.07,
+        "rank": 5,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-4",
+        "project_id": "toy",
+        "hypothesis": "The build-implement stretch is 72% of everything this venture has spent and has already run it 4x past its dollar budget, driven by full re-panels of tasks that only needed a verdict re-check.",
+        "evidence": [
+          "ledger/index.jsonl, computed over all 28 rows: $41.15 total against ProjectBrief.budget.dollars of $10, and 13,817,293 tokens against a 3,000,000 budget",
+          "build-implement alone: 10 runs, $29.71 (72% of spend), 9,748,891 tokens (71%)",
+          "the three most expensive runs are all build-implement fix loops: r1 $8.33 / 2.58M, r5 $8.28 / 2.53M, r6 $5.28 / 1.22M with 2 escalations",
+          "the verify_only re-panel is already the cheap path and is proven: c1v-build-implement cost $0.36 / 203k tokens against c1-build-implement's $1.22 / 438k for the same task",
+          "telemetry line.panel: 11 tasks verified, 4 failed the first round, 2 escalations — the loop, not first implementation, is where the rounds go",
+          ".claude/workflows/build-implement.js is 403 lines and holds the implement/verify/fix loop, the panel fan-out and the integration barrier",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed as one build-spec plus one build-implement round against the workflow script itself, using r7-build-implement (1.07M tokens) as the comparable for a change inside that file"
+        ],
+        "metric_impacted": "",
+        "expected_value": 75,
+        "estimated_cost": {
+          "tokens": 1100000,
+          "human_min": 40
+        },
+        "confidence": 0.6,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/build-implement.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/lens-spec-conformance.md"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/fixer.md"
+          }
+        ],
+        "score": 0.03169,
+        "rank": 6,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-7",
+        "project_id": "toy",
+        "hypothesis": "Nine of nine specs routed low and the Spec Gate has never fired, and no number anywhere would look different if the router and the lenses were passing by default.",
+        "evidence": [
+          "feedback fb-p5-2 (founder, review queue): 'I want a number, not a feeling: something that would fail if a lens were rubber-stamping'",
+          "telemetry line.spec_gate_firings: specs_routed 9, routed_high 0, routed_low 9 — the gate has never opened on a routed spec",
+          "telemetry line.panel: tasks_verified 11, failed_first_round 4, findings_upheld 9, findings_overruled 2 — these exist per run inside ledger/runs/*.json but are aggregated nowhere and appear in no summary",
+          "substrate/ledger.js summary supports --by method|workflow|node|model only; there is no lens, router or finding view",
+          "the two defects that reached main in Phase 4 (bfb9943 and 243b72a) were planted by hand and never passed a panel, so existing evidence proves nothing about panel sensitivity in either direction",
+          ".claude/workflows/memory-roll.js (304 lines) already exists as the calibration workflow and already has a canary-inject node, the natural home for a planted-defect catch rate",
+          "estimate uncalibrated: no Memory calibration exists yet — which is itself part of this opportunity. Costed from .claude/workflows/memory-roll.js (304 lines), substrate/ledger.js (147) and contracts.schema.json; comparable workflow-sized round r7-build-implement 1.07M tokens, discounted because the surfaces are additive"
+        ],
+        "metric_impacted": "",
+        "expected_value": 55,
+        "estimated_cost": {
+          "tokens": 900000,
+          "human_min": 30
+        },
+        "confidence": 0.65,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/memory-roll.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/lens-spec-conformance.md"
+          }
+        ],
+        "score": 0.03136,
+        "rank": 7,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "opp-p5-8",
+        "project_id": "toy",
+        "hypothesis": "A documented route was unusable for an entire window because the environment it was deployed into had no ADMIN_TOKEN, and nothing in create-project, launch or deploy declares or asserts the configuration a route needs.",
+        "evidence": [
+          "telemetry http.requests_by_route: DELETE /items/:id, 41 requests, error_rate 0.610",
+          "telemetry http.delete_401_breakdown: 24 requests with no Authorization header, 1 with a wrong token, annotated 'ADMIN_TOKEN unset on this env for most of the window; not a defect' — the line labels its own broken environment as expected",
+          "toy/src/app.js DELETE handler reads process.env.ADMIN_TOKEN per request and treats unset or empty as 'no admin configured', rejecting every caller with 401 — correct behavior, silently produced by missing configuration",
+          "substrate/deploy.js start() waits only for a 2xx on the health path before declaring the env running; GET /health returns status ok regardless of ADMIN_TOKEN, so a config-incomplete env is indistinguishable from a working one",
+          ".claude/workflows/launch.js preflight is 7 evidence-backed checks and none reads the target environment's required configuration",
+          "the canary watch cannot cover this either: substrate/lib/deploy-metrics.js counts only 5xx and unreachable as errors, so a uniformly 401 route scores as healthy",
+          "estimate uncalibrated: no Memory calibration exists yet. Costed from .claude/workflows/create-project.js (133 lines), .claude/workflows/launch.js (132), substrate/deploy.js (223) and the Workspace/Deployment defs in contracts.schema.json; comparable small round t1-build-spec 190k + t1i-build-implement 222k tokens"
+        ],
+        "metric_impacted": "",
+        "expected_value": 30,
+        "estimated_cost": {
+          "tokens": 500000,
+          "human_min": 20
+        },
+        "confidence": 0.55,
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/create-project.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/launch.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "schema",
+            "ref": "contracts.schema.json#/$defs/Workspace"
+          }
+        ],
+        "score": 0.025,
+        "rank": 8,
+        "within_budget": false,
+        "provenance": {
+          "node": "prioritizer",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      }
+    ],
+    "verdict": {
+      "project_id": "toy",
+      "recommendation": "keep",
+      "metrics_vs_targets": [
+        {
+          "metric": "healthy launches promoted to prod through /launch + /deploy",
+          "target": ">= 1",
+          "actual": "1 launch promoted to prod",
+          "met": true
+        },
+        {
+          "metric": "seeded-regression drills that auto-roll back without a human",
+          "target": ">= 1",
+          "actual": "seeded_regression_reached_prod = 0 (no seeded-regression drills reached prod); rollbacks_without_a_human = 1 (but not confirmed as seeded-regression rollback)",
+          "met": false
+        },
+        {
+          "metric": "human actions from Brief to live URL",
+          "target": "2 (sign brief, approve launch)",
+          "actual": "2 actions: sign brief (brief→workspace: 1) + approve launch (launch→prod: 1)",
+          "met": true
+        }
+      ],
+      "kill_criteria_hit": [],
+      "remaining_backlog_value": 400.15,
+      "burn": {
+        "tokens": 13817293,
+        "dollars": 41.15,
+        "human_hours": 0.1
+      },
+      "rationale": "ROADMAP GATE — RATIONALE FOR: keep\n\nRecommendation (derived in code, not by this writer): **keep**. Rule that fired: \"no kill criterion hit, backlog value (400.15) covers projected cost, 2/3 metrics met → keep.\" What follows explains that determination against the inputs it was computed from; it does not re-weigh or second-guess the recommendation.\n\n1. Kill criteria\nNo kill criterion fired (kill_criteria hit: none), and none were left undetermined (kill_criteria that could not be determined: none) — every kill criterion in scope was evaluated cleanly against available data and none tripped. On this leg the rule's premise is fully supported.\n\n2. Metrics vs targets (2/3 met)\n- Healthy launches promoted to prod through /launch + /deploy: target ≥1, actual 1 — MET.\n- Human actions from Brief to live URL: target 2, actual 2 (sign brief, approve launch) — MET.\n- Seeded-regression drills that auto-roll back without a human: target ≥1, actual reported as NOT MET (seeded_regression_reached_prod = 0; the one observed rollback-without-a-human is not confirmed as a seeded-regression case).\n\nFlag: this third metric is inconsistent across the two input sections. It is scored \"met: false\" in metrics_vs_targets, but it is *also* listed under \"metrics that could not be measured\" with the reason \"telemetry does not cover it.\" Per the stated convention, an unmeasured metric is neither met nor missed — so recording it simultaneously as a hard \"false\" and as \"unmeasurable\" is a contradiction in the inputs themselves. The practical effect on the recommendation is limited (the rule only needs 2 of 3 met, and it already has 2 unambiguous MET results from the other two metrics), but the \"2/3 met\" framing implies a clean measurement that this metric didn't actually get. Flagging this plainly rather than resolving it — the recommendation is unchanged.\n\n3. Backlog value vs. \"projected cost\"\nRemaining backlog value is given as 400.15 (sum of expected_value × confidence across all 8 ranked opportunities). The rule's stated justification is that this figure \"covers projected cost.\" No \"projected cost\" number appears anywhere in the provided inputs — only historical burn (tokens 13,817,293; $41.15; 6 human-minutes) and the original ProjectBrief budget (3,000,000 tokens; $10; 0.5 human-hours) are given. Nothing here forecasts future cost. Readers should treat \"covers projected cost\" as a term the rule asserts but that these inputs cannot substantiate — it may be computed elsewhere in the pipeline, but it isn't visible here for verification.\n\n4. Burn and budget status\nbudget_exhausted is reported as true, and the numbers bear that out on two of three axes: dollars burned ($41.15) are ~4.1x the $10 ProjectBrief budget, and tokens burned (13.8M) are ~4.6x the 3M budget. Human time is the exception — 6 minutes burned against a 30-minute (0.5 hour) budget, well under. So \"budget_exhausted\" is true on cost, not on human attention. This matters as context for a \"keep\" call: the venture has already run well past its planned dollar and token budget, and the \"keep\" recommendation is being made *after* that overrun, not before it.\n\n5. Ranked opportunities\nAll 8 identified opportunities are marked within_budget: false, top-ranked by score being the canary-probe gap (opp-p5-2, 0.119), the ledger false-zero (opp-p5-5, 0.095), and the promoted-artifact/trunk reconciliation gap (opp-p5-1, 0.085). None of them can be funded from what remains of the current budget — consistent with budget_exhausted being true. The top-ranked item (opp-p5-2) is the one directly tied to the unmet/unmeasured metric discussed in §2: the canary watch's five hard-coded probe shapes don't exercise the `?q` query-parameter path that caused the real regression, so a repeat of that exact failure class would still read as healthy and would not auto-roll back.\n\nSummary for the human deciding at this gate: the rule's three conditions are met as computed — no kill criterion hit, 2 of 3 metrics met, and a backlog-value figure the rule treats as sufficient — but two things in the underlying numbers deserve attention before acting on \"keep\": the third metric's double status (missed vs. unmeasurable) is self-contradictory, and \"covers projected cost\" rests on a quantity not present in these inputs. Cost burn is already ~4x over the ProjectBrief's dollar and token budget, even though human-time burn is low. None of this changes the recommendation being reported here, which remains keep.",
+      "provenance": {
+        "node": "verdict_evaluator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "sonnet",
+        "run_id": "i1",
+        "created_at": "2026-09-11T04:18:06Z"
+      }
+    },
+    "draft_work_items": [
+      {
+        "id": "wi-opp-p5-2",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Drive the canary probe from a declared route set that covers every documented query parameter",
+        "intent": "The probe's request list is hard-coded in substrate/deploy.js and covers five shapes, none of which sends ?q or exercises DELETE. That is why three rounds of canary watch reported a zero error rate for a build whose ?q handler was broken, and why the defect that produced 263 prod 500s was caught by a human-facing sev1 path rather than by auto-rollback. Move the probe's route set out of the CLI and into the project's workspace configuration, seeded by /create-project from the documented API surface, so every query parameter the README describes (?q, ?sort, ?limit and their combinations) is exercised each round, and add an expected-status field per route so the probe can count a wrong 200 or an unexpected 4xx as an error instead of only counting 5xx and unreachable. Keep the verdict rule itself in the /deploy script where it lives today — this changes what is measured, not who decides. Done means: a seeded ?q regression on the canary produces a regressed verdict in round 1 and an automatic rollback, and the existing substrate/test/deploy.test.js cases still pass.",
+        "priority": 1,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 450000,
+          "wall_clock_min": 45
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/lib/deploy-metrics.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/deploy.js"
+          },
+          {
+            "kind": "config",
+            "ref": "toy/brief.json#hosting"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-5",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Append a ledger entry straight from the run output file, with a wall clock that cannot be typed wrong",
+        "intent": "Recording a run today is three commands and a retyped JSON object: run-output.js prints agents and tokens_by_model, the operator pastes them into ledger append along with hand-typed started and finished timestamps, then reads the result back with ledger summary. The retyping has already corrupted the ledger — m2-maintain-triage carries wall_clock_sec 0 next to 338,559 tokens, and every summary reading it is wrong by that much. Add `ledger append --from-output <task.output>` that reads agents, tokens_by_model, the run result and both timestamps out of the output file itself, so --tokens-by-model and --started become overrides rather than required input, and make append refuse a wall_clock_sec of 0 on a run with non-zero tokens instead of writing it. Print the per-run cost and the by-model split on append so the operator needs no second command to see what the run cost. Keep every existing flag working, add a regression test for the impossible-zero refusal, and either backfill or explicitly mark the one bad row rather than leaving it to skew the Method Ledger. This moves none of the three stated success metrics; it protects the ledger those metrics are eventually read from.",
+        "priority": 2,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 450000,
+          "wall_clock_min": 45
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/lib/run-output.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/test/ledger.test.js"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-1",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Reconcile promoted artifacts with main and fail preflight when prod's live sha is behind the trunk",
+        "intent": "A promotion currently ends at a running process: /deploy starts the canary sha on the prod port, writes a LaunchRecord and stops. Nothing merges the promoted artifact_ref into main, and nothing notices when a rollback leaves prod on an older sha than the trunk. The result is visible in the repo today: the ?offset feature this venture was briefed to build was promoted to prod from integration/c1v and is in no commit reachable from HEAD, and prod is presently running bfb99434, which predates the ?q fix main already carries. Add two things. First, a post-promotion step in /deploy that records the promoted sha's relationship to main and either fast-forwards main to the promoted artifact or emits an explicit unmerged-promotion item, so a promoted branch can never be garbage-collected with the only copy of shipped work on it. Second, a preflight check in /launch that reads prod's live sha from the deployment record, compares it to the trunk, and fails the go/no-go when prod is behind main on commits touching the app — the same check surfaces the current 'fix drafted but never relaunched' state instead of leaving a human to spot it in a HealthReport. Both are additive; no existing route or test changes.",
+        "priority": 3,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 700000,
+          "wall_clock_min": 70
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/deploy.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/launch.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "schema",
+            "ref": "contracts.schema.json#/$defs/LaunchRecord"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-6",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Count every gate on the Brief-to-URL path, escalations included, when reporting human actions",
+        "intent": "One of the three success metrics in the Brief is 'human actions from Brief to live URL', targeted at exactly two: sign the brief, approve the launch. The telemetry reports it as 1 + 1 = 2 while its own breakdown records a third action on the same path — an escalation gate between spec and implement that the design does not budget for — and the ledger cannot arbitrate because human_min is missing from 20 of its 28 rows. The metric therefore reads green on a path that cost three decisions. Make the count derive from the gate queue rather than a hand-kept table: have substrate/gates.js record, on every decision, the run_id and the stretch it belongs to; have ledger append derive human_min from the decided gates attached to that run instead of accepting it as an optional flag; and have the Improve usage stage count the metric as every decided gate whose run lies between the signed Brief and the promoted LaunchRecord, escalations and sev1 pages included, reported as designed-versus-actual. The target of 2 does not change; what changes is that a third action can no longer be invisible. Done means the c1 path reports 3 against a design of 2, and that gap is the number the Venture Verdict argues about.",
+        "priority": 4,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 400000,
+          "wall_clock_min": 40
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "substrate/gates.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/improve-analyze.js"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-3",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Tell the client when GET /items truncated the list, without breaking the bare-array response",
+        "intent": "This is wi-imp-1, already in the improve backlog as a synthetic drill item; the Phase 5 numbers turn it into a measured one, and it should be scheduled on that evidence rather than re-proposed as a second copy. GET /items applies the cap with a slice and returns a bare JSON array, so a client that asked for 25 and got 25 cannot tell a full page from a truncated one. The measured cost of that ambiguity is 388 capped responses in a three-hour window and 241 blind re-requests with a wider limit within five seconds. The Spec Writer should pick the carrier that does not break the existing contract — a response header reporting the unpaged match count (the result length after the ?q filter and before the cap) is the additive option, since every current test and client asserts on a bare array; an envelope is a breaking change and needs its own decision. Whatever the carrier, the count must be computed after filtering and before capping so it agrees with the filter -> sort -> cap pipeline, must be present on every GET /items response rather than only capped ones, and the README's ?limit section must document it. It moves none of the three line success metrics — it is client-facing product value, and the verdict at the Roadmap Gate should treat it that way.",
+        "priority": 5,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 800000,
+          "wall_clock_min": 80
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          },
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          },
+          {
+            "kind": "path",
+            "ref": "toy/README.md"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-4",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Cut the cost of the verify-fix loop, which is 72% of this venture's spend and 4x its budget",
+        "intent": "Measured over the whole ledger, this venture has spent $41.15 against a $10 Brief budget and 13.8M tokens against 3M, and build-implement accounts for 72% of the dollars and 71% of the tokens across ten runs. The spend concentrates in the verify-fix loop rather than in first implementation: the three priciest runs are all fix loops, four of eleven verified tasks failed their first panel, and the cheapest comparable run in the ledger is a verify_only re-panel at $0.36 against $1.22 for the same task's full round. The work is to make second and later rounds structurally cheaper: re-panel only the lenses that raised an upheld finding instead of the whole panel, pass the fixer a diff scoped to the finding's location rather than the full task context, and give each round a token ceiling read from the WorkItem budget so a loop that is not converging stops on cost and not only on round count. Land it with happy-path behavior unchanged — the exit test is that a task passing round 1 costs what it costs today while a task needing two fix rounds costs materially less, with the escalation contract untouched. This moves none of the three stated success metrics; it is a budget and kill-criteria matter and the Roadmap Gate should weigh it as such.",
+        "priority": 6,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 1100000,
+          "wall_clock_min": 110
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/build-implement.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/lens-spec-conformance.md"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/fixer.md"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-7",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Publish a calibration number for the risk router and the verifier lenses that fails when they rubber-stamp",
+        "intent": "Every spec this line has written routed low, the Spec Gate has never fired on a real run, and the panel's pass rate is reported as a feeling rather than a measurement. The raw material is already on disk: each run result records which lens raised which finding, whether it was upheld or overruled, and how many tasks failed their first round — 11 verified, 4 failed first round, 9 upheld, 2 overruled — but nothing aggregates it and ledger summary has no lens or router view. Two additions. First, a calibration report produced by /memory-roll: per lens, findings raised, upheld, overruled, and the share of tasks where that lens was the only one to raise anything; per router, the distribution of risk levels against the outcome those specs actually had, so a router that says low to everything shows up as a router whose low bucket contains the escalations. Second, a deliberate canary: inject a known defect into a task the panel has already passed and record whether the panel catches it, giving a catch rate that falls when a lens starts rubber-stamping — memory-roll's canary-inject node already exists to hang this on. The output must be a number in the ledger with a threshold, not a paragraph. This moves none of the three stated success metrics; it is how the line learns whether its own verdicts mean anything, and the Roadmap Gate should judge it on that.",
+        "priority": 7,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 900000,
+          "wall_clock_min": 90
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/memory-roll.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/ledger.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/agents/lens-spec-conformance.md"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      },
+      {
+        "id": "wi-opp-p5-8",
+        "project_id": "toy",
+        "source": "improve",
+        "title": "Declare each environment's required configuration and assert it before an env is called running",
+        "intent": "DELETE /items/:id answered 401 to 24 of 41 callers because ADMIN_TOKEN was never set on the environment, and the telemetry annotates this as 'not a defect' — which is the problem: a documented route was unusable for a whole window and every layer of the line read the environment as healthy. GET /health answers 200 regardless of configuration, so deploy start's readiness wait passes; the watch counts only 5xx and unreachable, so a uniformly 401 route scores clean; and the launch preflight's seven checks never look at the target environment's configuration at all. Give the Workspace an explicit required-configuration list per environment, seeded by /create-project from the app's documented routes (here: ADMIN_TOKEN for the admin DELETE), have substrate/deploy.js refuse to report an env as running when a declared variable is absent or empty, and add one preflight check in /launch that reads the list against the target env so a config-incomplete promotion is a NO-GO rather than a silent wall of 401s. Keep the app's own behavior unchanged — treating an unset token as 'no admin configured' is correct and should stay. This moves none of the three stated success metrics directly; it closes the gap between 'the process is running' and 'the service works', and it is the cheapest of the three deploy-visibility items in this batch.",
+        "priority": 8,
+        "deferred_iterations": 0,
+        "budget": {
+          "tokens": 500000,
+          "wall_clock_min": 50
+        },
+        "surfaces": [
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/create-project.js"
+          },
+          {
+            "kind": "path",
+            "ref": ".claude/workflows/launch.js"
+          },
+          {
+            "kind": "path",
+            "ref": "substrate/deploy.js"
+          },
+          {
+            "kind": "schema",
+            "ref": "contracts.schema.json#/$defs/Workspace"
+          }
+        ],
+        "provenance": {
+          "node": "backlog_emitter:draft",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "n/a",
+          "run_id": "i1",
+          "created_at": "2026-09-11T04:18:06Z"
+        }
+      }
+    ],
+    "unmeasured": [
+      {
+        "metric": "seeded-regression drills that auto-roll back without a human",
+        "why": "telemetry does not cover it"
+      }
+    ],
+    "undeterminable_kill_criteria": [],
+    "burn": {
+      "tokens": 13817293,
+      "dollars": 41.15,
+      "human_min": 6,
+      "found": true
+    },
+    "duplicates": [
+      {
+        "opportunity": "opp-p5-3",
+        "duplicate_of": "wi-imp-1"
+      }
+    ],
+    "gate": {
+      "gate": "roadmap_gate",
+      "options": [
+        "keep",
+        "sell",
+        "kill",
+        "pivot"
+      ],
+      "next": "build-reentry",
+      "payload_ref": ".artifacts/improve/i1/gate-payload.json",
+      "note": "ONE record (§5.2: the human decides ranking and verdict in one sitting). decision.option = the verdict; decision.selection = approved Opportunity ids."
+    },
+    "refs": {
+      "dir": ".artifacts/improve/i1",
+      "telemetry": "toy/signals/telemetry-p5.json",
+      "feedback": "toy/signals/feedback-p5.json"
+    },
+    "provenance": {
+      "node": "improve-analyze",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "i1",
+      "created_at": "2026-09-11T04:18:06Z"
+    }
+  }
+}

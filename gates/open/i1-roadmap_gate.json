@@ -1,0 +1,265 @@
+{
+  "id": "i1-roadmap_gate",
+  "gate": "roadmap_gate",
+  "run_id": "i1",
+  "workflow": "improve-analyze",
+  "status": "open",
+  "opened_at": "2026-09-11T04:30:36.649Z",
+  "options": [
+    "keep",
+    "sell",
+    "kill",
+    "pivot"
+  ],
+  "provenance": {
+    "node": "roadmap_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "i1",
+    "created_at": "2026-09-11T04:30:36.649Z"
+  },
+  "next_workflow": "build-reentry",
+  "payload": {
+    "run_id": "i1",
+    "project_id": "toy",
+    "verdict": {
+      "project_id": "toy",
+      "recommendation": "keep",
+      "metrics_vs_targets": [
+        {
+          "metric": "healthy launches promoted to prod through /launch + /deploy",
+          "target": ">= 1",
+          "actual": "1 launch promoted to prod",
+          "met": true
+        },
+        {
+          "metric": "seeded-regression drills that auto-roll back without a human",
+          "target": ">= 1",
+          "actual": "seeded_regression_reached_prod = 0 (no seeded-regression drills reached prod); rollbacks_without_a_human = 1 (but not confirmed as seeded-regression rollback)",
+          "met": false
+        },
+        {
+          "metric": "human actions from Brief to live URL",
+          "target": "2 (sign brief, approve launch)",
+          "actual": "2 actions: sign brief (brief→workspace: 1) + approve launch (launch→prod: 1)",
+          "met": true
+        }
+      ],
+      "kill_criteria_hit": [],
+      "remaining_backlog_value": 400.15,
+      "burn": {
+        "tokens": 13817293,
+        "dollars": 41.15,
+        "human_hours": 0.1
+      },
+      "rationale": "ROADMAP GATE — RATIONALE FOR: keep\n\nRecommendation (derived in code, not by this writer): **keep**. Rule that fired: \"no kill criterion hit, backlog value (400.15) covers projected cost, 2/3 metrics met → keep.\" What follows explains that determination against the inputs it was computed from; it does not re-weigh or second-guess the recommendation.\n\n1. Kill criteria\nNo kill criterion fired (kill_criteria hit: none), and none were left undetermined (kill_criteria that could not be determined: none) — every kill criterion in scope was evaluated cleanly against available data and none tripped. On this leg the rule's premise is fully supported.\n\n2. Metrics vs targets (2/3 met)\n- Healthy launches promoted to prod through /launch + /deploy: target ≥1, actual 1 — MET.\n- Human actions from Brief to live URL: target 2, actual 2 (sign brief, approve launch) — MET.\n- Seeded-regression drills that auto-roll back without a human: target ≥1, actual reported as NOT MET (seeded_regression_reached_prod = 0; the one observed rollback-without-a-human is not confirmed as a seeded-regression case).\n\nFlag: this third metric is inconsistent across the two input sections. It is scored \"met: false\" in metrics_vs_targets, but it is *also* listed under \"metrics that could not be measured\" with the reason \"telemetry does not cover it.\" Per the stated convention, an unmeasured metric is neither met nor missed — so recording it simultaneously as a hard \"false\" and as \"unmeasurable\" is a contradiction in the inputs themselves. The practical effect on the recommendation is limited (the rule only needs 2 of 3 met, and it already has 2 unambiguous MET results from the other two metrics), but the \"2/3 met\" framing implies a clean measurement that this metric didn't actually get. Flagging this plainly rather than resolving it — the recommendation is unchanged.\n\n3. Backlog value vs. \"projected cost\"\nRemaining backlog value is given as 400.15 (sum of expected_value × confidence across all 8 ranked opportunities). The rule's stated justification is that this figure \"covers projected cost.\" No \"projected cost\" number appears anywhere in the provided inputs — only historical burn (tokens 13,817,293; $41.15; 6 human-minutes) and the original ProjectBrief budget (3,000,000 tokens; $10; 0.5 human-hours) are given. Nothing here forecasts future cost. Readers should treat \"covers projected cost\" as a term the rule asserts but that these inputs cannot substantiate — it may be computed elsewhere in the pipeline, but it isn't visible here for verification.\n\n4. Burn and budget status\nbudget_exhausted is reported as true, and the numbers bear that out on two of three axes: dollars burned ($41.15) are ~4.1x the $10 ProjectBrief budget, and tokens burned (13.8M) are ~4.6x the 3M budget. Human time is the exception — 6 minutes burned against a 30-minute (0.5 hour) budget, well under. So \"budget_exhausted\" is true on cost, not on human attention. This matters as context for a \"keep\" call: the venture has already run well past its planned dollar and token budget, and the \"keep\" recommendation is being made *after* that overrun, not before it.\n\n5. Ranked opportunities\nAll 8 identified opportunities are marked within_budget: false, top-ranked by score being the canary-probe gap (opp-p5-2, 0.119), the ledger false-zero (opp-p5-5, 0.095), and the promoted-artifact/trunk reconciliation gap (opp-p5-1, 0.085). None of them can be funded from what remains of the current budget — consistent with budget_exhausted being true. The top-ranked item (opp-p5-2) is the one directly tied to the unmet/unmeasured metric discussed in §2: the canary watch's five hard-coded probe shapes don't exercise the `?q` query-parameter path that caused the real regression, so a repeat of that exact failure class would still read as healthy and would not auto-roll back.\n\nSummary for the human deciding at this gate: the rule's three conditions are met as computed — no kill criterion hit, 2 of 3 metrics met, and a backlog-value figure the rule treats as sufficient — but two things in the underlying numbers deserve attention before acting on \"keep\": the third metric's double status (missed vs. unmeasurable) is self-contradictory, and \"covers projected cost\" rests on a quantity not present in these inputs. Cost burn is already ~4x over the ProjectBrief's dollar and token budget, even though human-time burn is low. None of this changes the recommendation being reported here, which remains keep.",
+      "provenance": {
+        "node": "verdict_evaluator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "sonnet",
+        "run_id": "i1",
+        "created_at": "2026-09-11T04:18:06Z"
+      }
+    },
+    "opportunities": [
+      {
+        "rank": 1,
+        "id": "opp-p5-2",
+        "hypothesis": "The canary watch probes five hard-coded request shapes that exclude the query parameters clients actually send, so a regression confined to ?q — exactly the defect class that took prod down — produces a healthy verdict and cannot auto-roll back.",
+        "metric_impacted": "seeded-regression drills that auto-roll back without a human",
+        "score": 0.119298,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 450000,
+          "human_min": 15
+        },
+        "confidence": 0.8
+      },
+      {
+        "rank": 2,
+        "id": "opp-p5-5",
+        "hypothesis": "Every field ledger append needs already exists in the run output file, so the one manual step in the whole line is also the one that has already written a false zero into the Method Ledger.",
+        "metric_impacted": "",
+        "score": 0.094737,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 450000,
+          "human_min": 15
+        },
+        "confidence": 0.9
+      },
+      {
+        "rank": 3,
+        "id": "opp-p5-1",
+        "hypothesis": "Prod is serving a commit that exists on no branch, and work that /deploy already promoted is not in main: the line has no step that reconciles the promoted artifact with the trunk, so a promotion is lost and a rollback strands prod behind main with a shipped fix unshipped.",
+        "metric_impacted": "healthy launches promoted to prod through /launch + /deploy",
+        "score": 0.085,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 700000,
+          "human_min": 25
+        },
+        "confidence": 0.85
+      },
+      {
+        "rank": 4,
+        "id": "opp-p5-6",
+        "hypothesis": "The line's own human-action count drops escalation gates, so a path that actually cost three human decisions is reported as the two the design budgets for.",
+        "metric_impacted": "human actions from Brief to live URL",
+        "score": 0.076923,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 400000,
+          "human_min": 15
+        },
+        "confidence": 0.8
+      },
+      {
+        "rank": 5,
+        "id": "opp-p5-3",
+        "hypothesis": "A capped GET /items response is indistinguishable from a complete one, so clients guess: 388 responses came back at the cap and 241 of them were immediately re-requested with a larger limit.",
+        "metric_impacted": "",
+        "score": 0.07,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 800000,
+          "human_min": 15
+        },
+        "confidence": 0.92
+      },
+      {
+        "rank": 6,
+        "id": "opp-p5-4",
+        "hypothesis": "The build-implement stretch is 72% of everything this venture has spent and has already run it 4x past its dollar budget, driven by full re-panels of tasks that only needed a verdict re-check.",
+        "metric_impacted": "",
+        "score": 0.03169,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 1100000,
+          "human_min": 40
+        },
+        "confidence": 0.6
+      },
+      {
+        "rank": 7,
+        "id": "opp-p5-7",
+        "hypothesis": "Nine of nine specs routed low and the Spec Gate has never fired, and no number anywhere would look different if the router and the lenses were passing by default.",
+        "metric_impacted": "",
+        "score": 0.03136,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 900000,
+          "human_min": 30
+        },
+        "confidence": 0.65
+      },
+      {
+        "rank": 8,
+        "id": "opp-p5-8",
+        "hypothesis": "A documented route was unusable for an entire window because the environment it was deployed into had no ADMIN_TOKEN, and nothing in create-project, launch or deploy declares or asserts the configuration a route needs.",
+        "metric_impacted": "",
+        "score": 0.025,
+        "within_budget": false,
+        "estimated_cost": {
+          "tokens": 500000,
+          "human_min": 20
+        },
+        "confidence": 0.55
+      }
+    ],
+    "draft_work_items": [
+      {
+        "id": "wi-opp-p5-2",
+        "title": "Drive the canary probe from a declared route set that covers every documented query parameter",
+        "priority": 1,
+        "budget": {
+          "tokens": 450000,
+          "wall_clock_min": 45
+        }
+      },
+      {
+        "id": "wi-opp-p5-5",
+        "title": "Append a ledger entry straight from the run output file, with a wall clock that cannot be typed wrong",
+        "priority": 2,
+        "budget": {
+          "tokens": 450000,
+          "wall_clock_min": 45
+        }
+      },
+      {
+        "id": "wi-opp-p5-1",
+        "title": "Reconcile promoted artifacts with main and fail preflight when prod's live sha is behind the trunk",
+        "priority": 3,
+        "budget": {
+          "tokens": 700000,
+          "wall_clock_min": 70
+        }
+      },
+      {
+        "id": "wi-opp-p5-6",
+        "title": "Count every gate on the Brief-to-URL path, escalations included, when reporting human actions",
+        "priority": 4,
+        "budget": {
+          "tokens": 400000,
+          "wall_clock_min": 40
+        }
+      },
+      {
+        "id": "wi-opp-p5-3",
+        "title": "Tell the client when GET /items truncated the list, without breaking the bare-array response",
+        "priority": 5,
+        "budget": {
+          "tokens": 800000,
+          "wall_clock_min": 80
+        }
+      },
+      {
+        "id": "wi-opp-p5-4",
+        "title": "Cut the cost of the verify-fix loop, which is 72% of this venture's spend and 4x its budget",
+        "priority": 6,
+        "budget": {
+          "tokens": 1100000,
+          "wall_clock_min": 110
+        }
+      },
+      {
+        "id": "wi-opp-p5-7",
+        "title": "Publish a calibration number for the risk router and the verifier lenses that fails when they rubber-stamp",
+        "priority": 7,
+        "budget": {
+          "tokens": 900000,
+          "wall_clock_min": 90
+        }
+      },
+      {
+        "id": "wi-opp-p5-8",
+        "title": "Declare each environment's required configuration and assert it before an env is called running",
+        "priority": 8,
+        "budget": {
+          "tokens": 500000,
+          "wall_clock_min": 50
+        }
+      }
+    ],
+    "unmeasured": [
+      {
+        "metric": "seeded-regression drills that auto-roll back without a human",
+        "why": "telemetry does not cover it"
+      }
+    ],
+    "duplicates": [
+      {
+        "opportunity": "opp-p5-3",
+        "duplicate_of": "wi-imp-1"
+      }
+    ],
+    "burn": {
+      "tokens": 13817293,
+      "dollars": 41.15,
+      "human_min": 6,
+      "found": true
+    },
+    "note": "ONE record. decision.option = the verdict (keep|sell|kill|pivot); decision.selection = the Opportunity ids you approve."
+  }
+}
