@@ -1,0 +1,86 @@
+{
+  "id": "m1-sev1_page",
+  "gate": "sev1_page",
+  "run_id": "m1",
+  "workflow": "maintain-triage",
+  "status": "open",
+  "opened_at": "2026-09-11T21:57:06.000Z",
+  "options": [
+    "direct_drive",
+    "accept_unmitigated"
+  ],
+  "provenance": {
+    "node": "sev1_page",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "m1",
+    "created_at": "2026-09-11T21:57:06.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-reentry",
+  "payload": {
+    "id": "inc-m1",
+    "project_id": "toy",
+    "severity": "sev1",
+    "signal_ids": [
+      "sig-p4-1"
+    ],
+    "opened_at": "2026-09-11T03:04:00Z",
+    "status": "unmitigated",
+    "summary": "The items list endpoint applies its result limit before the search filter, so searching with pagination silently drops matching results and returns a normal 200 response with an incomplete list instead of an error. No mitigation has been applied to production — there was no live deployment target to mitigate against, so the bug is running unmitigated right now, exactly as it was before anyone looked at it. A fix has been written and verified against the code, but it has not been deployed.",
+    "impact": "Three reports have come in, and all three are user reports — there is no monitoring or alerting signal independently confirming how far this reaches. Reports began arriving at 9:05 in the morning. Beyond those three reports, there's no data here on how many other people are hitting the same broken results without reporting it.",
+    "mitigation": {
+      "id": "mit-m1",
+      "project_id": "toy",
+      "signal_ids": [
+        "sig-p4-1"
+      ],
+      "strategy": "none",
+      "applied": false,
+      "reversible": false,
+      "reason": "args.live is absent or incomplete: this run had no deploy target to mitigate, so the page must be answered on an unmitigated sev1",
+      "provenance": {
+        "node": "mitigator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "m1",
+        "created_at": "2026-09-11T03:04:00Z"
+      }
+    },
+    "timeline": [
+      {
+        "at": "2026-09-11T03:04:00Z",
+        "event": "Triage classified the issue as a critical, likely-reproducible bug: the search-before-limit ordering truncates results without any error."
+      },
+      {
+        "at": "2026-09-11T03:04:00Z",
+        "event": "No mitigation was applied, because there was no live deployment target to mitigate against."
+      },
+      {
+        "at": "2026-09-11T03:04:00Z",
+        "event": "A fix for the endpoint was drafted and verified."
+      },
+      {
+        "at": "2026-09-11T09:05:00Z",
+        "event": "Three user reports of the problem had come in."
+      }
+    ],
+    "page_options": [
+      "direct_drive",
+      "accept_unmitigated"
+    ],
+    "patch_ids": [
+      "patch-sig-p4-1"
+    ],
+    "provenance": {
+      "node": "incident_commander",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "sonnet",
+      "run_id": "m1",
+      "created_at": "2026-09-11T03:04:00Z"
+    },
+    "note_at_open": "Opened late. This page was emitted by run m1 on 2026-09-11T03:04:00Z and never opened; its original payload_ref under .artifacts/ died with the container, so the incident is reconstructed verbatim from ledger/runs/m1-maintain-triage.json. STATE HAS CHANGED SINCE: sig-p4-1 was re-triaged as sev2 by run m1b, patched as patch-sig-p4-1, carried into build-reentry by b1 with zero human actions, and the fix is now merged to main at aec40028bac67e57792dd9fac86c2019503a5bcf (toy/src/app.js filters before slicing; suites 105/105 and 60/60 green on that commit). The defect this page describes is no longer running anywhere. The page is opened so the sev1 has an adjudicated record rather than being dropped silently; page_options are left exactly as the incident commander set them."
+  }
+}
