@@ -618,12 +618,16 @@ async function runTask({ spec, task, spec_ref }) {
                 history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set() }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
+  const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+    siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
   // ---- Boundary check: Task.owned_surfaces is told to the implementer and verified by nobody. Run t5i wrote
   // ledger/index.jsonl and ledger/runs/m2-maintain-triage.json, both owned by sibling t2, which then found its
   // work done, committed nothing, and deadlocked on an empty diff. A stray into a SIBLING's owned surfaces ends
   // the task here, before any lens, test runner or fixer is called; a surface no task in the graph owns is only
   // a warning, and the task proceeds. touched_surfaces stays a permission ENVELOPE — only work OUTSIDE it, in a
-  // surface someone else owns, is ever a defect.
+  // surface someone else owns, is ever a defect. Each call site (this settled-ChangeSet check and the round-level
+  // re-check below) ends the task itself, inline, right where its verdict is decided — never through a shared
+  // return path a reader could miss.
   const escalateBoundaryViolation = async (boundary) => {
     boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
     const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
@@ -635,11 +639,8 @@ async function runTask({ spec, task, spec_ref }) {
                              One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
       { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
     if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
-    return { ...ctx, passed: false }
   }
-  const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
-    siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
-  if (initialBoundary.verdict === 'violation') return escalateBoundaryViolation(initialBoundary)
+  if (initialBoundary.verdict === 'violation') { await escalateBoundaryViolation(initialBoundary); return { ...ctx, passed: false } }
   if (initialBoundary.verdict === 'unowned') {
     initialBoundary.unowned.forEach(ref => ctx.history.push(`${task.id} touched ${ref}, which no task in the graph owns`))
   }
@@ -914,7 +915,7 @@ async function runTask({ spec, task, spec_ref }) {
     // clean or unowned changes nothing about how the loop continues.
     const roundBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
       siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
-    if (roundBoundary.verdict === 'violation') return escalateBoundaryViolation(roundBoundary)
+    if (roundBoundary.verdict === 'violation') { await escalateBoundaryViolation(roundBoundary); return { ...ctx, passed: false } }
     ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
   }
 }
