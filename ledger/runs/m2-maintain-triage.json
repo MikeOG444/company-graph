@@ -1,0 +1,359 @@
+{
+  "entry": {
+    "id": "m2-maintain-triage",
+    "run_id": "m2",
+    "workflow": "maintain-triage",
+    "status": "ok",
+    "started_at": "2026-09-11T03:36:00.000Z",
+    "finished_at": "2026-09-11T03:33:58.960Z",
+    "wall_clock_sec": 0,
+    "result_ref": "ledger/runs/m2-maintain-triage.json",
+    "artifact_count": 8,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 99879,
+      "claude-sonnet-5": 238680
+    },
+    "tokens": 338559,
+    "cost_est_usd": 0.81,
+    "agents": 9,
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m2",
+      "created_at": "2026-09-11T03:36:00Z"
+    },
+    "trace_ref": ".artifacts/traces/m2-maintain-triage.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "patches": [
+      {
+        "id": "patch-sig-p4-2",
+        "signal_ids": [
+          "sig-p4-2"
+        ],
+        "severity": "sev1",
+        "urgency": "hotfix",
+        "repro": {
+          "status": "reproduced",
+          "steps": "1) Created worktree at .artifacts/maintain/m2/repro/sig-p4-2 (detached at 243b72a2c9255ddce1f9ea28990ee71f6184d4ab); ran `npm ci` in toy/ (node_modules was missing). 2) Wrote .artifacts/maintain/m2/repro/sig-p4-2/toy/test/repro-sig-p4-2.test.js, following the existing helpers.js/items.test.js conventions (node:test + node:assert/strict + start() helper): it POSTs an item named \"banana\" and one named \"carrot\", then calls GET /items?q=ban and asserts a 200 with the substring-filtered list ([the created \"banana\" item]) — the documented correct behavior of the GET /items q-filter. 3) Ran `NODE_ENV=test node --test test/repro-sig-p4-2.test.js` in that worktree's toy/ directory. Touched no implementation file (git status in the worktree shows only the new test file as untracked). Copied the test to .artifacts/maintain/m2/repro/sig-p4-2.test.js.",
+          "observed": "Test failed as expected: `AssertionError: Expected values to be strictly equal: 500 !== 200` (actual 500, expected 200) at the `assert.equal(res.status, 200)` line. This is the ReferenceError described by the signal/triage: src/app.js line 94 calls `normalizeNeedle(q)` inside the GET /items handler's q-filter block, but no such function is defined anywhere in app.js — so any GET /items request with a non-empty q throws `ReferenceError: normalizeNeedle is not defined`, which Express turns into a 500. Requests without q never reach that line and stay 200, matching the fingerprint/triage note that only q-carrying requests error.",
+          "expected": "GET /items?q=ban should return 200 with the case-insensitive substring-filtered list (per the handler's own doc comment: \"Matching is a case-insensitive, literal, contiguous substring test against `name`\"), not a 500. Once normalizeNeedle is implemented/fixed, the test's assertion (200 + [the \"banana\" item]) is the correct behavior and will pass.",
+          "failing_test_ref": ".artifacts/maintain/m2/repro/sig-p4-2.test.js",
+          "notes": "Root cause confirmed by reading toy/src/app.js: the q-filter block (around line 93-95) calls `normalizeNeedle(q)` but that helper is never defined/imported in the file — a straightforward missing-function regression, consistent with the triage rationale citing the same stack trace and the \"previous sha served 200s\" deployment note. No implementation files were modified; only the new test file was added to the worktree.",
+          "signal_id": "sig-p4-2",
+          "attempts": 1
+        },
+        "cause": {
+          "location": "toy/src/app.js:94",
+          "hypothesis": "Inside the GET /items handler's q-filter block (`if (q) { ... }`), line 94 calls `normalizeNeedle(q)` to build the lowercased search needle, but `normalizeNeedle` is never defined, imported, or declared anywhere in app.js (or the rest of the toy app) — the only two references to the identifier in the whole tree are this call site and the repro test's own description of the bug. Because the call is a bare identifier lookup at runtime, evaluating it throws `ReferenceError: normalizeNeedle is not defined` synchronously inside the synchronous Express route handler; Express's default error-handling middleware catches that thrown error and responds with a generic 500, before the handler ever reaches `res.json(result)`. The `if (q)` guard means this line only executes when the request supplies a non-empty `q` query parameter — a request with no `q` (or an empty one) short-circuits past the filter block entirely and returns 200 normally, which is exactly the fingerprint in the triage/signal (only q-carrying GET /items requests error; every other route, including /health, stays green).",
+          "confidence": 0.99,
+          "suspect_commit": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+          "surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js:94"
+            }
+          ]
+        },
+        "change_set": {
+          "id": "patch-sig-p4-2-cs",
+          "worktree": ".artifacts/maintain/m2/patches/sig-p4-2",
+          "base_commit": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+          "diff_ref": ".artifacts/diffs/patch-sig-p4-2.patch",
+          "branch": "patch/sig-p4-2.m2",
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/repro-sig-p4-2.test.js"
+            }
+          ],
+          "revision": 0,
+          "provenance": {
+            "node": "patch_drafter",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "sonnet",
+            "run_id": "m2",
+            "created_at": "2026-09-11T03:36:00Z"
+          }
+        },
+        "verification": {
+          "verified": true,
+          "repro_at_base": {
+            "passed": 0,
+            "failed": 1
+          },
+          "repro_on_patch": {
+            "passed": 1,
+            "failed": 0
+          },
+          "suite_on_patch": {
+            "passed": 36,
+            "failed": 0,
+            "results_ref": "/home/user/company-graph/.artifacts/maintain/m2/patch-sig-p4-2.suite.json"
+          },
+          "checks": [
+            {
+              "name": "repro_fails_at_base",
+              "status": "pass",
+              "detail": "the regression test at 243b72a2: 0 passed, 1 failed — it must fail here or the patch proves nothing"
+            },
+            {
+              "name": "repro_passes_on_patch",
+              "status": "pass",
+              "detail": "the same test on patch/sig-p4-2.m2: 1 passed, 0 failed"
+            },
+            {
+              "name": "suite_green_on_patch",
+              "status": "pass",
+              "detail": "full suite on patch/sig-p4-2.m2: 36 passed, 0 failed (base: 35 passed, 1 failed)"
+            },
+            {
+              "name": "suite_not_shrunk",
+              "status": "pass",
+              "detail": "36 passing on the patch vs 35 at base; the regression test must be one more, not one instead"
+            }
+          ]
+        },
+        "mitigation_id": "mit-m2",
+        "provenance": {
+          "node": "patch_drafter",
+          "executor": "ai_agent",
+          "method": "hotl",
+          "model": "sonnet",
+          "run_id": "m2",
+          "created_at": "2026-09-11T03:36:00Z"
+        }
+      }
+    ],
+    "triages": [
+      {
+        "category": "bug",
+        "surfaces": [
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          },
+          {
+            "kind": "path",
+            "ref": "toy/src/app.js"
+          }
+        ],
+        "reproducible": "likely",
+        "rationale": "Stack trace shows ReferenceError: normalizeNeedle is not defined at toy/src/app.js:94:22, triggered consistently on every GET /items request carrying a q parameter. Deployment note confirms the previous sha served this endpoint with 200s, indicating a regression in the current deployed version.",
+        "facts": {
+          "is_defect": true,
+          "live_impact": "errors_or_unavailable",
+          "data_at_risk": false,
+          "security_exposure": false,
+          "scope": "many_users",
+          "workaround": true
+        },
+        "severity": "sev1",
+        "severity_rule": "production is erroring or unavailable for users (facts.live_impact)",
+        "signal_id": "sig-p4-2",
+        "provenance": {
+          "node": "triage",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "m2",
+          "created_at": "2026-09-11T03:36:00Z"
+        }
+      }
+    ],
+    "parked": [],
+    "dropped": {
+      "duplicates": 0,
+      "noise": 0
+    },
+    "health": {
+      "project_id": "toy",
+      "period": {
+        "from": "2026-09-11T03:15:00Z",
+        "to": "2026-09-11T03:36:00Z"
+      },
+      "slo": [
+        {
+          "name": "availability",
+          "target": 0.99,
+          "actual": 0.643
+        }
+      ],
+      "signals_by_severity": {
+        "sev1": 1,
+        "sev2": 0,
+        "sev3": 0,
+        "noise": 0
+      },
+      "patches_shipped": 0,
+      "patches_drafted": 1,
+      "incidents": 1,
+      "mitigations": 1,
+      "noise_ratio": 0,
+      "parked_signals": [],
+      "maintain_ratio": 0.3333333333333333,
+      "maintain_ratio_source": "measured",
+      "trend": "degrading",
+      "trend_basis": "1 sev1 in this period",
+      "provenance": {
+        "node": "health_aggregator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "m2",
+        "created_at": "2026-09-11T03:36:00Z"
+      }
+    },
+    "mitigation": {
+      "id": "mit-m2",
+      "project_id": "toy",
+      "signal_ids": [
+        "sig-p4-2"
+      ],
+      "strategy": "rollback",
+      "applied": true,
+      "reversible": true,
+      "applied_at": "2026-09-11T03:36:00Z",
+      "env": "prod",
+      "from_sha": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+      "to_sha": "bfb99434d516151954e210f437d76bc1098c315d",
+      "to_ref": "bfb99434d516151954e210f437d76bc1098c315d",
+      "reason": "prod served a sev1 defect; rolled back to bfb99434d516151954e210f437d76bc1098c315d (bfb99434) while diagnosis ran",
+      "lift_means": "prod returns to 243b72a2, which carries the defect, before a fix has shipped",
+      "evidence_ref": ".artifacts/maintain/m2/mitigation.evidence.json",
+      "deployment": {
+        "project_id": "toy",
+        "env": "prod",
+        "url": "http://127.0.0.1:3100",
+        "port": 3100,
+        "ref": "bfb99434d516151954e210f437d76bc1098c315d",
+        "sha": "bfb99434d516151954e210f437d76bc1098c315d",
+        "worktree": ".artifacts/deploy/toy/prod",
+        "app_dir": ".artifacts/deploy/toy/prod/toy",
+        "pid": 6349,
+        "started_at": "2026-09-11T03:36:00.000Z",
+        "log_ref": ".artifacts/deploy/toy/prod.log",
+        "status": "running"
+      },
+      "provenance": {
+        "node": "mitigator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "m2",
+        "created_at": "2026-09-11T03:36:00Z"
+      }
+    },
+    "incident": {
+      "id": "inc-m2",
+      "project_id": "toy",
+      "severity": "sev1",
+      "signal_ids": [
+        "sig-p4-2"
+      ],
+      "opened_at": "2026-09-11T03:36:00Z",
+      "status": "mitigated",
+      "summary": "The item search endpoint has been throwing errors on every request since a deployment introduced a missing function reference. The system already rolled the service back to the prior version on its own, before anyone was paged, and that stopped the errors.",
+      "impact": "Many users were affected: anyone searching the item list got a failed request instead of results. At least 147 failed requests were logged in the six minutes before the rollback. No user data was put at risk, and there is no security exposure.",
+      "mitigation": {
+        "id": "mit-m2",
+        "project_id": "toy",
+        "signal_ids": [
+          "sig-p4-2"
+        ],
+        "strategy": "rollback",
+        "applied": true,
+        "reversible": true,
+        "applied_at": "2026-09-11T03:36:00Z",
+        "env": "prod",
+        "from_sha": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+        "to_sha": "bfb99434d516151954e210f437d76bc1098c315d",
+        "to_ref": "bfb99434d516151954e210f437d76bc1098c315d",
+        "reason": "prod served a sev1 defect; rolled back to bfb99434d516151954e210f437d76bc1098c315d (bfb99434) while diagnosis ran",
+        "lift_means": "prod returns to 243b72a2, which carries the defect, before a fix has shipped",
+        "evidence_ref": ".artifacts/maintain/m2/mitigation.evidence.json",
+        "deployment": {
+          "project_id": "toy",
+          "env": "prod",
+          "url": "http://127.0.0.1:3100",
+          "port": 3100,
+          "ref": "bfb99434d516151954e210f437d76bc1098c315d",
+          "sha": "bfb99434d516151954e210f437d76bc1098c315d",
+          "worktree": ".artifacts/deploy/toy/prod",
+          "app_dir": ".artifacts/deploy/toy/prod/toy",
+          "pid": 6349,
+          "started_at": "2026-09-11T03:36:00.000Z",
+          "log_ref": ".artifacts/deploy/toy/prod.log",
+          "status": "running"
+        },
+        "provenance": {
+          "node": "mitigator",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "m2",
+          "created_at": "2026-09-11T03:36:00Z"
+        }
+      },
+      "timeline": [
+        {
+          "at": "2026-09-11T03:30:00Z",
+          "event": "Error tracking recorded the first failures on the item search endpoint."
+        },
+        {
+          "at": "2026-09-11T03:36:00Z",
+          "event": "The service was automatically rolled back to the last known-good version, which stopped the errors."
+        }
+      ],
+      "page_options": [
+        "keep_mitigation",
+        "lift_mitigation"
+      ],
+      "patch_ids": [
+        "patch-sig-p4-2"
+      ],
+      "provenance": {
+        "node": "incident_commander",
+        "executor": "ai_agent",
+        "method": "hitl",
+        "model": "sonnet",
+        "run_id": "m2",
+        "created_at": "2026-09-11T03:36:00Z"
+      }
+    },
+    "gate": {
+      "gate": "sev1_page",
+      "options": [
+        "keep_mitigation",
+        "lift_mitigation"
+      ],
+      "next": "build-reentry",
+      "payload_ref": ".artifacts/maintain/m2/incident.json"
+    },
+    "refs": {
+      "dir": ".artifacts/maintain/m2",
+      "health": ".artifacts/maintain/m2/health.json",
+      "patches": ".artifacts/maintain/m2/patches.json",
+      "seen": ".artifacts/maintain/known-issues.json",
+      "mitigation_evidence": ".artifacts/maintain/m2/mitigation.evidence.json"
+    },
+    "base_sha": "243b72a2c9255ddce1f9ea28990ee71f6184d4ab",
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m2",
+      "created_at": "2026-09-11T03:36:00Z"
+    }
+  }
+}
