@@ -9,7 +9,7 @@
   ],
   "reproduction_data": "items created in this order: banana, apple, cherry, mango",
   "occurrences": 3,
-  "first_seen": "2026-09-11T09:05:00Z",
+  "first_seen": "2026-09-11T02:50:00Z",
   "status_code_observed": 200,
   "errors_logged": "none — the endpoint returns 200 with a short list",
   "affected_clients": "the list view in the client's internal admin page"

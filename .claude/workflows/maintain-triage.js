@@ -30,6 +30,17 @@ export const meta = {
 //              --payload <incident>.json --project <project_id> --next build-reentry
 // The mitigation is applied and its evidence file is on disk before that gate record exists: the ordering is structural,
 // not a promise. /build-reentry verifies the CLOSED record by id before it will classify a sev1 patch.
+//
+// Post-run protocol for the main session, in this order (no agent touches a nested artifact — see the persist note below):
+//   1. node substrate/lib/run-output.js <task output> --save /tmp/<run>.json
+//   2. node substrate/ledger.js append --workflow maintain-triage --run <run_id> --started <args.now> --result /tmp/<run>.json \
+//        --agents N --tokens-by-model '{...}' --journal <transcript>/journal.jsonl
+//   3. split the result into the artifact store, deterministically, with no agent:
+//      node -e "const fs=require('node:fs');const o=JSON.parse(fs.readFileSync('/tmp/<run>.json','utf8'));const d='.artifacts/maintain/<run_id>';
+//        fs.mkdirSync(d+'/patches',{recursive:true});const w=(p,v)=>fs.writeFileSync(p,JSON.stringify(v,null,2)+'\n');
+//        w(d+'/health.json',o.health);w(d+'/patches.json',o.patches);for(const p of o.patches)w(d+'/patches/'+p.id+'.json',p);
+//        if(o.incident)w(d+'/incident.json',o.incident);if(o.mitigation)w(d+'/mitigation.json',o.mitigation)"
+//      then validate each with substrate/validator.js, and open the sev1 gate on <dir>/incident.json if there is one.
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
@@ -46,19 +57,28 @@ const BASE_REF = A.base ?? 'HEAD'
 // ---- inlined contracts (runtime forbids import; keep in sync with contracts.schema.json) ----
 const Surface = { type: 'object', additionalProperties: false, required: ['kind', 'ref'],
   properties: { kind: { enum: ['path', 'module', 'api', 'schema', 'config', 'infra'] }, ref: { type: 'string' } } }
-const TriageC = { type: 'object', additionalProperties: false, required: ['severity', 'category', 'surfaces', 'reproducible', 'rationale'],
-  properties: { severity: { enum: ['sev1', 'sev2', 'sev3', 'noise'] },
-    category: { enum: ['bug', 'perf', 'security', 'data', 'infra', 'ux', 'unknown'] },
-    surfaces: { type: 'array', items: Surface }, reproducible: { enum: ['likely', 'unlikely', 'unknown'] }, rationale: { type: 'string' } } }
+// The Triage agent reports OBSERVATIONS. §4's Severity Router is code, so severity is derived below from these facts and
+// never declared by the agent (m1: a cheap model called a wrong-results bug with a workaround a sev1 and paged a human).
+const TriageC = { type: 'object', additionalProperties: false, required: ['category', 'surfaces', 'reproducible', 'facts', 'rationale'],
+  properties: { category: { enum: ['bug', 'perf', 'security', 'data', 'infra', 'ux', 'unknown'] },
+    surfaces: { type: 'array', items: Surface }, reproducible: { enum: ['likely', 'unlikely', 'unknown'] },
+    facts: { type: 'object', additionalProperties: false,
+      required: ['is_defect', 'live_impact', 'data_at_risk', 'security_exposure', 'scope', 'workaround'],
+      properties: { is_defect: { type: 'boolean' }, live_impact: { enum: ['errors_or_unavailable', 'wrong_results', 'degraded_performance', 'none'] },
+        data_at_risk: { type: 'boolean' }, security_exposure: { type: 'boolean' }, scope: { enum: ['all_users', 'many_users', 'few_users', 'unknown'] },
+        workaround: { type: 'boolean' } } },
+    rationale: { type: 'string' } } }
 const ReproC = { type: 'object', additionalProperties: false, required: ['status', 'steps', 'observed', 'expected', 'notes'],
   properties: { status: { enum: ['reproduced', 'cannot_repro'] }, failing_test_ref: { type: 'string' }, steps: { type: 'string' },
     observed: { type: 'string' }, expected: { type: 'string' }, notes: { type: 'string' } } }
 const CauseC = { type: 'object', additionalProperties: false, required: ['location', 'hypothesis', 'confidence'],
   properties: { location: { type: 'string' }, hypothesis: { type: 'string' }, confidence: { type: 'number', minimum: 0, maximum: 1 },
     suspect_commit: { type: 'string' }, surfaces: { type: 'array', items: Surface } } }
+// No task_id / spec_id: a Patch Drafter's change set exists before any Task or Spec does, so the schema gives the agent
+// nowhere to invent them (m1: it filled spec_id with the signal id).
 const ChangeSetC = { type: 'object', additionalProperties: false,
   required: ['id', 'worktree', 'base_commit', 'diff_ref', 'branch', 'touched_surfaces', 'revision'],
-  properties: { id: { type: 'string' }, task_id: { type: 'string' }, spec_id: { type: 'string' }, worktree: { type: 'string' },
+  properties: { id: { type: 'string' }, worktree: { type: 'string' },
     base_commit: { type: 'string' }, diff_ref: { type: 'string' }, branch: { type: 'string' },
     touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' } } }
 const Counts = { type: 'object', additionalProperties: false, required: ['passed', 'failed'],
@@ -81,6 +101,17 @@ const IncidentNarrative = { type: 'object', additionalProperties: false, require
     lift_means: { type: 'string', maxLength: 500 },
     timeline: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['at', 'event'],
       properties: { at: { type: 'string' }, event: { type: 'string' } } } } } }
+// Severity Router (§4): code, 0 tokens, one rule, auditable on every Triage it stamps.
+function routeSeverity(f) {
+  if (!f.is_defect) return ['noise', 'not a defect in this product (facts.is_defect=false)']
+  if (f.data_at_risk) return ['sev1', 'stored data is being lost, corrupted or exposed (facts.data_at_risk)']
+  if (f.security_exposure) return ['sev1', 'a security exposure is live (facts.security_exposure)']
+  if (f.live_impact === 'errors_or_unavailable') return ['sev1', 'production is erroring or unavailable for users (facts.live_impact)']
+  if (f.live_impact === 'wrong_results') return ['sev2', 'users get wrong results, but production is serving and nothing must be done to it immediately (facts.live_impact=wrong_results)']
+  if (f.live_impact === 'degraded_performance') return [f.scope === 'all_users' ? 'sev2' : 'sev3', `degraded performance at scope ${f.scope} (facts.live_impact=degraded_performance)`]
+  return ['sev3', 'a defect with no current live impact (facts.live_impact=none): latent or cosmetic']
+}
+
 const Persisted = { type: 'object', additionalProperties: false, required: ['written', 'seen_ref'],
   properties: { written: { type: 'array', items: { type: 'string' } }, seen_ref: { type: 'string' }, error: { type: 'string' } } }
 
@@ -183,14 +214,22 @@ let noise = 0
 const processed = (await pipeline(fresh, async (signal) => {
   const t0 = await agent(`Triage one Signal for the live product in ./${APP}/ of this repository. Read its payload at ${signal.payload_ref} — it is not inlined.
        Signal: ${JSON.stringify({ ...signal, surfaces: signal.surfaces ?? [] })}.
-       Severity is about production, not about how interesting the defect is: sev1 = broken for users now / data or security exposed / SLO breached, something
-       reversible must be done to production immediately; sev2 = wrong behavior a user can hit, production needs no action; sev3 = minor or latent; noise = not a
-       defect in this product. Never derive severity from signal.source. surfaces: the narrowest repository-relative surfaces the payload justifies.`,
+       You do NOT assign a severity. You report what the payload shows, and the workflow derives severity from it. Answer each fact from the payload only, never
+       from signal.source and never from how serious the defect feels:
+         is_defect — is this a defect in THIS product (false for a client error, expected behavior, or a monitoring artifact)?
+         live_impact — what production is doing right now: "errors_or_unavailable" (requests failing, 5xx, timeouts, the service down), "wrong_results"
+           (it answers successfully with wrong or incomplete data), "degraded_performance" (right answers, too slow), "none" (nothing live is affected yet).
+           A 200 response carrying wrong data is "wrong_results", never "errors_or_unavailable".
+         data_at_risk — is stored data being lost, corrupted or exposed? A read path returning the wrong rows is not data at risk.
+         security_exposure — is something reachable that should not be?
+         scope — how many users the payload shows are affected. workaround — does the payload describe one that works?
+       surfaces: the narrowest repository-relative surfaces the payload justifies. rationale: two sentences, quoting the payload.`,
     { label: `triage:${signal.id}`, phase: 'Triage', model: MODEL.cheap, ...NEW('triage'), schema: TriageC })
   if (!t0) return null
-  const triage = { ...t0, signal_id: signal.id, provenance: stamp('triage', MODEL.cheap, 'dark_factory') }
+  const [severity, severity_rule] = routeSeverity(t0.facts)
+  const triage = { ...t0, severity, severity_rule, signal_id: signal.id, provenance: stamp('triage', MODEL.cheap, 'dark_factory') }
   triages.push(triage)
-  log(`${signal.id}: ${triage.severity}/${triage.category} — ${triage.rationale.split('. ')[0]}`)
+  log(`${signal.id}: ${triage.severity}/${triage.category} by rule — ${severity_rule}`)
 
   // Severity Router: code. Noise is dropped and counted; a rising noise ratio is itself a health signal (§4).
   if (triage.severity === 'noise') { noise++; return { signal, triage, noise: true } }
@@ -210,12 +249,16 @@ const processed = (await pipeline(fresh, async (signal) => {
          3) Run it and confirm it fails. A test you did not run is not a repro. Copy the file to ${testRef} as well and return ${testRef} as failing_test_ref.
          Touch no implementation file: if you need to edit the app to make the test fail, that is not a repro — return cannot_repro.
          If you cannot make it fail, return status "cannot_repro" with notes saying exactly what you ran and observed. An honest miss is cheaper than a false repro.
+         status "reproduced" REQUIRES failing_test_ref = ${testRef}: a repro without the test file's path is not a repro and will be retried as a miss.
          Signal: ${JSON.stringify(signal)}. Triage: ${JSON.stringify(triage)}. Payload is at ${signal.payload_ref}.
-         ${n > 1 ? `Attempt ${n - 1} did not reproduce it. What it tried: ${JSON.stringify(repro?.notes ?? '')}. Try a different route, input shape, or sequence.` : ''}`,
+         ${n > 1 ? (repro?.status === 'reproduced'
+           ? `Attempt ${n - 1} said it reproduced the defect but returned no failing_test_ref, so it does not count. What it reported: ${JSON.stringify(repro?.notes ?? '')}. If the test is already at ${testRef} and fails, re-run it to confirm and return that path.`
+           : `Attempt ${n - 1} did not reproduce it. What it tried: ${JSON.stringify(repro?.notes ?? '')}. Try a different route, input shape, or sequence.`) : ''}`,
       { label: `repro:${signal.id}:a${n}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('reproducer'), schema: ReproC })
     if (!r) break
     repro = { ...r, signal_id: signal.id, attempts: n }
     if (r.status === 'reproduced' && r.failing_test_ref) break
+    if (r.status === 'reproduced') log(`${signal.id}: attempt ${n} claimed a repro with no failing_test_ref — not counted`)
   }
   if (!repro || repro.status !== 'reproduced' || !repro.failing_test_ref) {
     // Holding set (§4): two honest misses park the signal. It is counted, never silently dropped, and never patched blind.
@@ -237,7 +280,7 @@ const processed = (await pipeline(fresh, async (signal) => {
   // ---- Patch Drafter ----
   const patchId = `patch-${signal.id}`
   const pwt = `${DIR}/patches/${signal.id}`
-  const branch = `patch/${signal.id}`
+  const branch = `patch/${signal.id}.${A.run_id}`   // run-scoped: a re-run never silently reuses an earlier run's branch
   const diffRef = `${ART}/diffs/${patchId}.patch`
   const cs = await agent(`Draft the smallest patch that fixes one cause, with its regression test.
        1) git worktree add -b ${branch} ${pwt} ${BASE} (if ${pwt} exists, reuse it; if the branch exists, check it out there). App at ${pwt}/${APP}/ — npm ci if node_modules is missing.
@@ -246,6 +289,7 @@ const processed = (await pipeline(fresh, async (signal) => {
        4) Run the app's full suite (npm test in ${pwt}/${APP}/). Report what you saw; never hide a failure you introduced.
        5) Commit the fix and the test together on ${branch}. Write the cumulative diff vs ${BASE} (git diff ${BASE}...HEAD, run inside the worktree) to ${diffRef}
           and return it as diff_ref. id="${patchId}-cs", worktree="${pwt}", branch="${branch}", base_commit="${BASE}", revision 0, touched_surfaces from the diff.
+          Leave task_id and spec_id unset: no Task and no Spec exist yet, and this change set acquires them when the patch enters Build.
        If the cause is wrong, change nothing and set notes to "DISPUTE: <what you ran and what it showed>".
        Cause: ${JSON.stringify(cause)}. Repro: ${JSON.stringify({ steps: repro.steps, observed: repro.observed, expected: repro.expected })}.`,
     { label: `draft:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('patch-drafter'), schema: ChangeSetC })
@@ -385,16 +429,16 @@ const health = {
 // Persist: the seen-set (§9.9, keyed on Signal.fingerprint — parked and noise included, or the loop rediscovers them) and
 // every artifact this run produced, already stamped. The script hands the agent finished JSON; the agent only writes it.
 const seenRef = A.known_issues_ref ?? `${ART}/maintain/known-issues.json`
-const persisted = await agent(`Write files, from the repo root. mkdir -p as needed. Write each JSON exactly as given, pretty-printed; change no value.
-     1) ${DIR}/health.json = ${JSON.stringify(health)}
-     2) ${DIR}/patches.json = ${JSON.stringify(patches)}  — and each element separately to ${DIR}/patches/<element id>.json
-     ${incident ? `3) ${DIR}/incident.json = ${JSON.stringify(incident)}` : '3) (no incident this run)'}
-     ${mitigation ? `4) ${DIR}/mitigation.json = ${JSON.stringify(mitigation)}` : '4) (no mitigation this run)'}
-     5) ${seenRef} = the union of the JSON array already there (or [] if absent) with ${JSON.stringify(fresh.map(s => s.fingerprint))}, sorted, no duplicates.
-     Then: node substrate/validator.js HealthReport ${DIR}/health.json, and node substrate/validator.js Patch <each patch file>, and
-     ${incident ? `node substrate/validator.js IncidentRecord ${DIR}/incident.json, and node substrate/validator.js Mitigation ${DIR}/mitigation.json.` : 'nothing else.'}
-     Return every path you wrote, and put any validator failure verbatim in error — never edit an artifact to make a validator pass.`,
-  { label: 'persist', model: MODEL.cheap, ...AT('mechanical'), schema: Persisted })
+// Persist, split in two on purpose. The seen-set (§9.9) is the only thing that MUST be written inside the run, because the
+// next run's Deduper reads it — and it is a flat list of strings, so there is nothing to mis-transcribe. Nested artifacts are
+// NOT written by an agent: on m1b a cheap model hand-wrote the Patch JSON and hoisted three of repro's fields to the root
+// (the validator caught it). They are written after the run by the main session from the saved result, with no agent in the
+// loop — see the header's post-run protocol.
+const persisted = await agent(`One file, from the repo root, and only this. Add these fingerprints to the known-issues set at ${seenRef}, keeping it a sorted JSON
+     array of unique strings and preserving whatever is already there. Run exactly this, nothing else:
+     node -e "const fs=require('node:fs');const add=${JSON.stringify(JSON.stringify(fresh.map(x => x.fingerprint)))};const s=new Set(JSON.parse(add));try{for(const f of JSON.parse(fs.readFileSync('${seenRef}','utf8')))s.add(f)}catch{};fs.mkdirSync(require('node:path').dirname('${seenRef}'),{recursive:true});fs.writeFileSync('${seenRef}',JSON.stringify([...s].sort(),null,2)+'\\n')"
+     Then print the file. Return written = [${JSON.stringify(seenRef)}], seen_ref = ${seenRef}, and any error verbatim. Never edit anything else.`,
+  { label: 'persist:seen', model: MODEL.cheap, ...AT('mechanical'), schema: Persisted })
 if (persisted?.error) log(`persist reported: ${persisted.error}`)
 
 const verifiedPatches = patches.filter(p => p.verification.verified)

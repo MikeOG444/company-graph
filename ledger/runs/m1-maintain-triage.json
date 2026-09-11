@@ -1,0 +1,312 @@
+{
+  "entry": {
+    "id": "m1-maintain-triage",
+    "run_id": "m1",
+    "workflow": "maintain-triage",
+    "status": "ok",
+    "started_at": "2026-09-11T03:04:00.000Z",
+    "finished_at": "2026-09-11T03:14:27.769Z",
+    "wall_clock_sec": 628,
+    "result_ref": "ledger/runs/m1-maintain-triage.json",
+    "artifact_count": 8,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 109605,
+      "claude-sonnet-5": 248569
+    },
+    "tokens": 358174,
+    "cost_est_usd": 0.85,
+    "agents": 8,
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m1",
+      "created_at": "2026-09-11T03:04:00Z"
+    },
+    "trace_ref": ".artifacts/traces/m1-maintain-triage.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "patches": [
+      {
+        "id": "patch-sig-p4-1",
+        "signal_ids": [
+          "sig-p4-1"
+        ],
+        "severity": "sev1",
+        "urgency": "hotfix",
+        "repro": {
+          "status": "reproduced",
+          "steps": "1) git worktree add --detach .artifacts/maintain/m1/repro/sig-p4-1 bfb99434d516151954e210f437d76bc1098c315d; ran `npm ci` in toy/ (node_modules was missing). 2) Wrote .artifacts/maintain/m1/repro/sig-p4-1/toy/test/repro-sig-p4-1.test.js using the existing node:test + node:assert/strict + helpers.js `start()` convention, matching the signal's exact reproduction data (items created in order: banana, apple, cherry, mango) and its exact example request (GET /items?q=an&limit=2). 3) Ran `NODE_ENV=test node --test test/repro-sig-p4-1.test.js` in toy/ and it failed. Copied the file to .artifacts/maintain/m1/repro/sig-p4-1.test.js. No implementation file was touched (git status --short in the worktree shows only the new test file).",
+          "observed": "GET /items?q=an&limit=2 returned [{\"id\":1,\"name\":\"banana\"}] — only one item. The assertion on item names was ['banana'] vs expected ['banana','mango'].",
+          "expected": "GET /items?q=an&limit=2 should return both items whose name contains \"an\" (banana and mango), since the limit should cap the result of filtering, not be applied before the filter runs.",
+          "notes": "Root cause confirmed in toy/src/app.js GET /items handler: the doc comment at line 54 says the pipeline is \"filter -> sort -> cap\" but the actual code order is sort (lines 83-85) -> cap/slice (lines 88-90) -> filter by q (lines 93-96). Because the limit slice runs before the q filter, any non-matching items ahead of a later match consume slots in the capped array before filtering removes them, so matches beyond the limit boundary in insertion order are silently dropped (200 OK, no truncation indicator) — exactly the defect in triage's rationale and the signal's reported examples. The fix is to reorder to filter first, then sort, then cap (matching the stated contract).",
+          "failing_test_ref": "/home/user/company-graph/.artifacts/maintain/m1/repro/sig-p4-1.test.js",
+          "signal_id": "sig-p4-1",
+          "attempts": 1
+        },
+        "cause": {
+          "location": "toy/src/app.js:87-96",
+          "hypothesis": "In the GET /items handler, the `?limit` cap (result.slice(0, limit), lines 88-90) runs before the `?q` substring filter (lines 93-96), instead of after it as the handler's own contract comment (lines 54-55) promises ('Pipeline: filter -> sort -> cap'). Because `result` is still the full, unfiltered (only sorted) item list when slice(0, limit) executes, the cap keeps the first N items by sort/insertion order regardless of whether they match q, and the q filter then only narrows within that already-truncated prefix. Any matching item outside the first N positions of the unfiltered list is discarded before the filter ever sees it. With insertion order banana, apple, cherry, mango and ?q=an&limit=2: sort is a no-op (no ?sort given), the cap stage slices [banana, apple, cherry, mango] down to [banana, apple], and only then does the q filter run over that pair, matching 'banana' but not 'apple', so 'mango' — which does contain 'an' but sits outside the capped prefix — is silently dropped, yielding one result instead of two.",
+          "confidence": 0.98,
+          "surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            }
+          ],
+          "suspect_commit": "bfb99434d516151954e210f437d76bc1098c315d"
+        },
+        "change_set": {
+          "id": "patch-sig-p4-1-cs",
+          "worktree": ".artifacts/maintain/m1/patches/sig-p4-1",
+          "base_commit": "bfb99434d516151954e210f437d76bc1098c315d",
+          "diff_ref": ".artifacts/diffs/patch-sig-p4-1.patch",
+          "branch": "patch/sig-p4-1",
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/repro-sig-p4-1.test.js"
+            }
+          ],
+          "revision": 0,
+          "task_id": "patch-sig-p4-1-cs",
+          "spec_id": "sig-p4-1",
+          "provenance": {
+            "node": "patch_drafter",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "sonnet",
+            "run_id": "m1",
+            "created_at": "2026-09-11T03:04:00Z"
+          }
+        },
+        "verification": {
+          "verified": true,
+          "repro_at_base": {
+            "passed": 0,
+            "failed": 1
+          },
+          "repro_on_patch": {
+            "passed": 1,
+            "failed": 0
+          },
+          "suite_on_patch": {
+            "passed": 36,
+            "failed": 0,
+            "results_ref": "/home/user/company-graph/.artifacts/maintain/m1/patch-sig-p4-1.suite.json"
+          },
+          "checks": [
+            {
+              "name": "repro_fails_at_base",
+              "status": "pass",
+              "detail": "the regression test at bfb99434: 0 passed, 1 failed — it must fail here or the patch proves nothing"
+            },
+            {
+              "name": "repro_passes_on_patch",
+              "status": "pass",
+              "detail": "the same test on patch/sig-p4-1: 1 passed, 0 failed"
+            },
+            {
+              "name": "suite_green_on_patch",
+              "status": "pass",
+              "detail": "full suite on patch/sig-p4-1: 36 passed, 0 failed (base: 35 passed, 1 failed)"
+            },
+            {
+              "name": "suite_not_shrunk",
+              "status": "pass",
+              "detail": "36 passing on the patch vs 35 at base; the regression test must be one more, not one instead"
+            }
+          ]
+        },
+        "provenance": {
+          "node": "patch_drafter",
+          "executor": "ai_agent",
+          "method": "hotl",
+          "model": "sonnet",
+          "run_id": "m1",
+          "created_at": "2026-09-11T03:04:00Z"
+        }
+      }
+    ],
+    "triages": [
+      {
+        "severity": "sev1",
+        "category": "bug",
+        "surfaces": [
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          }
+        ],
+        "reproducible": "likely",
+        "rationale": "GET /items endpoint applies limit before search filter, silently truncating results. Users cannot use pagination with search queries. Silent HTTP 200 response with incomplete data. Affects internal admin list view. Clear reproduction path with stable dataset. Workaround implemented but breaks product functionality.",
+        "signal_id": "sig-p4-1",
+        "provenance": {
+          "node": "triage",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "m1",
+          "created_at": "2026-09-11T03:04:00Z"
+        }
+      }
+    ],
+    "parked": [],
+    "dropped": {
+      "duplicates": 0,
+      "noise": 0
+    },
+    "health": {
+      "project_id": "toy",
+      "period": {
+        "from": "2026-09-11T00:00:00Z",
+        "to": "2026-09-11T03:04:00Z"
+      },
+      "slo": [
+        {
+          "name": "availability",
+          "target": 0.99,
+          "actual": 1
+        }
+      ],
+      "signals_by_severity": {
+        "sev1": 1,
+        "sev2": 0,
+        "sev3": 0,
+        "noise": 0
+      },
+      "patches_shipped": 0,
+      "patches_drafted": 1,
+      "incidents": 1,
+      "mitigations": 0,
+      "noise_ratio": 0,
+      "parked_signals": [],
+      "maintain_ratio": 0.3333333333333333,
+      "maintain_ratio_source": "measured",
+      "trend": "degrading",
+      "trend_basis": "1 sev1 in this period",
+      "provenance": {
+        "node": "health_aggregator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "m1",
+        "created_at": "2026-09-11T03:04:00Z"
+      }
+    },
+    "mitigation": {
+      "id": "mit-m1",
+      "project_id": "toy",
+      "signal_ids": [
+        "sig-p4-1"
+      ],
+      "strategy": "none",
+      "applied": false,
+      "reversible": false,
+      "reason": "args.live is absent or incomplete: this run had no deploy target to mitigate, so the page must be answered on an unmitigated sev1",
+      "provenance": {
+        "node": "mitigator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "haiku",
+        "run_id": "m1",
+        "created_at": "2026-09-11T03:04:00Z"
+      }
+    },
+    "incident": {
+      "id": "inc-m1",
+      "project_id": "toy",
+      "severity": "sev1",
+      "signal_ids": [
+        "sig-p4-1"
+      ],
+      "opened_at": "2026-09-11T03:04:00Z",
+      "status": "unmitigated",
+      "summary": "The items list endpoint applies its result limit before the search filter, so searching with pagination silently drops matching results and returns a normal 200 response with an incomplete list instead of an error. No mitigation has been applied to production — there was no live deployment target to mitigate against, so the bug is running unmitigated right now, exactly as it was before anyone looked at it. A fix has been written and verified against the code, but it has not been deployed.",
+      "impact": "Three reports have come in, and all three are user reports — there is no monitoring or alerting signal independently confirming how far this reaches. Reports began arriving at 9:05 in the morning. Beyond those three reports, there's no data here on how many other people are hitting the same broken results without reporting it.",
+      "mitigation": {
+        "id": "mit-m1",
+        "project_id": "toy",
+        "signal_ids": [
+          "sig-p4-1"
+        ],
+        "strategy": "none",
+        "applied": false,
+        "reversible": false,
+        "reason": "args.live is absent or incomplete: this run had no deploy target to mitigate, so the page must be answered on an unmitigated sev1",
+        "provenance": {
+          "node": "mitigator",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "m1",
+          "created_at": "2026-09-11T03:04:00Z"
+        }
+      },
+      "timeline": [
+        {
+          "at": "2026-09-11T03:04:00Z",
+          "event": "Triage classified the issue as a critical, likely-reproducible bug: the search-before-limit ordering truncates results without any error."
+        },
+        {
+          "at": "2026-09-11T03:04:00Z",
+          "event": "No mitigation was applied, because there was no live deployment target to mitigate against."
+        },
+        {
+          "at": "2026-09-11T03:04:00Z",
+          "event": "A fix for the endpoint was drafted and verified."
+        },
+        {
+          "at": "2026-09-11T09:05:00Z",
+          "event": "Three user reports of the problem had come in."
+        }
+      ],
+      "page_options": [
+        "direct_drive",
+        "accept_unmitigated"
+      ],
+      "patch_ids": [
+        "patch-sig-p4-1"
+      ],
+      "provenance": {
+        "node": "incident_commander",
+        "executor": "ai_agent",
+        "method": "hitl",
+        "model": "sonnet",
+        "run_id": "m1",
+        "created_at": "2026-09-11T03:04:00Z"
+      }
+    },
+    "gate": {
+      "gate": "sev1_page",
+      "options": [
+        "direct_drive",
+        "accept_unmitigated"
+      ],
+      "next": "build-reentry",
+      "payload_ref": ".artifacts/maintain/m1/incident.json"
+    },
+    "refs": {
+      "dir": ".artifacts/maintain/m1",
+      "health": ".artifacts/maintain/m1/health.json",
+      "patches": ".artifacts/maintain/m1/patches.json",
+      "seen": "m1"
+    },
+    "base_sha": "bfb99434d516151954e210f437d76bc1098c315d",
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m1",
+      "created_at": "2026-09-11T03:04:00Z"
+    }
+  }
+}

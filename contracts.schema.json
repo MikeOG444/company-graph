@@ -477,10 +477,22 @@
         "category":    { "type": "string", "enum": ["bug", "perf", "security", "data", "infra", "ux", "unknown"] },
         "surfaces":    { "type": "array", "items": { "$ref": "#/$defs/Surface" } },
         "reproducible":{ "type": "string", "enum": ["likely", "unlikely", "unknown"] },
+        "facts":       { "description": "The observations severity is DERIVED from. §4's Severity Router is code: the agent reports what it sees, the script decides the severity, and this is the record of why.",
+                         "type": "object", "additionalProperties": false,
+                         "properties": {
+                           "is_defect":         { "type": "boolean" },
+                           "live_impact":       { "type": "string", "enum": ["errors_or_unavailable", "wrong_results", "degraded_performance", "none"] },
+                           "data_at_risk":      { "type": "boolean", "description": "Stored data is being lost, corrupted or exposed." },
+                           "security_exposure": { "type": "boolean" },
+                           "scope":             { "type": "string", "enum": ["all_users", "many_users", "few_users", "unknown"] },
+                           "workaround":        { "type": "boolean" }
+                         },
+                         "required": ["is_defect", "live_impact", "data_at_risk", "security_exposure", "scope", "workaround"] },
+        "severity_rule":{ "type": "string", "description": "The code rule that turned facts into severity." },
         "rationale":   { "type": "string" },
         "provenance":  { "$ref": "#/$defs/Provenance" }
       },
-      "required": ["signal_id", "severity", "category", "surfaces", "reproducible", "rationale", "provenance"]
+      "required": ["signal_id", "severity", "category", "surfaces", "reproducible", "facts", "severity_rule", "rationale", "provenance"]
     },
 
     "HealthReport": {
@@ -507,9 +519,10 @@
         "maintain_ratio_source": { "type": "string", "enum": ["measured", "provisional"],
                                  "description": "Maintain never sees Build capacity or the improve backlog, so this number is provisional unless Build re-entry supplied it." },
         "trend":               { "type": "string", "enum": ["improving", "stable", "degrading"] },
-        "trend_basis":         { "type": "string", "description": "What the trend was derived from. A trend with no prior period is not a trend." }
+        "trend_basis":         { "type": "string", "description": "What the trend was derived from. A trend with no prior period is not a trend." },
+        "provenance":          { "$ref": "#/$defs/Provenance" }
       },
-      "required": ["project_id", "period", "slo", "signals_by_severity", "patches_shipped", "incidents", "maintain_ratio", "trend"]
+      "required": ["project_id", "period", "slo", "signals_by_severity", "patches_shipped", "incidents", "maintain_ratio", "trend", "provenance"]
     },
 
     "Opportunity": {

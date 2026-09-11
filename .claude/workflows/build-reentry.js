@@ -4,7 +4,7 @@ export const meta = {
   phases: [
     { title: 'Classify', detail: 'one cheap agent per patch (urgency + conflict surfaces + the WorkItem it becomes) ∥ per improve item missing surfaces ∥ the sev1 gate record' },
     { title: 'Plan', detail: 'code, 0 tokens: conflict detector, budget splitter, hotfix lane, merge planner, starvation' },
-    { title: 'Emit', detail: 'ordered WorkItem[] + ReentryPlan, persisted and validated' },
+    { title: 'Emit', detail: 'ordered WorkItem[] + ReentryPlan, returned for the main session to persist and validate' },
   ],
 }
 
@@ -23,6 +23,14 @@ export const meta = {
 //
 // Human touchpoints: none inside. One gate at the boundary, and only on a breach:
 //   gates open --gate ratio_gate --run <run_id> --workflow build-reentry --options adjust,accept --payload <plan>.json --next build-spec
+//
+// Post-run protocol for the main session (no agent writes a nested artifact):
+//   1. node substrate/lib/run-output.js <task output> --save /tmp/<run>.json
+//   2. node substrate/ledger.js append --workflow build-reentry --run <run_id> --started <args.now> --result /tmp/<run>.json ...
+//   3. node -e "const fs=require('node:fs');const o=JSON.parse(fs.readFileSync('/tmp/<run>.json','utf8'));const d='.artifacts/reentry/<run_id>';
+//        fs.mkdirSync(d+'/items',{recursive:true});const w=(p,v)=>fs.writeFileSync(p,JSON.stringify(v,null,2)+'\n');
+//        w(d+'/plan.json',o.plan);w(d+'/work-items.json',o.work_items);for(const i of o.work_items)w(d+'/items/'+i.id+'.json',i)"
+//      then substrate/validator.js ReentryPlan <plan> and WorkItem on each item, and open ratio_gate only if plan.gate_required.
 // Deliberate deviations from §3, both recorded in ledger/ when this first ran:
 //   1. The Ratio Gate sits at the END, not between the Budget Splitter and the Merge Planner. A gate inside the node chain would
 //      make the planner wait for a person mid-run (CLAUDE.md rule 8). The plan is ordered either way and marked provisional on breach.
@@ -59,8 +67,6 @@ const GateCheck = { type: 'object', additionalProperties: false,
     decided_by: { type: 'string' }, decided_at: { type: 'string' }, note: { type: 'string' } } }
 const Loaded = { type: 'object', additionalProperties: false, required: ['patches'],
   properties: { patches: { type: 'array', items: { type: 'object' } }, health: { type: 'object' }, error: { type: 'string' } } }
-const Persisted = { type: 'object', additionalProperties: false, required: ['written'],
-  properties: { written: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } } }
 
 // Patch JSONs keep their own ref: whatever the caller passed, not a path this script reconstructs from a run id.
 const refById = new Map()
@@ -302,15 +308,9 @@ const plan = {
   provenance: stamp('build-reentry', 'n/a', gateRequired ? 'hitl' : 'dark_factory'),
 }
 
-const persisted = await agent(`Write files from the repo root; mkdir -p ${DIR} first. Write each JSON exactly as given, pretty-printed, changing no value.
-     1) ${DIR}/plan.json = ${JSON.stringify(plan)}
-     2) ${DIR}/work-items.json = ${JSON.stringify(work_items)}
-     Then validate: node substrate/validator.js ReentryPlan ${DIR}/plan.json, and for EACH element of the work-items array
-     node substrate/validator.js WorkItem <a file you write per element under ${DIR}/items/<id>.json>.
-     Return every path written and put any validator output verbatim in error — never edit an artifact to make a validator pass.`,
-  { label: 'persist', model: MODEL.cheap, ...AT('mechanical'), schema: Persisted })
-if (persisted?.error) log(`persist reported: ${persisted.error}`)
-
+// Nothing here is written by an agent. The plan and the ordered work items ARE this run's return value, and a cheap model
+// retyping a nested artifact is a known defect source (m1b: three of repro's fields hoisted to a Patch root). The main
+// session writes them from the saved result, deterministically, and validates them — see the post-run protocol above.
 log(`${work_items.length} work item(s) ordered for /build-spec: ${work_items.map(w => `${w.id}[${ordered.find(o => o.key === w.id).lane}]`).join(' → ')}`)
 
 return {

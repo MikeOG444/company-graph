@@ -1,0 +1,227 @@
+{
+  "entry": {
+    "id": "m1b-maintain-triage",
+    "run_id": "m1b",
+    "workflow": "maintain-triage",
+    "status": "ok",
+    "started_at": "2026-09-11T03:15:00.000Z",
+    "finished_at": "2026-09-11T03:24:34.712Z",
+    "wall_clock_sec": 575,
+    "result_ref": "ledger/runs/m1b-maintain-triage.json",
+    "artifact_count": 5,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 91329,
+      "claude-sonnet-5": 264307
+    },
+    "tokens": 355636,
+    "cost_est_usd": 0.87,
+    "agents": 8,
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m1b",
+      "created_at": "2026-09-11T03:15:00Z"
+    },
+    "trace_ref": ".artifacts/traces/m1b-maintain-triage.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "patches": [
+      {
+        "id": "patch-sig-p4-1",
+        "signal_ids": [
+          "sig-p4-1"
+        ],
+        "severity": "sev2",
+        "urgency": "routine",
+        "repro": {
+          "status": "reproduced",
+          "steps": "Worktree .artifacts/maintain/m1b/repro/sig-p4-1 already existed at commit bfb9943 (toy app) with node_modules installed. Test file .artifacts/maintain/m1b/repro/sig-p4-1/toy/test/repro-sig-p4-1.test.js (copy also at .artifacts/maintain/m1b/repro/sig-p4-1.test.js) POSTs items in order banana, apple, cherry, mango (the exact reproduction_data from toy/signals/sig-p4-1.json), then GETs /items?q=an&limit=2 and asserts the returned names deepEqual ['banana','mango'] (both items contain \"an\", matching the payload's expected_body). Ran: `NODE_ENV=test node --test test/repro-sig-p4-1.test.js` from .artifacts/maintain/m1b/repro/sig-p4-1/toy. No implementation file was touched (git status --short shows only the untracked test file).",
+          "observed": "Test fails with AssertionError: actual ['banana'] vs expected ['banana','mango'] — exactly matching the signal's observed_body [{\"id\":1,\"name\":\"banana\"}] for GET /items?q=an&limit=2. Root cause confirmed in src/app.js GET /items handler: the 'cap stage' (result.slice(0, limit)) runs before the '?q substring filter' stage, so limit=2 truncates the insertion-ordered list to [banana, apple] before the q=an filter runs, dropping 'mango' even though it matches.",
+          "expected": "Once fixed (q-filter applied before the limit cap, matching the documented filter->sort->cap pipeline and the sort->cap ordering already in place), GET /items?q=an&limit=2 should return both banana and mango (the assertion in the test), since filtering first correctly identifies all matches before the cap trims the page.",
+          "notes": "This is a second attempt on the same signal; the described scenario/test matches attempt 1's description exactly, but attempt 1 reported it as not reproducing. Running it directly in this session shows it fails as expected against the unmodified worktree at commit bfb99434d516151954e210f437d76bc1098c315d, with no implementation files touched (git status --short shows only the new untracked test file).",
+          "failing_test_ref": ".artifacts/maintain/m1b/repro/sig-p4-1.test.js",
+          "signal_id": "sig-p4-1",
+          "attempts": 2
+        },
+        "cause": {
+          "location": "toy/src/app.js:89",
+          "hypothesis": "In the GET /items handler, the pipeline runs sort, then the limit cap (`result = result.slice(0, limit)` at line 89), and only after that applies the `?q` substring filter (lines 92-96). Because `.slice(0, limit)` truncates the full insertion-ordered result set before `q` has narrowed it, any item that matches `q` but sits at or beyond index `limit` in the unfiltered list is discarded before the filter ever sees it, while items that don't match `q` but happen to fall within the first `limit` entries occupy slots a matching item could have filled. This is why `GET /items?q=an&limit=2` over items inserted as banana, apple, cherry, mango returns only `['banana']`: the cap keeps `[banana, apple]` (the first two inserted items) before filtering, then the q=an filter drops apple (no match) and never reaches mango (which does match `an`) because mango was already sliced off by the cap. The handler's own comment block (lines 55-56) documents the intended filter->sort->cap order, but the executable code performs sort->cap->filter — i.e. the cap stage at line 89 runs on the unfiltered list instead of running after the q-filter.",
+          "confidence": 0.97,
+          "surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            }
+          ],
+          "suspect_commit": "bfb99434"
+        },
+        "change_set": {
+          "id": "patch-sig-p4-1-cs",
+          "worktree": ".artifacts/maintain/m1b/patches/sig-p4-1",
+          "base_commit": "bfb99434d516151954e210f437d76bc1098c315d",
+          "diff_ref": ".artifacts/diffs/patch-sig-p4-1.patch",
+          "branch": "patch/sig-p4-1.m1b",
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/repro-sig-p4-1.test.js"
+            }
+          ],
+          "revision": 0,
+          "provenance": {
+            "node": "patch_drafter",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "sonnet",
+            "run_id": "m1b",
+            "created_at": "2026-09-11T03:15:00Z"
+          }
+        },
+        "verification": {
+          "verified": true,
+          "repro_at_base": {
+            "passed": 0,
+            "failed": 1
+          },
+          "repro_on_patch": {
+            "passed": 1,
+            "failed": 0
+          },
+          "suite_on_patch": {
+            "passed": 36,
+            "failed": 0,
+            "results_ref": "/home/user/company-graph/.artifacts/maintain/m1b/patch-sig-p4-1.suite.json"
+          },
+          "checks": [
+            {
+              "name": "repro_fails_at_base",
+              "status": "pass",
+              "detail": "the regression test at bfb99434: 0 passed, 1 failed — it must fail here or the patch proves nothing"
+            },
+            {
+              "name": "repro_passes_on_patch",
+              "status": "pass",
+              "detail": "the same test on patch/sig-p4-1.m1b: 1 passed, 0 failed"
+            },
+            {
+              "name": "suite_green_on_patch",
+              "status": "pass",
+              "detail": "full suite on patch/sig-p4-1.m1b: 36 passed, 0 failed (base: 35 passed, 1 failed)"
+            },
+            {
+              "name": "suite_not_shrunk",
+              "status": "pass",
+              "detail": "36 passing on the patch vs 35 at base; the regression test must be one more, not one instead"
+            }
+          ]
+        },
+        "provenance": {
+          "node": "patch_drafter",
+          "executor": "ai_agent",
+          "method": "hotl",
+          "model": "sonnet",
+          "run_id": "m1b",
+          "created_at": "2026-09-11T03:15:00Z"
+        }
+      }
+    ],
+    "triages": [
+      {
+        "category": "bug",
+        "surfaces": [
+          {
+            "kind": "api",
+            "ref": "GET /items"
+          }
+        ],
+        "reproducible": "likely",
+        "facts": {
+          "is_defect": true,
+          "live_impact": "wrong_results",
+          "data_at_risk": false,
+          "security_exposure": false,
+          "scope": "few_users",
+          "workaround": true
+        },
+        "rationale": "The payload reports that \\\"When I search and also ask for a page size I get fewer results than there are matches,\\\" with the root cause identified: \\\"the page size is being taken off the front of the whole list before the search runs, so anything that matches further down is thrown away.\\\" The endpoint returns HTTP 200 with incomplete results rather than the correct set of matching items.\"",
+        "severity": "sev2",
+        "severity_rule": "users get wrong results, but production is serving and nothing must be done to it immediately (facts.live_impact=wrong_results)",
+        "signal_id": "sig-p4-1",
+        "provenance": {
+          "node": "triage",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "m1b",
+          "created_at": "2026-09-11T03:15:00Z"
+        }
+      }
+    ],
+    "parked": [],
+    "dropped": {
+      "duplicates": 0,
+      "noise": 0
+    },
+    "health": {
+      "project_id": "toy",
+      "period": {
+        "from": "2026-09-11T00:00:00Z",
+        "to": "2026-09-11T03:15:00Z"
+      },
+      "slo": [
+        {
+          "name": "availability",
+          "target": 0.99,
+          "actual": 1
+        }
+      ],
+      "signals_by_severity": {
+        "sev1": 0,
+        "sev2": 1,
+        "sev3": 0,
+        "noise": 0
+      },
+      "patches_shipped": 0,
+      "patches_drafted": 1,
+      "incidents": 0,
+      "mitigations": 0,
+      "noise_ratio": 0,
+      "parked_signals": [],
+      "maintain_ratio": 0.3333333333333333,
+      "maintain_ratio_source": "measured",
+      "trend": "stable",
+      "trend_basis": "no prior period supplied: 1 defect signal(s) this period, asserted as stable from one period, which is not yet a trend",
+      "provenance": {
+        "node": "health_aggregator",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "m1b",
+        "created_at": "2026-09-11T03:15:00Z"
+      }
+    },
+    "refs": {
+      "dir": ".artifacts/maintain/m1b",
+      "health": ".artifacts/maintain/m1b/health.json",
+      "patches": ".artifacts/maintain/m1b/patches.json",
+      "seen": "/home/user/company-graph/.artifacts/maintain/known-issues.json"
+    },
+    "base_sha": "bfb99434d516151954e210f437d76bc1098c315d",
+    "provenance": {
+      "node": "maintain-triage",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "m1b",
+      "created_at": "2026-09-11T03:15:00Z"
+    }
+  }
+}
