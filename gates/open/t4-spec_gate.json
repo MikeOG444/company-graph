@@ -1,0 +1,70 @@
+{
+  "id": "t4-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "t4",
+  "workflow": "build-spec",
+  "status": "open",
+  "opened_at": "2026-09-11T06:00:09.711Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "t4",
+    "created_at": "2026-09-11T06:00:09.711Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "t4",
+    "project_id": "toy",
+    "count": 1,
+    "specs": [
+      {
+        "spec_id": "spec-wi-opp-p5-5",
+        "work_item_id": "wi-opp-p5-5",
+        "goal": "Make `ledger append` read a run's facts out of the runtime's own task output file instead of the operator's fingers, and make it refuse a wall clock it can prove is wrong. Today `substrate/ledger.js append` requires four hand-carried values (`--started`, `--result`, `--tokens-by-model`, `--agents`), and `substrate/lib/run-output.js` only prints two of them; the operator runs three commands and ret...",
+        "risk": "high",
+        "high_by_rule": [
+          "rule: surface kind schema: ./contracts.schema.json#/$defs/LedgerEntry"
+        ],
+        "agent_said": [
+          "All existing CLI flags remain functional; new --from-output is opt-in, and old flags work as overrides (AC-2, AC-7, AC-15)",
+          "Pre-existing test suite passes unmodified (AC-7 requirement), with no changes to existing assertions",
+          "Schema change is purely additive: LedgerEntry gains optional wall_clock_unknown field not in required list, existing rows validate without it (AC-11)"
+        ],
+        "criteria": 17,
+        "tasks": [
+          {
+            "id": "t1-implement-ledger-from-output",
+            "owns": [
+              "./substrate/ledger.js",
+              "./substrate/lib/run-output.js",
+              "./substrate/test/ledger.test.js",
+              "./substrate/test/fixtures/task-output.valid.json",
+              "./substrate/test/fixtures/task-output.zero-wall.json",
+              "./contracts.schema.json#/$defs/LedgerEntry",
+              "./substrate/README.md",
+              "CLI: ledger append --from-output <task.output>",
+              "CLI: ledger summary --by method|workflow (wall_unknown_runs column)",
+              "CLI: ledger list (?s rendering for marked rows)",
+              "module export: substrate/lib/run-output.js readRunOutput(path)"
+            ]
+          },
+          {
+            "id": "t2-mark-corrupted-ledger-row",
+            "owns": [
+              "./ledger/index.jsonl",
+              "./ledger/runs/m2-maintain-triage.json"
+            ]
+          }
+        ],
+        "spec_ref": ".artifacts/build/t4/specs/spec-wi-opp-p5-5.json"
+      }
+    ],
+    "note": "The Spec Gate fired on a code RULE, not an agent vote: touched_surfaces contains kind=schema (contracts.schema.json#/$defs/LedgerEntry). The router agent itself said low. The change is additive (a new optional field), so approve is defensible — but the rule exists so a human sees every schema change."
+  }
+}

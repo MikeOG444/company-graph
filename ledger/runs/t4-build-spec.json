@@ -1,0 +1,592 @@
+{
+  "entry": {
+    "id": "t4-build-spec",
+    "run_id": "t4",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T05:50:43.000Z",
+    "finished_at": "2026-09-11T05:59:43.000Z",
+    "wall_clock_sec": 540,
+    "result_ref": "ledger/runs/t4-build-spec.json",
+    "artifact_count": 5,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 234144,
+      "claude-opus-5": 214164
+    },
+    "tokens": 448308,
+    "cost_est_usd": 1.83,
+    "agents": 7,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t4",
+      "created_at": "2026-09-11T05:50:43Z"
+    },
+    "trace_ref": ".artifacts/traces/t4-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-opp-p5-4",
+          "work_item_id": "wi-opp-p5-4",
+          "goal": "Make second and later rounds of build-implement's verify-fix loop structurally cheaper, without changing what a task that passes round 1 costs and without touching the Escalation contract. Evidence: across ten runs this venture has spent $41.15 against a $10 Brief budget and 13.8M tokens against 3M; build-implement is 72% of the dollars and 71% of the tokens; the three priciest runs are all fix loops (t2i alone was $4.38 and ended at max_rounds), four of eleven verified tasks failed their first panel, and the cheapest comparable run in the ledger is a verify_only re-panel at $0.36 against $1.22 for the same task's full round. Three changes in `.claude/workflows/build-implement.js`, each of which shortens a later round rather than the first. (1) Re-panel by finding resolution, not by verdict. Today `ctx.toRun = ctx.mode === 'all' ? LENSES : (failedLenses.length ? failedLenses : toRun)` is computed from which lenses returned `fail`, before the fixers and the Dispute Checker have run, so a lens whose every finding the judge OVERRULED is re-panelled anyway (and, when nothing was applied, `if (!applied.length) continue` re-panels exactly that lens on a byte-identical diff). The re-run set must instead be computed after the dispute rulings, from each finding's resolution: a lens re-runs only if it raised a finding that was fixed, upheld on dispute, deferred past the `MAX_FIXERS` cap, or otherwise left unresolved; a lens whose findings were all overruled is settled for this change set and joins `ctx.verified`, so the existing confirm pass — not a fresh retry round — is the only place it can run again. (2) Scope the fixer's input. A code fixer is given a location, evidence and a worktree, and pays a Sonnet-priced exploration of the whole tree to find the hunk it was told about. One cheap mechanical agent per failing round (label prefix `scope:`) slices the current cumulative diff at `ctx.changeSet.diff_ref` into one per-file patch per distinct finding file under `.artifacts/diffs/<task_id>.r<N>.scope.<n>.patch` and returns the file→path map; each code fixer's prompt then carries `scoped_diff_ref` and is told to read that slice first and widen only if it is insufficient. When a finding's location is not a file path, or slicing returns nothing, the fixer prompt falls back to today's unscoped wording, so the loop never blocks on the slicer. `.claude/agents/fixer.md` documents the new input and the read-the-slice-first rule; `.claude/agents/lens-spec-conformance.md` states that `location` must be a repository-relative path with a line number, because that string is now load-bearing for slicing, and that the lens may be re-panelled alone against an updated change set and must judge the whole diff, not only the fix. (3) Stop on cost, not only on round count. `ctx.tokens` is initialized to 0 and never incremented anywhere in the file, so `shouldEscalate`'s `ctx.tokens > TASK_TOKENS` branch is dead and `reason: \"budget\"` can never fire — a non-converging loop only ever stops at `K_ROUNDS`. Each round must measure its own spend as a `budget.spent()` delta, accumulate it into `ctx.tokens`, and compare against two ceilings: a per-task ceiling derived from the WorkItem budget the caller passes in the new optional `work_item_budgets` arg (`{ [work_item_id]: { tokens } }`, split evenly across that work item's tasks, falling back to `budget.task_tokens`, default 250000), and a per-round ceiling (`budget.round_tokens`, defaulting to task ceiling / `k_rounds`). A breach of either escalates with the existing enum value `budget`, checked before `max_rounds` so cost is the reported reason when cost is the cause, and the breach is recorded as one line in `ctx.history`. Because `pipeline` may overlap tasks and `budget.spent()` is a run-level counter, the delta is an upper bound on a task's spend; over-attribution only stops a failing loop sooner, which is the fail-safe direction, and it can never fire on a passing round because `shouldEscalate` is only reached after a non-pass. To make any of this testable, all seven decisions must be pure JavaScript in one extractable block delimited by the exact lines `// ---- BEGIN fix-loop decisions ----` and `// ---- END fix-loop decisions ----`, referencing no runtime handle (`args`, `agent`, `parallel`, `pipeline`, `phase`, `log`, `budget`) and containing no `await`, so a test can read the workflow file, cut the block and evaluate it with `new Function`. Acceptance tests are Node's built-in runner and land in `substrate/test/`, so `/build-implement` must be invoked for this work item with `repo: \".\"` and `test_dir: \"substrate/test\"`.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the repository at HEAD and `.claude/workflows/build-implement.js` read as UTF-8 text",
+              "when": "a test takes the text strictly between the first line equal to `// ---- BEGIN fix-loop decisions ----` and the first following line equal to `// ---- END fix-loop decisions ----`, and evaluates it as `new Function(block + \"\\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }\")()`",
+              "then": "both sentinel lines are present exactly once, the evaluation throws nothing, and the returned object has exactly the seven keys `scopeOf`, `scopeTargets`, `nextLenses`, `lensesToRun`, `roundBudget`, `taskCeiling`, `shouldEscalate`, each of `typeof` `\"function\"`; the block text contains none of the tokens `args`, `agent(`, `parallel(`, `pipeline(`, `phase(`, `log(`, `budget.` and no `await`",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the extracted `scopeOf` from AC-1",
+              "when": "it is called with `\"toy/src/app.js:42\"`, `\"toy/src/app.js:42:9\"`, `\"toy/src/app.js\"`, `\" .claude/workflows/build-implement.js:300 \"`, `\"GET /items\"`, `\"\"` and `undefined`",
+              "then": "it returns `\"toy/src/app.js\"`, `\"toy/src/app.js\"`, `\"toy/src/app.js\"`, `\".claude/workflows/build-implement.js\"`, `\"\"`, `\"\"` and `\"\"` respectively — a trailing `:<digits>` (optionally twice) is stripped, the result is trimmed, and any remainder that is empty or contains whitespace is reported as not-a-file by returning the empty string",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "the extracted `scopeTargets` and a list of findings whose `location` values are `[\"toy/src/app.js:10\", \"toy/src/app.js:88\", \"toy/README.md:3\", \"GET /items\", \"toy/src/app.js\"]`",
+              "when": "`scopeTargets(findings)` is called",
+              "then": "it returns exactly `[\"toy/src/app.js\", \"toy/README.md\"]` — distinct files in first-seen order, with non-file locations dropped — and `scopeTargets([])` returns `[]`, so a round with no code findings asks for no slices",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "the extracted `nextLenses`, `lenses = [\"spec_conformance\",\"security\",\"correctness\"]`, and one failing round in which security raised findings `s1` (resolution `\"fixed\"`) and `s2` (resolution `\"overruled\"`) while spec_conformance raised `p1` (resolution `\"overruled\"`)",
+              "when": "`nextLenses({ lenses, findings, resolution, mode: \"retry\", verified: [] })` is called with `resolution = { s1: \"fixed\", s2: \"overruled\", p1: \"overruled\" }`",
+              "then": "it returns `{ retry: [\"security\"], settled: [\"spec_conformance\"] }` — one lens is re-panelled instead of three, the lens whose every finding the judge overruled is settled rather than retried, and a lens appearing in `retry` never also appears in `settled`",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the extracted `nextLenses` and the same three lenses",
+              "when": "it is called for a round whose resolutions are `{ c1: \"upheld\" }` for correctness, then for a round whose resolutions are `{ c1: \"deferred\" }`, then for a round whose resolutions are `{ c1: \"unresolved\" }`",
+              "then": "each call returns `{ retry: [\"correctness\"], settled: [] }` — a finding upheld on dispute, one deferred past the fixer cap, and one left unresolved all keep their lens in the re-panel set, so the cap and the dispute path cannot silently drop a live objection",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the extracted `nextLenses` and `lensesToRun`",
+              "when": "`nextLenses` is called with `mode: \"all\"` and any resolutions, and `lensesToRun({ lenses, retry, verified: [\"security\"], mode: \"all\" })` is called",
+              "then": "`nextLenses` returns `retry` equal to all three lenses in the order given and `settled: []`, and `lensesToRun` returns all three lenses — the existing escape hatch, where a previously passing lens fails after a fix and the panel runs whole until green, is preserved unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the extracted `nextLenses` and `lensesToRun`, and a round the adjudicator resolved as `pass` (no findings, empty resolution map)",
+              "when": "`nextLenses({ lenses, findings: [], resolution: {}, mode: \"retry\", verified: [] })` is called, and then `lensesToRun({ lenses, retry: [], verified: [\"spec_conformance\",\"security\",\"correctness\"], mode: \"retry\" })`",
+              "then": "`nextLenses` returns `{ retry: [], settled: [] }` and `lensesToRun` returns `[]` — an empty list is the signal that every lens is verified and the task leaves the loop without another panel round, and no fix-loop decision changes anything on a round that passed",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "the extracted `lensesToRun`, `lenses = [\"spec_conformance\",\"security\",\"correctness\"]`",
+              "when": "it is called with `{ retry: [\"security\"], verified: [\"spec_conformance\"], mode: \"retry\" }` and then with `{ retry: [], verified: [\"security\",\"spec_conformance\"], mode: \"retry\" }`",
+              "then": "the first call returns `[\"security\"]` (retry wins while failures are outstanding) and the second returns `[\"correctness\"]` (with failures cleared, only lenses not yet verified against the current change set are confirmed) — confirm work is never re-run for a lens already verified or settled",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the extracted `roundBudget`",
+              "when": "it is called as `roundBudget({ task_tokens: 300000, k_rounds: 3 })`, `roundBudget({ task_tokens: 300000, k_rounds: 3, round_tokens: 50000 })`, `roundBudget({ task_tokens: 2, k_rounds: 5 })` and `roundBudget({ task_tokens: 300000, k_rounds: 0 })`",
+              "then": "it returns `100000`, `50000`, `1` and `300000` respectively — the default ceiling is `floor(task_tokens / k_rounds)`, an explicit `round_tokens` overrides it, the result is never below 1, and a zero or missing `k_rounds` degrades to the task ceiling rather than dividing by zero",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "the extracted `taskCeiling`",
+              "when": "it is called as `taskCeiling({ work_item_tokens: 1100000, tasks_for_work_item: 2, default_task_tokens: 250000 })`, `taskCeiling({ work_item_tokens: 0, tasks_for_work_item: 2, default_task_tokens: 250000 })` and `taskCeiling({ tasks_for_work_item: 1, default_task_tokens: 250000 })`",
+              "then": "it returns `550000`, `250000` and `250000` respectively — a WorkItem token budget supplied by the caller is split evenly across that work item's tasks, and an absent or zero WorkItem budget falls back to `budget.task_tokens` so callers that pass no `work_item_budgets` behave exactly as today",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the extracted `shouldEscalate` and a context `{ round: 1, k_rounds: 3, tokens: 560000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }` with one fresh finding",
+              "when": "`shouldEscalate(ctx, findings)` is called",
+              "then": "it returns the string `\"budget\"` even though `round` is below `k_rounds` and no finding repeats — cumulative task spend at or above the task ceiling stops the loop on cost, which the current code can never do because `ctx.tokens` is never incremented",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the extracted `shouldEscalate` and a context `{ round: 1, k_rounds: 3, tokens: 200000, task_tokens: 550000, last_round_tokens: 250000, round_tokens: 183333, seen: new Set() }` with one fresh finding",
+              "when": "`shouldEscalate(ctx, findings)` is called, and then called again with `last_round_tokens: 100000`",
+              "then": "the first call returns `\"budget\"` (the round just finished overran its own ceiling, so a loop burning more per round than it is allowed stops immediately) and the second returns `null` (a round inside its ceiling with budget left, fresh findings and rounds remaining continues)",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "the extracted `shouldEscalate`",
+              "when": "it is called with `{ round: 3, k_rounds: 3, tokens: 600000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }`, then with `{ round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set() }`, then with `{ round: 2, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set([\"k1\"]) }` and a finding whose `dedupe_key` is `\"k1\"`, then with the same context and a finding whose `dedupe_key` is `\"k2\"` plus `seen` containing `\"k2\"`",
+              "then": "the returns are `\"budget\"`, `\"max_rounds\"`, `\"repeat_finding\"` and `\"no_fresh_findings\"` — budget is evaluated before `max_rounds` so cost is the reported reason when cost is the cause, and every returned value is one of the four reasons already in the Escalation contract's enum, with no new value introduced",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "`.claude/workflows/build-implement.js` read as text",
+              "when": "a test locates the substring `scope:` used as an agent label prefix, the substring `const reason = shouldEscalate(`, and the initial value of the loop context's `toRun` field",
+              "then": "exactly one agent label starting `scope:` exists, its first index in the file is greater than the index of `const reason = shouldEscalate(` (so the slicer lives after the escalation return, inside the fail branch, and a round that passes never invokes it), and the loop context still initializes `toRun` to the full three-lens list, so the first panel round of every task is unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "`.claude/workflows/build-implement.js` and `.claude/agents/fixer.md` read as text",
+              "when": "a test searches both files for the token `scoped_diff_ref`",
+              "then": "the token appears in the code fixer's prompt in the workflow and in `fixer.md`; the workflow text also contains a fallback branch for a finding with no slice (a location `scopeOf` resolves to the empty string, or a missing slice path), and `fixer.md` instructs the Fixer to read the scoped slice first and widen only when the slice is insufficient; the test-repair prompt handed to the Test Author is unchanged and carries no `scoped_diff_ref`",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "`.claude/agents/lens-spec-conformance.md` read as text",
+              "when": "a test reads the file",
+              "then": "it states that `location` must be a repository-relative path followed by `:line` because the fix loop slices the diff by that path, and that the lens may be re-panelled alone against an updated change set and must judge the whole diff rather than only the fix; the file's existing rules — reject-by-default, at least three `attempts` for a valid pass, `touched_surfaces` as a permission envelope, tests written elsewhere, and the `dedupe_key` format — are still present and unaltered",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "the whole repository at HEAD after the change",
+              "when": "`npm test` is run at the repository root (`node --test \"substrate/test/*.test.js\"`)",
+              "then": "the suite exits 0 with every pre-existing substrate test still passing and the new fix-loop tests passing; `contracts.schema.json` is byte-identical to its pre-change content, in particular the `Escalation.reason` enum, so nothing downstream of the loop has to change",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/fixer.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/lens-spec-conformance.md"
+            }
+          ],
+          "out_of_scope": [
+            "Any edit to contracts.schema.json — the Escalation contract, its reason enum, PanelResult, Finding, Verdict and EvidenceBundle stay exactly as they are; the loop must express a cost stop with the existing reason value `budget`.",
+            "Changing `.claude/agents/lens-security.md`, `.claude/agents/lens-correctness.md`, `.claude/agents/implementer.md`, `.claude/agents/test-author.md` or `.claude/agents/mechanical.md`; only the spec-conformance lens definition is in the envelope.",
+            "Changing the default `K_ROUNDS` (3) or `MAX_FIXERS` (4), or the model tier of any agent — these are tuning knobs, and moving them would confound the cost measurement this work item exists to produce.",
+            "Changing panel adjudication: the security veto, the 0.7 low-confidence tiebreak threshold, `normalizeVerdict`'s pass-with-defects rule, the SPEC-LEVEL exemption, and the Tiebreak Judge staying on the strong model all remain as they are.",
+            "Aborting a round mid-flight on cost, or enforcing a budget at run level across all tasks. The ceiling is checked between rounds only.",
+            "Emitting `work_item_budgets` from `.claude/workflows/build-spec.js` or any other workflow. The new arg is optional and additive; the caller supplies it at invocation, and absent it the loop behaves as today.",
+            "Fixing the unrelated self-referential `const specText = spec_ref ? ... : `${specText}`` initializer in `runTask`, which throws when no `spec_ref` is passed. It is a separate defect and belongs in its own work item.",
+            "Changing the integration barrier, the test-landing step, `tests_landed`/`tests_skipped`, the canary path, the `verify_only` path, or the topological task ordering.",
+            "Caching or reusing lens verdicts across runs, persisting fix-loop state between invocations, or any change to the ledger, Method Ledger or Company Memory schemas.",
+            "Moving any of the three stated venture success metrics — this is a budget and kill-criteria change, and the Roadmap Gate should weigh it as such."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "All new arguments are optional and additive; existing callers without `work_item_budgets` or `scoped_diff_ref` behave identically to today",
+            "Escalation contract is byte-identical including reason enum; new cost escalation uses existing `budget` value",
+            "No stored data shape changes; contracts.schema.json explicitly remains unchanged per AC-17",
+            "Fallback paths for all three changes ensure graceful degradation (slicing failure, missing scoped_diff, absent work_item_budgets)",
+            "All modifications are internal to build-implement workflow and lens agent documentation; no public routes or external consumer contracts affected",
+            "First-round panel behavior explicitly preserved per AC-14 so tasks passing round 1 cost exactly the same",
+            "Fully reversible algorithm changes with zero infrastructure or auth dependencies"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t4",
+            "created_at": "2026-09-11T05:50:43Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-opp-p5-4",
+          "tasks": [
+            {
+              "id": "task-wi-opp-p5-4-1",
+              "spec_id": "spec-wi-opp-p5-4",
+              "description": "Implement fix-loop cost optimization in build-implement workflow. (1) Extract decision functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate) into a pure-JavaScript block delimited by sentinel comments, recomputing toRun after dispute resolution based on finding resolutions rather than verdict verdicts, so lenses whose findings were all overruled do not re-panel. (2) Add a cheap mechanical agent (label prefix 'scope:') that slices the cumulative diff into per-file patches stored in `.artifacts/diffs/<task_id>.r<N>.scope.<n>.patch`, and pass scoped_diff_ref to fixers with a fallback to unscoped behavior. (3) Introduce per-task and per-round token budgets derived from a new optional work_item_budgets argument, track cumulative spend across rounds, and escalate on cost before max_rounds. Update fixer.md to document scoped_diff_ref input and the read-slice-first rule. Update lens-spec-conformance.md to state that location must be a repository-relative path with line numbers (for slicing) and that the lens may be re-panelled alone. Ensure all decision logic is testable by extracting it to pure functions with no runtime handles or await statements.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/fixer.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/lens-spec-conformance.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t4",
+            "created_at": "2026-09-11T05:50:43Z"
+          }
+        }
+      }
+    ],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-opp-p5-5",
+          "work_item_id": "wi-opp-p5-5",
+          "goal": "Make `ledger append` read a run's facts out of the runtime's own task output file instead of the operator's fingers, and make it refuse a wall clock it can prove is wrong. Today `substrate/ledger.js append` requires four hand-carried values (`--started`, `--result`, `--tokens-by-model`, `--agents`), and `substrate/lib/run-output.js` only prints two of them; the operator runs three commands and retypes a JSON object between them. That retyping already corrupted the ledger: run `m2-maintain-triage` carries `started_at 2026-09-11T03:36:00Z` against a real `finished_at` of `03:33:58.960Z`, and `ledger.js:46`'s `Math.max(0, Math.round((finished - started)/1000))` silently clamped the resulting -121s to `wall_clock_sec: 0` beside 338,559 real tokens, so every `summary --by method` row for `hotl` under-counts wall clock and mis-averages it. Three changes: (1) add `--from-output <task.output>`, which derives `agents`, `tokens_by_model`, `tokens`, the run `result` payload and BOTH timestamps from the output file's `workflowProgress` entries (`queuedAt`/`startedAt`/`lastProgressAt`/`durationMs`, epoch ms) and `doc.result`, demoting `--started`, `--result`, `--tokens`, `--tokens-by-model` and `--agents` to overrides; (2) drop the clamp — a `finished_at` before `started_at`, or a `wall_clock_sec` of 0 on a run with non-zero tokens, exits non-zero and writes nothing; (3) print the per-run cost and the per-model token/cost split on a successful append so no second command is needed. The one already-corrupt row is marked rather than guessed at: the true `started_at` is unrecoverable (the m2 trace and `.artifacts/maintain/m2/` are gone, `.artifacts` is not committed), so a new optional `wall_clock_unknown` flag on `LedgerEntry` keeps the row's real tokens in the Method Ledger while taking its fabricated wall clock out of the aggregate. Every existing flag, exit code and output line keeps working.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "a valid Workflow task output file whose `workflowProgress` holds N `type:\"workflow_agent\"` entries carrying `model`, `tokens`, `queuedAt`, `startedAt`, `lastProgressAt`, and whose `result` is a workflow return object with a `provenance` block",
+              "when": "the operator runs `node substrate/ledger.js append --workflow <w> --run <r> --from-output <file>` with no `--started`, `--result`, `--tokens`, `--tokens-by-model` or `--agents`",
+              "then": "the command exits 0 and the appended LedgerEntry has `agents` = N, `tokens_by_model` = per-model sums keyed by `normalizeModel` (so `claude-haiku-4-5-20251001` and `claude-opus-5[1m]` collapse to `claude-haiku-4-5` and `claude-opus-5`), `tokens` = their total, `cost_est_usd` from `estimateCost`, `started_at` = ISO of the minimum `queuedAt`/`startedAt` across those entries, `finished_at` = ISO of the maximum `lastProgressAt` (or `startedAt + durationMs` where `lastProgressAt` is absent), `wall_clock_sec` = round((finished - started)/1000), and the stored `ledger/runs/<id>.json` carries `doc.result` verbatim as its `result`",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the same output file",
+              "when": "append is run with `--from-output <file>` AND any of `--started <iso>`, `--now <iso>`, `--result <file.json>`, `--tokens N`, `--tokens-by-model <json>`, `--agents N`",
+              "then": "each explicitly passed flag wins over the value derived from the output file, the remaining fields still come from the file, and the run is written with the override values",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "an output file whose derived timestamps are equal (or whose agents carry no usable timestamps at all) while its agents report a non-zero token total",
+              "when": "append is run with `--from-output <file>`",
+              "then": "the command exits non-zero (code 2), prints an error naming the computed `started_at`, `finished_at` and the token total and telling the operator to pass a correct `--started`/`--now`, and NOTHING is written: no `ledger/runs/<id>.json`, no line appended to `ledger/index.jsonl`, no file copied into `.artifacts/traces/`",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a run whose `--started` is later than its `finished_at` (the exact m2 shape: started `2026-09-11T03:36:00Z`, `--now 2026-09-11T03:33:58.960Z`, `--tokens 338559`)",
+              "when": "append is run",
+              "then": "the command exits non-zero (code 2) with an error that says finished precedes started and names both timestamps; it does NOT clamp to 0 via `Math.max` and does NOT write the row — this is the regression test the work item asks for and it must live in `substrate/test/ledger.test.js`",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "a run that legitimately reports no tokens (`tokens` absent, or 0, and no `tokens_by_model`) and whose start and finish round to the same second",
+              "when": "append is run",
+              "then": "the command exits 0 and writes the row with `wall_clock_sec: 0` — the refusal is scoped to zero wall clock beside non-zero tokens, never to zero-token runs",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "any successful append that ends up with a `tokens_by_model` map (whether derived from `--from-output` or passed via `--tokens-by-model`)",
+              "when": "the command succeeds",
+              "then": "stdout keeps its existing first line unchanged in shape (`appended <id>: <wall>s, <tokens> tokens[, ~$<cost>], <n> artifacts, <n> escalations`) and is followed by one indented line per model, ordered by cost descending, each showing the normalized model id, its token count and its USD cost (`$?` for a model absent from `pricing.json`), so the operator sees the per-run cost and the by-model split without running `ledger summary`",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the existing test suite in `substrate/test/ledger.test.js` as written before this change",
+              "when": "`npm test` is run after the change",
+              "then": "every pre-existing assertion still passes unmodified, including `assert.match(r.out, /appended r1-build-implement: 570s, 48000 tokens, 2 artifacts, 0 escalations/)`, the duplicate-id refusal still exits 1, `--tokens -1` still exits 2, and `summary --by method|node|model` and `recost` return the same values",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "a path that is not a readable JSON Workflow task output — a missing file, an empty file, a file of plain text, or valid JSON with no `workflowProgress` array or with zero `workflow_agent` entries",
+              "when": "append is run with `--from-output <that path>`",
+              "then": "the command exits 2 with a message naming the path and what was wrong (unreadable / not JSON / no workflow agents), and nothing is written to `ledger/`",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "`--from-output` pointing at an output file whose `result` key is absent or null",
+              "when": "append is run without `--result`",
+              "then": "the command exits 2 telling the operator the output file carries no run result and to pass `--result <file.json>`; when `--result` IS passed alongside, the command succeeds using that file's contents as the payload",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "`substrate/lib/run-output.js` must remain the standalone command documented in `substrate/README.md`",
+              "when": "`node substrate/lib/run-output.js <task.output>` is run, with and without `--save <path>`",
+              "then": "it still prints a single JSON object containing at least the existing `agents`, `tokens_by_model` and `logs` keys with the same values as before, `--save` still writes `doc.result` to the given path, and the object additionally carries the derived `started_at`, `finished_at` and `tokens`; the shared derivation is exported as a pure function from this module so `ledger.js` imports it rather than re-implementing it, and the module's CLI body only runs when it is the entry point",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "`contracts.schema.json`'s `LedgerEntry` `$def`, which is `additionalProperties: false`",
+              "when": "a row carrying `wall_clock_unknown: true` is checked with `node substrate/validator.js LedgerEntry <file>`",
+              "then": "it exits 0 — the def gains an optional boolean `wall_clock_unknown` (not in `required`) documented as 'the recorded wall clock is known to be wrong and is excluded from aggregates; tokens and cost remain valid', and every existing ledger row that omits the field still validates",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the committed row `m2-maintain-triage`, whose `started_at` is unrecoverable",
+              "when": "the repository is inspected after the change",
+              "then": "that row carries `wall_clock_unknown: true` in BOTH `ledger/index.jsonl` and `ledger/runs/m2-maintain-triage.json` (entry block), with every other field — `tokens`, `tokens_by_model`, `cost_est_usd`, `agents`, `artifact_count`, `provenance` — left exactly as it is, no invented `started_at`, and `node substrate/validator.js LedgerEntry` passes on it",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "a ledger containing at least one row marked `wall_clock_unknown: true` and at least one unmarked row under the same `provenance.method`",
+              "when": "`ledger summary --by method` (and `--by workflow`) is run",
+              "then": "the marked row's `wall_clock_sec` is NOT added to the group total, the group object gains an integer `wall_unknown_runs` counting such rows (0 when none), the human-readable table shows that column, and `--json` group objects keep every existing key with unchanged meaning so `[key, runs, tokens, wall_clock_sec]` assertions on unmarked-only ledgers are unaffected",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "a ledger containing a row marked `wall_clock_unknown: true`",
+              "when": "`ledger list` is run",
+              "then": "that row's wall-clock column renders as `?s` rather than `0s`, and `ledger list --json` emits the row with the `wall_clock_unknown` field intact so downstream readers can see it",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "`--from-output` used together with `--journal <path>`, `--status failed`, `--human-min N`",
+              "when": "append is run",
+              "then": "the journal is still copied to `.artifacts/traces/<id>.jsonl` and `trace_ref` set, `status` is `failed`, `human_min` is recorded, and a missing journal path still exits 2 — the output file never supplies or overrides these three",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "the gate-turn protocol step 2 in `substrate/README.md`, which currently instructs the operator to pass `--started`, `--tokens` and a separately saved result",
+              "when": "the documentation is read after the change",
+              "then": "step 2 shows the single `ledger append --workflow <w> --run <r> --from-output <task.output> --journal <dir>/journal.jsonl` form as the default, notes which flags remain as overrides, and the `LedgerEntry` field list in the 'Records the substrate writes' section includes `wall_clock_unknown`",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "the new behaviour",
+              "when": "`npm test` is run",
+              "then": "`substrate/test/ledger.test.js` contains new cases covering AC-1 (derivation from a committed fixture), AC-3/AC-4 (the two refusals, each asserting a non-zero exit AND that `ledger/index.jsonl` and `ledger/runs/` are untouched), AC-6 (the by-model split on stdout) and AC-13 (a marked row excluded from the wall-clock aggregate), and the whole suite passes",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "./substrate/ledger.js"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/lib/run-output.js"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/ledger.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/fixtures/task-output.valid.json"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/fixtures/task-output.zero-wall.json"
+            },
+            {
+              "kind": "schema",
+              "ref": "./contracts.schema.json#/$defs/LedgerEntry"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/README.md"
+            },
+            {
+              "kind": "path",
+              "ref": "./ledger/index.jsonl"
+            },
+            {
+              "kind": "path",
+              "ref": "./ledger/runs/m2-maintain-triage.json"
+            },
+            {
+              "kind": "api",
+              "ref": "CLI: ledger append --from-output <task.output>"
+            },
+            {
+              "kind": "api",
+              "ref": "CLI: ledger summary --by method|workflow (new wall_unknown_runs column)"
+            },
+            {
+              "kind": "api",
+              "ref": "CLI: ledger list (wall clock renders ?s for marked rows)"
+            },
+            {
+              "kind": "api",
+              "ref": "module export: substrate/lib/run-output.js readRunOutput(path)"
+            }
+          ],
+          "out_of_scope": [
+            "Inferring `status: failed` from agent `state` values in the output file — `--status` stays an explicit flag defaulting to `ok`.",
+            "Deriving `human_min` or `--journal` from the output file; both remain operator-supplied.",
+            "Per-agent or per-node token attribution into nested artifact `provenance.tokens` — `summary --by node` keeps its current behaviour and its current gap.",
+            "Changing `substrate/lib/pricing.json`, the 90/10 blend, any model rate, or the `recost` command.",
+            "Back-computing or guessing a plausible `started_at` for `m2-maintain-triage`; the trace and `.artifacts/maintain/m2/` are gone and a fabricated timestamp is the exact failure this work item exists to stop.",
+            "Retro-marking or re-deriving any ledger row other than `m2-maintain-triage`; the other 33 rows are left untouched.",
+            "Auto-discovering the task.output path (scanning the session task directory); the operator still passes it.",
+            "Batch or multi-file append, and any change to the one-row-per-run `ledger/index.jsonl` format beyond the new optional field.",
+            ".claude/workflows/memory-roll.js and its inlined `MethodRows` schema — it consumes `ledger summary` output through an agent that builds its own object, so the new `wall_unknown_runs` key needs no change there.",
+            "`substrate/gates.js`, `substrate/artifacts.js`, `substrate/deploy.js`, `substrate/validator.js` and the `toy/` venture.",
+            "Removing or deprecating `run-output.js --save`; it keeps working even though `--from-output` makes it unnecessary.",
+            "Any change to `LedgerEntry`'s `required` list or to the meaning of existing fields."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: ./contracts.schema.json#/$defs/LedgerEntry",
+            "All existing CLI flags remain functional; new --from-output is opt-in, and old flags work as overrides (AC-2, AC-7, AC-15)",
+            "Pre-existing test suite passes unmodified (AC-7 requirement), with no changes to existing assertions",
+            "Schema change is purely additive: LedgerEntry gains optional wall_clock_unknown field not in required list, existing rows validate without it (AC-11)",
+            "Stdout format changes are additive only: first line unchanged (AC-6), new per-model lines added for cost transparency",
+            "No auth, secrets, payments, or infrastructure touches",
+            "Single existing row modification (m2-maintain-triage) is a data correction via optional flag, fully reversible",
+            "New validation (refusing timestamp inversions) catches a known corruption pattern (AC-4 regression test), doesn't break valid workflows",
+            "No changes to /build-implement workflow's args, return shape, or escalation contract—this is a substrate tool change",
+            "All changes confined to substrate/ and substrate/test/; toy/ venture untouched",
+            "Output format additions (ledger summary wall_unknown_runs column, ledger list ?s rendering) are optional from reader perspective"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t4",
+            "created_at": "2026-09-11T05:50:43Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-opp-p5-5",
+          "tasks": [
+            {
+              "id": "t1-implement-ledger-from-output",
+              "spec_id": "spec-wi-opp-p5-5",
+              "description": "Implement ledger append --from-output flag: add --from-output <task.output> to derive agents, tokens_by_model, start/end timestamps, and result from a Workflow task output file; support overrides for any field; implement validation to reject zero wall_clock with non-zero tokens and reject start > finish timestamps; output per-model token/cost split; export pure readRunOutput(path) function from run-output.js for reuse; update schema to add optional wall_clock_unknown boolean field; update README with new usage pattern; implement summary --by method to exclude wall_unknown_runs from totals and list command to render marked rows as ?s.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "./substrate/ledger.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/lib/run-output.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/test/ledger.test.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/test/fixtures/task-output.valid.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/test/fixtures/task-output.zero-wall.json"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "./contracts.schema.json#/$defs/LedgerEntry"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/README.md"
+                },
+                {
+                  "kind": "api",
+                  "ref": "CLI: ledger append --from-output <task.output>"
+                },
+                {
+                  "kind": "api",
+                  "ref": "CLI: ledger summary --by method|workflow (wall_unknown_runs column)"
+                },
+                {
+                  "kind": "api",
+                  "ref": "CLI: ledger list (?s rendering for marked rows)"
+                },
+                {
+                  "kind": "api",
+                  "ref": "module export: substrate/lib/run-output.js readRunOutput(path)"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17"
+              ]
+            },
+            {
+              "id": "t2-mark-corrupted-ledger-row",
+              "spec_id": "spec-wi-opp-p5-5",
+              "description": "Update the m2-maintain-triage ledger row in both ledger/index.jsonl and ledger/runs/m2-maintain-triage.json with wall_clock_unknown: true flag to mark its fabricated wall clock as unreliable while preserving all token and cost data; validate both files pass schema validation after the update.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "./ledger/index.jsonl"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./ledger/runs/m2-maintain-triage.json"
+                }
+              ],
+              "depends_on": [
+                "t1-implement-ledger-from-output"
+              ],
+              "criteria_ids": [
+                "AC-12"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t4",
+            "created_at": "2026-09-11T05:50:43Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t4",
+      "created_at": "2026-09-11T05:50:43Z"
+    }
+  }
+}

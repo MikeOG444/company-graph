@@ -9,6 +9,9 @@ export const meta = {
 //             (id, goal, touched_surfaces, out_of_scope) is inlined (CLAUDE.md rule 4: large artifacts cross edges by ref).
 //         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
 //         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string, max_fixers? (default 4) }
+//   test_dir: where landed TestSets go, relative to the worktree root (default "<repo>/test"). The repo's own test
+//         runner must actually pick this glob up — for venture-0 work on the plant, repo is "." and this is
+//         "substrate/test". A test landed where the runner does not look is a green suite that proves nothing.
 //   repo: a directory of THIS git repository (e.g. "toy"). Worktrees are of the repository at base (default HEAD),
 //         one branch per task (task/<task_id>); the app is at <worktree>/<repo>/.
 //   canary: a deliberate defect injected into one task's change set before verification (OPERATING_MODEL §2.4.4).
@@ -35,6 +38,11 @@ const BASE = A.base ?? 'HEAD'
 // (an unknown agentType throws and drops the task).
 const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
 const APP = `${A.repo}`
+// Where landed TestSets go, relative to the worktree root. Defaults to <repo>/test, which is right for an app like
+// toy/. It is NOT right for venture-0 work on the plant itself: there repo is "." and the runner's glob is
+// substrate/test/*.test.js, so a test landed in ./test/ would sit where nothing runs it — a green suite proving
+// nothing. Pass test_dir explicitly whenever the app's test glob is not <repo>/test/.
+const TEST_DIR = A.test_dir ?? `${APP}/test`
 const VETO_LENS = 'security'
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 // Output tokens for this turn's shared pool at start; the runtime exposes no per-agent count, so spend is a run-level delta.
@@ -379,7 +387,7 @@ log(`${passing.length}/${finished.length} tasks passed; ${escalations.length} es
 const landing = passingTests.length
   ? `\n                           BEFORE running the suite, land the tests. For each path in ${JSON.stringify(passingTests)}:
                            that path may be a FILE or a DIRECTORY (both have occurred) — if it is a directory copy every *.test.js
-                           inside it, if it is a file copy that file. Copy into <worktree>/${APP}/test/ under its own basename.
+                           inside it, if it is a file copy that file. Copy into <worktree>/${TEST_DIR}/ under its own basename.
                            NEVER overwrite a file that already exists there — skip it and list it in tests_skipped; the repo's
                            copy wins. Do NOT copy helpers.js or any non-test file: the repo has its own helpers and an
                            artifact-store copy may carry absolute worktree paths that would break once moved. Then
