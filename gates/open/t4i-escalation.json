@@ -1,0 +1,46 @@
+{
+  "id": "t4i-escalation",
+  "gate": "escalation",
+  "run_id": "t4i",
+  "workflow": "build-implement",
+  "status": "open",
+  "opened_at": "2026-09-11T07:01:25.999Z",
+  "options": [
+    "accept_fix_test",
+    "contort_code",
+    "drop_item"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "t4i",
+    "created_at": "2026-09-11T07:01:25.999Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "t4i",
+    "project_id": "toy",
+    "task_id": "task-wi-opp-p5-4-1",
+    "reason": "max_rounds",
+    "verified_by_main_session": {
+      "acceptance_tests": "16 of 17 pass in the worktree; re-run by hand, claim confirmed",
+      "only_failure": "AC-15",
+      "what_ac15_asserts": "Scans workflowText for every /test[-_ ]?author/gi match (9 in the file) and asserts scoped_diff_ref does not appear within a -500/+1000 CHARACTER window of each. It measures file layout, not behaviour.",
+      "is_the_requirement_met": "Yes. The real requirement — the Test Author repair prompt carries no scoped_diff_ref — is satisfied. The failure is an unrelated AT(\"test-author\") on one line sitting 347 chars before a scoped_diff_ref literal in a DIFFERENT prompt.",
+      "fixer_attempts_on_this_finding": 0
+    },
+    "structural_findings": [
+      "A MUTATING FINDING CHAIN DEFEATS repeat_finding. Three rounds were spent on three variants of the same AC-15 issue, each with a different dedupe_key, so the same-key-twice stop never fired and the round cap expired instead.",
+      "THE LOOP ESCALATED ON THE ROUND THAT FIRST RAISED THE OPEN FINDING, with zero fixer attempts on it. shouldEscalate returned max_rounds in the same round the finding appeared, so the last round's findings never get a fix attempt.",
+      "isTestFinding() ROUTES BY LOCATION. This finding is about a test assertion but is located at the workflow file, so it went to the code Fixer, whose prompt forbids editing tests under .artifacts/tests/. A finding only fixable by editing a test, routed to an agent forbidden to edit tests, is a deadlock."
+    ],
+    "options_for_the_human": {
+      "accept_and_fix_the_test": "Recommended. Replace the character-window proxy with an assertion on the actual test-repair prompt string. The implementation is correct; the test asserts layout.",
+      "contort_the_code": "Hoist the prompt construction into a legal line range so the window clears. The packager verified this works, but the windows move as text moves, so it is a change made to satisfy a brittle assertion rather than a contract.",
+      "drop_the_work_item": "Keep the escalation as the finding and leave the fix-loop cost work unshipped."
+    },
+    "cost": "1,113,406 tokens, ~$2.72, 21 agents, 47 minutes. Nothing merged.",
+    "irony": "The work item to make the fix loop cheaper was killed by an expensive fix loop — and the three structural findings above came out of exactly that."
+  }
+}
