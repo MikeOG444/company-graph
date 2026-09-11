@@ -22,6 +22,18 @@ alphabetically first items, not the first two in insertion order. Unknown
 query parameters are ignored, and a rejected request leaves stored data
 unchanged.
 
+Every successful (`200`) `GET /items` response also carries an
+`X-Total-Count` response header: the number of items matching after the
+filter stage and before the `limit` cap — i.e. the size of the result set
+that the sort and cap stages operate on, not the length of the returned
+array. It is present even when the response is uncapped or empty (value
+`"0"`), so its absence is never confused with a complete answer; it is
+absent on the `400` responses above, since no match set is computed for a
+rejected request. A client detects truncation by comparing `X-Total-Count`
+to the length of the returned array — if they differ, more items matched
+than were returned — rather than by comparing the array length to the
+`limit` it asked for.
+
 An `Item` is `{ id, name, tags, created_at }`: `tags` is an optional array of
 up to 10 strings of 1-32 characters supplied on `POST /items` (default `[]`,
 `400 { "error": "invalid tags" }` otherwise), and `created_at` is a
