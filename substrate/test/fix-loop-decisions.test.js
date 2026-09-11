@@ -161,9 +161,15 @@ test('AC-13: shouldEscalate checks budget before max_rounds, and still reports t
   const r1 = shouldEscalate(overBudgetAtMaxRounds, [finding({ dedupe_key: 'fresh-1' })])
   assert.equal(r1, 'budget', 'budget must be checked before max_rounds so cost is the reported reason when cost is the cause')
 
-  const atMaxRoundsOnly = { round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set() }
-  const r2 = shouldEscalate(atMaxRoundsOnly, [finding({ dedupe_key: 'fresh-1' })])
+  // At the cap with a finding that has ALREADY been through a fixer: max_rounds, as before. The grace round below
+  // is scoped to findings that never reached one, so a retread still stops here.
+  const atMaxRoundsRetread = { round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set(['fresh-1']), lens_streaks: {} }
+  const r2 = shouldEscalate(atMaxRoundsRetread, [finding({ dedupe_key: 'fresh-1' }), finding({ dedupe_key: 'other' })])
   assert.equal(r2, 'max_rounds')
+
+  // Same cap, but grace already spent: max_rounds again. Grace is once per task, never a standing extension.
+  const graceSpent = { round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set(), lens_streaks: {}, grace_used: true }
+  assert.equal(shouldEscalate(graceSpent, [finding({ dedupe_key: 'fresh-1' })]), 'max_rounds')
 
   const repeatCtx = { round: 2, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set(['k1']) }
   const r3 = shouldEscalate(repeatCtx, [finding({ dedupe_key: 'k1' })])
@@ -176,4 +182,63 @@ test('AC-13: shouldEscalate checks budget before max_rounds, and still reports t
   assert.equal(r4, 'no_fresh_findings')
 
   for (const r of [r1, r2, r3, r4]) assert.ok(VALID_REASONS.includes(r), `"${r}" must be one of the existing Escalation reasons`)
+})
+
+// ---- Added by hand (direct_driver) after run t4i escalated on its own convergence defects. ----
+
+test('the round cap grants exactly one grace round for findings that never reached a fixer, and never to a stuck lens', () => {
+  const { shouldEscalate } = loadFixLoopDecisions()
+  const base = { round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333 }
+
+  // t4i's exact shape: at the cap, one finding raised for the first time this round, zero fix attempts on it.
+  // Escalating here pays for a panel and throws its output away.
+  const firstSighting = { ...base, seen: new Set(), lens_streaks: {}, grace_used: false }
+  assert.equal(shouldEscalate(firstSighting, [finding({ dedupe_key: 'never-seen' })]), null,
+    'a brand-new finding at the cap earns one fix pass rather than being discovered and discarded')
+
+  // Mixed: one fresh, one already attempted. Not all-fresh, so no grace.
+  const mixed = { ...base, seen: new Set(['old']), lens_streaks: {}, grace_used: false }
+  assert.equal(shouldEscalate(mixed, [finding({ dedupe_key: 'old' }), finding({ dedupe_key: 'new' })]), 'max_rounds')
+
+  // A lens already failing k_rounds straight is stuck, not unlucky: it reports repeat_finding and gets no grace.
+  const stuck = { ...base, seen: new Set(), lens_streaks: { correctness: 3 }, grace_used: false }
+  assert.equal(shouldEscalate(stuck, [finding({ dedupe_key: 'never-seen', lens: 'correctness' })]), 'repeat_finding')
+
+  // No findings at all is not a grace case. At the cap that reads as max_rounds, because the round cap is checked
+  // before the fresh-findings rule and always was; below the cap the same empty set reads as no_fresh_findings.
+  assert.equal(shouldEscalate({ ...base, seen: new Set(), lens_streaks: {} }, []), 'max_rounds')
+  assert.equal(shouldEscalate({ ...base, round: 2, seen: new Set(), lens_streaks: {} }, []), 'no_fresh_findings')
+})
+
+test('a lens that fails k_rounds consecutive rounds escalates even when every finding carries a fresh dedupe_key', () => {
+  const text = readWorkflowText()
+  const { block } = extractBlock(text)
+  const { lensStreaks, stuckLens } = new Function(block + '\nreturn { lensStreaks, stuckLens }')()
+
+  // The t4i chain: three rounds, correctness failing each time under a DIFFERENT key every round.
+  let streaks = {}
+  streaks = lensStreaks(streaks, ['spec_conformance', 'security', 'correctness'], [finding({ lens: 'correctness', dedupe_key: 'v1' })])
+  assert.deepEqual(streaks, { spec_conformance: 0, security: 0, correctness: 1 })
+  streaks = lensStreaks(streaks, ['correctness'], [finding({ lens: 'correctness', dedupe_key: 'v2' })])
+  streaks = lensStreaks(streaks, ['correctness'], [finding({ lens: 'correctness', dedupe_key: 'v3' })])
+  assert.equal(streaks.correctness, 3, 'three consecutive failures counted, though no key ever repeated')
+  assert.equal(stuckLens(streaks, 3), 'correctness')
+
+  // A passing round clears the streak — only consecutive failures count.
+  const cleared = lensStreaks(streaks, ['correctness'], [])
+  assert.equal(cleared.correctness, 0)
+  assert.equal(stuckLens(cleared, 3), null)
+
+  // A lens that sat the round out keeps its streak rather than being reset by absence.
+  const satOut = lensStreaks({ correctness: 2 }, ['security'], [])
+  assert.equal(satOut.correctness, 2)
+})
+
+test('runTask builds a spec summary without referencing its own binding when no spec_ref is passed', () => {
+  const text = readWorkflowText()
+  const initializer = text.slice(text.indexOf('const specText = spec_ref'), text.indexOf('const depIds'))
+  assert.ok(initializer.includes('spec_ref'), 'expected to find the specText initializer')
+  assert.ok(!/:\s*`\$\{specText\}`/.test(initializer),
+    'the else branch must not read specText inside its own initializer — that is a temporal dead zone ReferenceError that crashed every task on any call without spec_ref')
+  assert.match(initializer, /acceptance/, 'with no ref to point at, the spec is inlined whole including its acceptance criteria')
 })

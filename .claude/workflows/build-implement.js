@@ -195,12 +195,46 @@ function taskCeiling({ work_item_tokens, tasks_for_work_item, default_task_token
   return default_task_tokens
 }
 
+// A lens that fails round after round is not converging, whatever its findings call themselves. The seen-set keys
+// on dedupe_key, so a defect that RENAMES ITSELF between rounds slips repeat_finding entirely: run t4i spent three
+// rounds and ~$2.72 on three variants of one acceptance criterion, each carrying a fresh key, and died on the round
+// cap instead of the repeat stop. A per-lens consecutive-failure streak sees the shape the keys hide.
+// Only lenses that actually ran are scored; a lens that sat out a round keeps its streak rather than having it reset.
+function lensStreaks(prev, lensesRun, findings) {
+  const failing = new Set((findings ?? []).map(f => f.lens))
+  const next = { ...(prev ?? {}) }
+  for (const l of lensesRun ?? []) next[l] = failing.has(l) ? (next[l] ?? 0) + 1 : 0
+  return next
+}
+
+// The first lens at or past the cap, or null. Keys are walked in insertion order, so the same run names the same lens.
+function stuckLens(streaks, cap) {
+  for (const l of Object.keys(streaks ?? {})) if ((streaks[l] ?? 0) >= cap) return l
+  return null
+}
+
+// At the round cap, findings that have never reached a fixer cost a whole panel and are thrown away unfixed — t4i
+// escalated on the round that FIRST raised its open finding, with zero fix attempts on it. One grace round is
+// granted for that case: once per task, only when every open finding is brand new, and never to a lens already on a
+// failure streak (that lens is stuck, not unlucky). Bounded at one, or a renaming defect would extend forever.
+function graceRound(ctx, findings) {
+  if (ctx.grace_used) return false
+  const open = findings ?? []
+  if (!open.length) return false
+  const seen = ctx.seen ?? new Set()
+  if (!open.every(f => !seen.has(f.dedupe_key))) return false
+  return !stuckLens(ctx.lens_streaks, ctx.k_rounds)
+}
+
 // Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
 // overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
 // count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
 function shouldEscalate(ctx, findings) {
   if (ctx.tokens >= ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
-  if (ctx.round >= ctx.k_rounds) return 'max_rounds'
+  // A stuck lens reports as repeat_finding — the existing enum value, because the contract's reason list is fixed
+  // and this IS a repeat, just one the dedupe_key could not see.
+  if (stuckLens(ctx.lens_streaks, ctx.k_rounds)) return 'repeat_finding'
+  if (ctx.round >= ctx.k_rounds) return graceRound(ctx, findings) ? null : 'max_rounds'
   const keys = (findings ?? []).map(f => f.dedupe_key)
   const seenKeys = ctx.seen ?? new Set()
   const overlap = keys.filter(k => seenKeys.has(k))
@@ -246,9 +280,12 @@ const finished = (await pipeline(tasks, async (item) => {
 
 async function runTask({ spec, task, spec_ref }) {
   const wt = `${ART}/worktrees/${task.id}`
+  // The else branch used to read `${specText}` — its own binding, inside its own initializer. That is a temporal
+  // dead zone ReferenceError, so EVERY task crashed on any call without spec_ref. It never fired because every run
+  // to date happened to pass one. With no ref there is no file to point at, so the spec is inlined whole.
   const specText = spec_ref
     ? `Spec: the FULL spec (acceptance criteria, touched surfaces, exclusions) is at ${spec_ref}; read it before acting. Summary: ${JSON.stringify({ id: spec.id, goal: spec.goal, touched_surfaces: spec.touched_surfaces, exclusions: spec.out_of_scope })}`
-    : `${specText}`
+    : `Spec: ${JSON.stringify({ id: spec.id, goal: spec.goal, acceptance: spec.acceptance, touched_surfaces: spec.touched_surfaces, exclusions: spec.out_of_scope })}`
   const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
   const deps = await Promise.all(depIds.map(d => taskDone[d]))
   if (deps.some(d => !d || !d.passed)) {
@@ -301,6 +338,7 @@ async function runTask({ spec, task, spec_ref }) {
   const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
   const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
                 tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
+                lens_streaks: {}, grace_used: false,
                 history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set() }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
@@ -361,6 +399,7 @@ async function runTask({ spec, task, spec_ref }) {
     ctx.history.push(`${tag} [${toRun.join(',')}]: ${result} (${findings.length} findings${veto_by ? `, veto by ${veto_by}` : ''})`)
     ctx.last_round_tokens = Math.max(0, budget.spent() - roundStartSpend)
     ctx.tokens += ctx.last_round_tokens
+    ctx.lens_streaks = lensStreaks(ctx.lens_streaks, toRun, result === 'pass' ? [] : findings)
 
     if (result === 'pass') {
       toRun.forEach(l => ctx.verified.add(l))
@@ -389,6 +428,15 @@ async function runTask({ spec, task, spec_ref }) {
 
     const reason = shouldEscalate(ctx, findings)
     if (reason === 'budget') ctx.history.push(`${tag}: budget breach — tokens ${ctx.tokens}/${ctx.task_tokens} this task, ${ctx.last_round_tokens}/${ctx.round_tokens} this round`)
+    if (reason === 'repeat_finding' && stuckLens(ctx.lens_streaks, ctx.k_rounds)) {
+      ctx.history.push(`${tag}: ${stuckLens(ctx.lens_streaks, ctx.k_rounds)} has failed ${ctx.k_rounds} consecutive rounds — not converging, whatever its findings are keyed on`)
+    }
+    // shouldEscalate returns null at the cap when it is granting the one grace round; record that it was spent here,
+    // since the decision function is pure and cannot mark it itself.
+    if (!reason && ctx.round >= ctx.k_rounds && !ctx.grace_used) {
+      ctx.grace_used = true
+      ctx.history.push(`${tag}: grace round — at the cap with ${findings.length} finding(s) that never reached a fixer; granting one fix pass rather than discarding the panel that found them`)
+    }
     if (reason) return escalate(reason, findings)
 
     // ---- Fix Loop: dedupe against SEEN, fan out fixers, rule on disputes, merge ----
