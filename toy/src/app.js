@@ -154,6 +154,56 @@ export function createApp() {
     res.status(201).json(item)
   })
 
+  // DELETE /items/:id → 204 (empty body) ; 401 { error: "unauthorized" } when
+  // the Authorization header is not a valid admin bearer token ; 404
+  // { error: "not found" } when :id is not a canonical decimal integer or
+  // names no item.
+  //
+  // Auth is checked first, before id validation or existence lookup, so an
+  // unauthenticated caller never learns whether an item exists. The admin
+  // token is read from process.env.ADMIN_TOKEN on every request (not
+  // captured at createApp() time), so it can be set/unset around a running
+  // app instance. An unset or empty ADMIN_TOKEN means "no admin configured"
+  // and every request is rejected with 401. The Authorization header must
+  // be the Bearer scheme (case-insensitive) followed by exactly one space
+  // and the token, compared with exact (case-sensitive) string equality.
+  app.delete('/items/:id', (req, res) => {
+    const adminToken = process.env.ADMIN_TOKEN
+    const authHeader = req.get('authorization')
+
+    let providedToken
+    if (typeof authHeader === 'string') {
+      const spaceIndex = authHeader.indexOf(' ')
+      if (spaceIndex !== -1) {
+        const scheme = authHeader.slice(0, spaceIndex)
+        const rest = authHeader.slice(spaceIndex + 1)
+        if (scheme.toLowerCase() === 'bearer' && !rest.includes(' ')) {
+          providedToken = rest
+        }
+      }
+    }
+
+    if (
+      !adminToken ||
+      providedToken === undefined ||
+      providedToken === '' ||
+      providedToken !== adminToken
+    ) {
+      return res.status(401).json({ error: 'unauthorized' })
+    }
+
+    const raw = req.params.id
+    if (!/^\d+$/.test(raw) || String(Number(raw)) !== raw) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    const id = Number(raw)
+    if (!items.has(id)) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    items.delete(id)
+    res.status(204).end()
+  })
+
   // Terminal catch-all: any request that matched no route above falls
   // through to here. Replaces Express's default HTML 404 with the same
   // JSON shape used elsewhere in this API.
