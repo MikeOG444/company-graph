@@ -165,7 +165,7 @@ function nextLenses({ lenses, findings, resolution, mode, verified }) {
   for (const l of lenses ?? []) {
     const raised = byLens.get(l)
     if (!raised || !raised.length) continue
-    const allOverruled = raised.every(f => res[f.id] === 'overruled')
+    const allOverruled = raised.every(f => res[f.dedupe_key] === 'overruled')
     if (allOverruled) settled.push(l); else retry.push(l)
   }
   return { retry, settled }
@@ -453,10 +453,11 @@ async function runTask({ spec, task, spec_ref }) {
       ctx.history.push(`${tag}: ${testRepairs.length} test finding(s) repaired by the Test Author`)
     }
     const applied = fixes.filter(x => x.kind === 'code' && !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
-    // Resolution of every finding raised this round, keyed by finding id: the input nextLenses re-panels from.
+    // Resolution of every finding raised this round, keyed by dedupe_key (the stable identity nextLenses and `seen`
+    // both use — a finding's id is regenerated per round, dedupe_key is not): the input nextLenses re-panels from.
     const resolution = {}
-    deferred.forEach(f => { resolution[f.id] = 'deferred' })
-    fixes.forEach(x => { if (!x.p.notes?.startsWith('DISPUTE:')) resolution[x.f.id] = 'fixed' })
+    deferred.forEach(f => { resolution[f.dedupe_key] = 'deferred' })
+    fixes.forEach(x => { if (!x.p.notes?.startsWith('DISPUTE:')) resolution[x.f.dedupe_key] = 'fixed' })
     let rulings = []
     if (disputed.length) {
       // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
@@ -475,11 +476,11 @@ async function runTask({ spec, task, spec_ref }) {
           if (priorOverruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
           ctx.overruled.push({ ...x.f, status: 'overruled' })
           ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
-          resolution[x.f.id] = 'overruled'
+          resolution[x.f.dedupe_key] = 'overruled'
         } else {
           ctx.upheld.push({ ...x.f, status: 'disputed' })
           ctx.history.push(`r${ctx.round}: upheld ${x.f.lens} at ${x.f.location}: ${r?.reason ?? 'no ruling'}`)
-          resolution[x.f.id] = 'upheld'
+          resolution[x.f.dedupe_key] = 'upheld'
         }
       })
       // A lens overruled twice at the same file is arguing with the spec, not the change. Stop paying for rounds.
@@ -487,7 +488,7 @@ async function runTask({ spec, task, spec_ref }) {
     }
     // Anything this round's findings list carries that the above did not touch (a finding already in `seen` from an
     // earlier round, excluded from `freshAll` above) is a still-open repeat: left unresolved, its lens keeps re-panelling.
-    findings.forEach(f => { if (!(f.id in resolution)) resolution[f.id] = 'unresolved' })
+    findings.forEach(f => { if (!(f.dedupe_key in resolution)) resolution[f.dedupe_key] = 'unresolved' })
 
     // Re-panel by finding resolution, not by verdict (point 1): a lens whose findings were all overruled settles into
     // ctx.verified for this change set instead of re-running a fresh retry round on a byte-identical diff.
