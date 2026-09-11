@@ -341,19 +341,24 @@ function boundaryCheck({ touched_surfaces, owned_surfaces, siblings, exempt_pref
 }
 
 // The acceptance criteria this task owns, which sibling task (same spec, same TaskGraph) owns each of the rest,
-// and which criteria in acceptance_ids no task of this spec claims at all. A task in a DIFFERENT spec is never a
-// sibling. Degrades to an empty unassigned list — never throws — when acceptance_ids is not supplied.
+// and which criteria in acceptance_ids no task IN THE WHOLE GRAPH claims at all. A task in a DIFFERENT spec is
+// never a sibling — it never appears in sibling_owner — but it still CLAIMS its own criteria, so those criteria
+// are not unassigned either; unassigned is reserved for a criterion no task anywhere owns. Degrades to an empty
+// unassigned list — never throws — when acceptance_ids is not supplied.
 function criteriaScope({ task, tasks, acceptance_ids }) {
   const owned = [...(task?.criteria_ids ?? [])]
-  const siblingTasks = (tasks ?? []).filter(t => t && t.spec_id === task?.spec_id && t.id !== task?.id)
+  const otherTasks = (tasks ?? []).filter(t => t && t.id !== task?.id)
+  const siblingTasks = otherTasks.filter(t => t.spec_id === task?.spec_id)
   const sibling_owner = {}
   for (const sib of siblingTasks) {
     for (const c of sib.criteria_ids ?? []) {
       if (!(c in sibling_owner)) sibling_owner[c] = sib.id
     }
   }
-  const ownedSet = new Set(owned)
-  const claimed = new Set([...ownedSet, ...Object.keys(sibling_owner)])
+  const claimed = new Set(owned)
+  for (const t of otherTasks) {
+    for (const c of t.criteria_ids ?? []) claimed.add(c)
+  }
   const unassigned = (acceptance_ids ?? []).filter(id => !claimed.has(id))
   return { owned, sibling_owner, unassigned }
 }
