@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ARTIFACTS, ensureDir, refToAbs, absToRef, parseArgs, die } from './lib/paths.js'
 
-export const KINDS = ['diffs', 'tests', 'results', 'worktrees', 'integration', 'traces', 'misc']
+export const KINDS = ['diffs', 'tests', 'results', 'worktrees', 'integration', 'traces', 'specs', 'ci', 'launch', 'deploy', 'misc']
 
 const { pos, opts } = parseArgs(process.argv.slice(2))
 const [cmd, a, b] = pos

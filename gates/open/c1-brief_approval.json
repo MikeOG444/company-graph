@@ -1,0 +1,84 @@
+{
+  "id": "c1-brief_approval",
+  "gate": "brief_approval",
+  "run_id": "c1",
+  "workflow": "scope-and-contract",
+  "status": "open",
+  "opened_at": "2026-09-11T01:00:00.000Z",
+  "options": [
+    "sign",
+    "revise"
+  ],
+  "provenance": {
+    "node": "brief_approval",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "c1",
+    "created_at": "2026-09-11T01:00:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "create-project",
+  "payload": {
+    "id": "toy",
+    "name": "Toy items API",
+    "client": "self",
+    "problem": "The production line needs a real service to create, build, launch and operate before venture 1. The toy is an in-memory Express items API that already carries wi-1..wi-12 (35/35 tests). Phase 3 must take it from a signed Brief to a running local URL through /create-project -> /build-spec -> /build-implement -> /launch -> /deploy with exactly two human actions, and prove that a regressed candidate rolls back on its own.",
+    "users": "The plant itself: the workflows under test, and the founder auditing them from the gate queue and the ledger.",
+    "success_metrics": [
+      {
+        "metric": "healthy launches promoted to prod through /launch + /deploy",
+        "target": ">= 1",
+        "by": "2026-09-13"
+      },
+      {
+        "metric": "seeded-regression drills that auto-roll back without a human",
+        "target": ">= 1",
+        "by": "2026-09-13"
+      },
+      {
+        "metric": "human actions from Brief to live URL",
+        "target": "2 (sign brief, approve launch)"
+      }
+    ],
+    "kill_criteria": [
+      "a launch needs a third human action to reach prod",
+      "the Create + Launch stretch (create-project, launch, deploy) costs more than $2 per launch after the first",
+      "a seeded regression reaches prod"
+    ],
+    "constraints": [
+      "node >= 20, no external services",
+      "deploy target is a local port on 127.0.0.1; no cloud",
+      "every existing route and test keeps passing",
+      "new work is additive and low-risk so the Spec Gate is not needed on this stretch"
+    ],
+    "budget": {
+      "tokens": 3000000,
+      "dollars": 10,
+      "human_hours": 0.5
+    },
+    "initial_scope": [
+      "GET /items accepts an optional ?offset=N (canonical non-negative decimal integer) that skips the first N items after the ?sort stage and before the ?limit cap; any other value returns 400 { \"error\": \"invalid offset\" }; an offset past the end returns []; all existing behavior is unchanged"
+    ],
+    "stack_preferences": [
+      "node>=20",
+      "express",
+      "node:test"
+    ],
+    "hosting": {
+      "target": "local_port",
+      "app_dir": "toy",
+      "envs": {
+        "prod": 3100,
+        "canary": 3101
+      }
+    },
+    "status": "draft",
+    "provenance": {
+      "node": "scope_and_contract",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "run_id": "c1",
+      "created_at": "2026-09-11T01:00:00Z"
+    }
+  }
+}

@@ -48,7 +48,7 @@
       "properties": {
         "id":        { "type": "string" },
         "project_id":{ "type": "string" },
-        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix"] },
+        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix", "launch_veto"] },
         "title":     { "type": "string" },
         "intent":    { "type": "string", "description": "One paragraph. Why this exists." },
         "priority":  { "type": "integer", "minimum": 1 },
@@ -254,6 +254,10 @@
         "starved_items":  { "type": "array", "items": { "type": "string" }, "description": "WorkItem ids deferred ≥ N iterations." },
         "spend":          { "type": "object", "additionalProperties": false,
                             "properties": { "tokens": {"type":"integer"}, "wall_clock_min": {"type":"integer"}, "human_min": {"type":"integer"} } },
+        "spec_refs":      { "type": "array", "items": { "type": "string" }, "description": "Paths to the full Spec JSON of each shipped spec. Launch's Release Notes Writer reads these; ids alone carry no content." },
+        "migrations":     { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                            "properties": { "id": {"type":"string"}, "reversible": {"type":"boolean"} }, "required": ["id", "reversible"] },
+                            "description": "Schema migrations the candidate carries. Absent = Build did not declare; Preflight then scans the diff itself and never assumes none." },
         "provenance":     { "$ref": "#/$defs/Provenance" }
       },
       "required": ["release_candidate_id", "project_id", "iteration", "artifact_ref", "specs", "panel_results", "suite", "escalations", "provenance"]
@@ -278,6 +282,12 @@
                            "properties": { "tokens": {"type":"integer"}, "dollars": {"type":"number"}, "human_hours": {"type":"number"}, "deadline": {"type":"string","format":"date"} } },
         "initial_scope": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Seeds the first backlog." },
         "stack_preferences": { "type": "array", "items": { "type": "string" } },
+        "hosting":       { "type": "object", "additionalProperties": false,
+                           "description": "Where the Env Provisioner puts the environments. Without it Project Create cannot provision and refuses; nothing defaults.",
+                           "properties": { "target": { "type": "string", "enum": ["local_port"] },
+                                           "app_dir": { "type": "string", "description": "Repository-relative directory of the deployable app (e.g. toy)." },
+                                           "envs": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "integer", "minimum": 1024, "maximum": 65535 }, "description": "env name → port. Launch needs prod and canary." } },
+                           "required": ["target", "app_dir", "envs"] },
         "status":        { "type": "string", "enum": ["draft", "signed"] },
         "provenance":    { "$ref": "#/$defs/Provenance" }
       },
@@ -395,6 +405,100 @@
       "required": ["project_id", "recommendation", "metrics_vs_targets", "kill_criteria_hit", "remaining_backlog_value", "burn", "rationale", "provenance"]
     },
 
+    "ReviewPackage": {
+      "description": "Launch → Approval Gate. The one page the HC reads before approve / veto. Assembled by code from Preflight, the Release Notes Writer and the EvidenceBundle digest.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release_candidate_id": { "type": "string" },
+        "project_id":   { "type": "string" },
+        "iteration":    { "type": "integer" },
+        "bundle_ref":   { "type": "string" },
+        "artifact_ref": { "type": "string" },
+        "artifact_sha": { "type": "string", "description": "The commit Preflight pinned. A branch name can move; the sha is what gets deployed." },
+        "preflight":    { "type": "object", "additionalProperties": false,
+                          "properties": { "go": { "type": "boolean" },
+                                          "checks": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false,
+                                            "properties": { "name": {"type":"string"}, "status": {"type":"string","enum":["pass","fail"]}, "detail": {"type":"string"} },
+                                            "required": ["name", "status", "detail"] } } },
+                          "required": ["go", "checks"] },
+        "release_notes": { "type": "string", "description": "Short, inlined: the package is one page." },
+        "release_notes_ref": { "type": "string" },
+        "evidence":     { "type": "object", "additionalProperties": false,
+                          "properties": { "specs": { "type": "array", "items": { "type": "string" } },
+                                          "suite": { "type": "object", "additionalProperties": false, "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"} }, "required": ["passed", "failed"] },
+                                          "suite_on_artifact": { "type": "object", "additionalProperties": false, "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"}, "results_ref": {"type":"string"} }, "required": ["passed", "failed"] },
+                                          "panels": { "type": "object", "additionalProperties": false, "properties": { "change_sets": {"type":"integer"}, "final_pass": {"type":"integer"}, "final_fail": {"type":"integer"}, "vetoes": {"type":"integer"}, "rounds": {"type":"integer"} }, "required": ["change_sets", "final_pass", "final_fail", "vetoes", "rounds"] },
+                                          "escalations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "task_id": {"type":"string"}, "reason": {"type":"string"} }, "required": ["task_id", "reason"] } },
+                                          "starved_items": { "type": "array", "items": { "type": "string" } },
+                                          "open_gates": { "type": "array", "items": { "type": "string" }, "description": "Open gate ids for this project at preflight time (sev1 pages, escalations)." } },
+                          "required": ["specs", "suite", "panels", "escalations", "starved_items", "open_gates"] },
+        "options":      { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["approve", "veto", "approve_override"] }, "description": "approve only appears when preflight.go; a no-go offers veto or approve_override (a note is mandatory and lands in the LaunchRecord)." },
+        "provenance":   { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["release_candidate_id", "project_id", "iteration", "bundle_ref", "artifact_ref", "preflight", "release_notes", "evidence", "options", "provenance"]
+    },
+
+    "Deployment": {
+      "description": "Deployer → Post-launch Watch → Recorder. One environment running one pinned sha. Written by substrate/deploy.js.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id":  { "type": "string" },
+        "env":         { "type": "string" },
+        "url":         { "type": "string" },
+        "port":        { "type": "integer" },
+        "ref":         { "type": "string" },
+        "sha":         { "type": "string" },
+        "worktree":    { "type": "string" },
+        "app_dir":     { "type": "string" },
+        "pid":         { "type": "integer" },
+        "started_at":  { "type": "string", "format": "date-time" },
+        "stopped_at":  { "type": "string", "format": "date-time" },
+        "log_ref":     { "type": "string" },
+        "status":      { "type": "string", "enum": ["running", "stopped", "failed"] }
+      },
+      "required": ["project_id", "env", "url", "port", "ref", "sha", "worktree", "started_at", "status"]
+    },
+
+    "WatchMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests":    { "type": "integer", "minimum": 0 },
+        "errors":      { "type": "integer", "minimum": 0, "description": "5xx responses" },
+        "unreachable": { "type": "integer", "minimum": 0, "description": "no response (refused, timeout)" },
+        "error_rate":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "p50_ms":      { "type": ["number", "null"] },
+        "p95_ms":      { "type": ["number", "null"] }
+      },
+      "required": ["requests", "errors", "unreachable", "error_rate", "p50_ms", "p95_ms"]
+    },
+
+    "WatchReport": {
+      "description": "Post-launch Watch → Recorder. Canary vs baseline over the window, round by round; the verdict is derived by the workflow script from the thresholds, never declared by an agent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release_candidate_id": { "type": "string" },
+        "project_id":  { "type": "string" },
+        "window":      { "type": "object", "additionalProperties": false,
+                         "properties": { "rounds_planned": {"type":"integer"}, "rounds_run": {"type":"integer"}, "round_seconds": {"type":"integer"} },
+                         "required": ["rounds_planned", "rounds_run", "round_seconds"] },
+        "thresholds":  { "type": "object", "additionalProperties": false,
+                         "properties": { "error_rate_delta": {"type":"number"}, "p95_factor": {"type":"number"}, "p95_floor_ms": {"type":"number"}, "min_requests": {"type":"integer"} },
+                         "required": ["error_rate_delta", "p95_factor", "p95_floor_ms", "min_requests"] },
+        "rounds":      { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                         "properties": { "round": {"type":"integer"}, "canary": { "$ref": "#/$defs/WatchMetrics" }, "baseline": { "$ref": "#/$defs/WatchMetrics" },
+                                         "verdict": {"type":"string","enum":["healthy","regressed","inconclusive"]}, "reasons": {"type":"array","items":{"type":"string"}}, "raw_ref": {"type":"string"} },
+                         "required": ["round", "canary", "baseline", "verdict", "reasons"] } },
+        "verdict":     { "type": "string", "enum": ["healthy", "regressed", "inconclusive"] },
+        "reasons":     { "type": "array", "items": { "type": "string" } },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["release_candidate_id", "project_id", "window", "thresholds", "rounds", "verdict", "reasons", "provenance"]
+    },
+
     "LaunchRecord": {
       "type": "object",
       "additionalProperties": false,
@@ -403,14 +507,28 @@
         "project_id":   { "type": "string" },
         "approved_by":  { "$ref": "#/$defs/Executor" },
         "approved_at":  { "type": "string", "format": "date-time" },
+        "approval_gate_id": { "type": "string" },
+        "override_reason": { "type": "string", "description": "Present only when the HC chose approve_override on a no-go preflight." },
         "deployed_at":  { "type": "string", "format": "date-time" },
         "strategy":     { "type": "string", "enum": ["canary", "blue_green", "full"] },
         "watch_result": { "type": "string", "enum": ["healthy", "auto_rolled_back", "manual_rolled_back"] },
+        "rolled_back_at": { "type": "string", "format": "date-time" },
+        "rollback_reasons": { "type": "array", "items": { "type": "string" } },
+        "artifact_ref": { "type": "string" },
+        "artifact_sha": { "type": "string" },
         "baseline_ref": { "type": "string" },
+        "baseline_sha": { "type": "string" },
+        "live_url":     { "type": "string", "description": "The Live Product handle: what prod serves after this launch (the candidate if healthy, the baseline if rolled back)." },
+        "live_sha":     { "type": "string" },
+        "canary":       { "$ref": "#/$defs/Deployment" },
+        "prod":         { "$ref": "#/$defs/Deployment" },
+        "watch":        { "$ref": "#/$defs/WatchReport" },
+        "seeded_regression": { "type": "string", "description": "Test-only. The mutation applied to the canary before the watch, so a rollback drill is never mistaken for a real one." },
         "release_notes_ref": { "type": "string" },
+        "review_package_ref": { "type": "string" },
         "provenance":   { "$ref": "#/$defs/Provenance" }
       },
-      "required": ["release_candidate_id", "project_id", "approved_by", "approved_at", "deployed_at", "strategy", "watch_result", "provenance"]
+      "required": ["release_candidate_id", "project_id", "approved_by", "approved_at", "deployed_at", "strategy", "watch_result", "artifact_sha", "live_url", "provenance"]
     },
 
     "GateRecord": {
@@ -419,7 +537,7 @@
       "additionalProperties": false,
       "properties": {
         "id":            { "type": "string" },
-        "gate":          { "type": "string", "description": "Gate name from the operating model, e.g. spec_gate, launch_approval, sev1_page, roadmap_gate, venture_verdict, ratio_gate, escalation, portfolio_gate, machine_release_gate." },
+        "gate":          { "type": "string", "description": "Gate name from the operating model, e.g. brief_approval, spec_gate, launch_approval, sev1_page, roadmap_gate, venture_verdict, ratio_gate, escalation, portfolio_gate, machine_release_gate." },
         "run_id":        { "type": "string" },
         "workflow":      { "type": "string", "description": "The workflow whose return opened this gate." },
         "project_id":    { "type": "string" },

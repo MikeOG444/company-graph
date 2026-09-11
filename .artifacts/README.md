@@ -10,6 +10,10 @@ Everything large that a contract points at lives here and crosses edges **by ref
 | `worktrees` | `.artifacts/worktrees/<task>/` | Implementer (`git worktree add`) | Fixer, Test Runner, Integrator |
 | `integration` | `.artifacts/integration/<run_id>.json` | Integrator | Evidence Assembler |
 | `traces` | `.artifacts/traces/<run_id>-<workflow>.jsonl` | `ledger append --journal` | Plant Maintenance |
+| `specs` | `.artifacts/specs/<spec_id>.json` | main session, from a `/build-spec` return | Implementer, Test Author, lenses, Release Notes Writer (by `spec_ref`) |
+| `ci` | `.artifacts/ci/<project>-<run_id>.json` | CI Setup (`/create-project`) | Workspace.ci_ref |
+| `launch` | `.artifacts/launch/<rc>/` (worktree), `<rc>.suite.json`, `<run_id>.notes.md` | Preflight artifact check, Release Notes Writer | ReviewPackage |
+| `deploy` | `.artifacts/deploy/<project>/<env>/` (worktree), `<env>.json` (Deployment), `<env>.log`, `status.json`, `watch/<rc>.r<n>.jsonl` | `substrate/deploy.js` | `/deploy`, Post-launch Watch, Recorder |
 | `misc` | `.artifacts/misc/<name>` | anyone | anyone |
 
 CLI (from the repo root):
