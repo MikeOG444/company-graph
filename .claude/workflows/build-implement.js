@@ -432,8 +432,8 @@ async function runTask({ spec, task, spec_ref }) {
           const scopeNote = scopedRef
             ? `A scoped slice of the cumulative diff for just this finding's file is at scoped_diff_ref: ${scopedRef} — READ THAT SLICE FIRST;
                widen to the rest of the worktree only if the slice is insufficient to understand or fix the finding.`
-            : `No scoped slice is available for this finding (its location is not a clean repository-relative file path, or slicing
-               found nothing there) — read the cumulative diff at ${ctx.changeSet.diff_ref} across the whole worktree as before.`
+            : `No scoped slice is available for this finding (its location is not a file path, or slicing found nothing there) —
+               fall back to the unscoped cumulative diff at ${ctx.changeSet.diff_ref} and read across the whole worktree as before.`
           return agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch ${branch}). Location: ${f.location}. Evidence: ${f.evidence}.
              ${scopeNote}
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on branch ${branch}.
