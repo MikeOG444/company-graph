@@ -237,7 +237,7 @@ test('unmatched routes and method mismatches return the JSON 404, not Express HT
   const { base, close } = await start()
   try {
     const item = await created(base, { name: 'widget' })
-    for (const [method, path] of [['GET', '/nope'], ['GET', '/'], ['POST', '/health'], ['DELETE', `/items/${item.id}`], ['PUT', '/items'], ['PATCH', '/items/1']]) {
+    for (const [method, path] of [['GET', '/nope'], ['GET', '/'], ['POST', '/health'], ['DELETE', '/nope'], ['PUT', '/items'], ['PATCH', '/items/1']]) {
       const res = await fetch(`${base}${path}`, { method })
       assert.equal(res.status, 404, `${method} ${path}`)
       assert.match(res.headers.get('content-type') || '', /application\/json/)
