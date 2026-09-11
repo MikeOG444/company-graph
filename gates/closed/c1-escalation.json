@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "c1",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T01:30:00.000Z",
   "options": [
     "guide",
@@ -44,5 +44,11 @@
     "branch": "task/impl-offset",
     "acceptance_tests": ".artifacts/results/impl-offset.r1.json 17/17",
     "suite_on_branch": "toy 35/35"
+  },
+  "decision": {
+    "option": "guide",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T01:40:00.000Z",
+    "note": "HE: guide. Lens fix (touched_surfaces is an envelope, not a mandate) in build-implement.js and lens-spec-conformance.md; test file dropped from spec touched_surfaces; re-panel task/impl-offset in verify_only mode."
   }
 }

@@ -233,7 +233,12 @@ async function runTask({ spec, task, spec_ref }) {
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const lensThunks = {
-      spec_conformance: () => lens('spec_conformance', 'Does it do exactly what the spec says — nothing more, nothing less?'),
+      // touched_surfaces is a permission envelope, not a mandate (rulings r5 and c1 both overruled "listed surface not touched"; the
+      // c1 lens re-raised it and forced an escalation). Only work outside the envelope, or a criterion left unmet, is a finding.
+      spec_conformance: () => lens('spec_conformance', `Does it do exactly what the spec says — nothing more, nothing less?
+             spec.touched_surfaces is the set of surfaces the change MAY touch, never a list it MUST touch: a listed surface the diff leaves
+             alone is not a finding. Acceptance tests are written by a separate Test Author under ${ART}/tests/, so a test file the spec
+             names is never expected in the diff. Fail only for work outside the envelope, out_of_scope work, or a criterion the diff leaves unmet.`),
       security: () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
                                A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
       correctness: async () => { const r = await runP; return r && lens('correctness',
