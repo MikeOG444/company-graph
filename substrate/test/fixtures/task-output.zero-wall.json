@@ -1,0 +1,17 @@
+{
+  "summary": "a run with a single, essentially instantaneous, tokenless agent",
+  "logs": [],
+  "workflowProgress": [
+    {
+      "type": "workflow_agent",
+      "agentType": "mechanical",
+      "model": "claude-haiku-4-5",
+      "queuedAt": 1757564000000,
+      "startedAt": 1757564000000,
+      "lastProgressAt": 1757564000400
+    }
+  ],
+  "result": {
+    "provenance": { "node": "mechanical", "executor": "ai_agent", "method": "hotl", "model": "haiku", "run_id": "r-zero-wall", "created_at": "2026-09-11T08:13:20Z" }
+  }
+}

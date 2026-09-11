@@ -17,10 +17,23 @@ All five are also `npm run` scripts and `bin` entries. Tests: `npm test`.
 A human gate is a workflow boundary (CLAUDE.md rule 8). One stretch of the line looks like this, from the main Claude Code session:
 
 1. Run the workflow, e.g. `/build-spec` with `args` including `run_id` and `now`.
-2. When it returns, append the return value to the ledger. The runtime reports tokens per run; the script cannot see them, so they are passed in here:
+2. When it returns, append the return value to the ledger. The default form reads the run's own task output file —
+   the JSON the runtime writes when a run completes, with `workflowProgress` (one entry per agent, carrying model,
+   tokens and timing) and the `result` the workflow returned — so agents, tokens_by_model, tokens, both timestamps
+   and the result payload are all derived, not retyped:
+   ```
+   node substrate/ledger.js append --workflow build-spec --run r1 --from-output <task.output> --journal <transcript dir>/journal.jsonl
+   ```
+   `--started`, `--now`, `--result`, `--tokens`, `--tokens-by-model` and `--agents` still work alongside
+   `--from-output`; each one passed explicitly overrides the value derived from the output file for that field
+   only. Without `--from-output`, `--started` and `--result` remain required exactly as before:
    ```
    node substrate/ledger.js append --workflow build-spec --run r1 --started <args.now> --result <saved return>.json --tokens <from /workflows> --journal <transcript dir>/journal.jsonl
    ```
+   A `finished_at` before `started_at`, or a `wall_clock_sec` of 0 beside non-zero tokens, is refused (exit 2,
+   nothing written) rather than silently clamped to 0 — pass a correct `--started`/`--now` instead. On success the
+   command prints the run's cost and a per-model token/cost split, so no second command is needed to see where the
+   tokens went.
 3. If the return contains anything a human must decide (a `gated` list, an `Escalation`, a review package, a `VentureVerdict`), open a gate for it:
    ```
    node substrate/gates.js open --gate spec_gate --run r1 --workflow build-spec --options approve,revise,kill --payload gated.json --next build-implement
@@ -74,7 +87,7 @@ The runtime has no timers, so "a gate timeout escalates, never auto-approves" is
 Both are `$def`s in `contracts.schema.json` and are validated on every write.
 
 - `GateRecord`: `id, gate, run_id, workflow, status (open|decided), opened_at, options[], payload | payload_ref, next_workflow, decision {option, note, decided_by, decided_at}, provenance`.
-- `LedgerEntry`: `id, run_id, workflow, status, started_at, finished_at, wall_clock_sec, tokens, agents, human_min, artifact_count, escalations, result_ref, trace_ref, provenance`.
+- `LedgerEntry`: `id, run_id, workflow, status, started_at, finished_at, wall_clock_sec, tokens, agents, human_min, artifact_count, escalations, result_ref, trace_ref, wall_clock_unknown, provenance`. `wall_clock_unknown` is optional and only set (by hand, on the one row it fixes) when a row's `started_at` is known to be fabricated; it keeps the row's tokens and cost in the Method Ledger while `ledger summary` excludes its `wall_clock_sec` from the aggregate and counts it in `wall_unknown_runs`, and `ledger list` renders its wall clock as `?s`.
 
 `ledger summary --by method` groups run-level tokens, wall clock, human minutes and escalations by the run's `provenance.method`. `--by node` walks every nested artifact in every stored result and groups by `provenance.node`, using `provenance.tokens` where a script stamped it. Per-agent token attribution is the runtime's to expose; until it does, node rows show artifact counts and run rows carry the real cost.
 

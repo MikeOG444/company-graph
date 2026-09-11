@@ -2,8 +2,14 @@
 // Run trace + Method Ledger. Every workflow return is appended here with provenance, tokens, wall clock.
 // The script cannot see its own tokens or a clock, so this runs AFTER the workflow returns, from the main session.
 //
-//   ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json>
-//                 [--tokens N] [--tokens-by-model '{"claude-opus-5":N,...}'] [--agents N] [--human-min N] [--status ok|failed] [--journal <path>] [--now <iso>]
+//   ledger append --workflow <name> --run <run_id> --from-output <task.output>
+//                 [--started <iso>] [--result <file.json>] [--tokens N] [--tokens-by-model '{"claude-opus-5":N,...}']
+//                 [--agents N] [--human-min N] [--status ok|failed] [--journal <path>] [--now <iso>]
+//     Derives agents, tokens_by_model, tokens, the result payload and both timestamps from the task output file's
+//     workflowProgress entries; any of --started/--now/--result/--tokens/--tokens-by-model/--agents passed
+//     explicitly overrides the derived value for that field. Without --from-output, --started and --result are
+//     required exactly as before:
+//   ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json> [...same flags...]
 //   ledger recost [<id>]            recompute cost_est_usd from substrate/lib/pricing.json (all rows, or one)
 //   ledger list [--json]
 //   ledger summary [--by method|workflow|node|model] [--json]
@@ -13,6 +19,7 @@ import path from 'node:path'
 import { ARTIFACTS, LEDGER, ensureDir, absToRef, parseArgs, die, readJson, writeJson, nowIso } from './lib/paths.js'
 import { validate, formatErrors } from './lib/contracts.js'
 import { estimateCost, normalizeMap } from './lib/pricing.js'
+import { readRunOutput } from './lib/run-output.js'
 
 const RUNS = path.join(LEDGER, 'runs'), INDEX = path.join(LEDGER, 'index.jsonl')
 const { pos, opts } = parseArgs(process.argv.slice(2))
@@ -37,14 +44,66 @@ function artifacts(obj, out = []) {
 
 switch (cmd) {
   case 'append': {
-    const { workflow, run, started, result } = opts
-    if (!workflow || !run || !started || !result) die('usage: ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json> [--tokens N] [--agents N] [--human-min N] [--status ok|failed] [--journal path] [--now iso]')
-    if (Number.isNaN(Date.parse(started))) die(`bad --started timestamp: ${started}`)
-    const payload = readJson(result)
-    const finished_at = nowIso(opts.now)
-    const started_at = new Date(started).toISOString()
-    const wall = Math.max(0, Math.round((Date.parse(finished_at) - Date.parse(started_at)) / 1000))
-    ensureDir(RUNS)
+    const { workflow, run } = opts
+    if (!workflow || !run) die('usage: ledger append --workflow <name> --run <run_id> (--from-output <task.output> | --started <iso> --result <file.json>) [--tokens N] [--tokens-by-model json] [--agents N] [--human-min N] [--status ok|failed] [--journal path] [--now iso]')
+    if (!opts['from-output'] && (!opts.started || !opts.result)) die('usage: ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json> [...] (or pass --from-output <task.output> instead of --started/--result)')
+
+    let fromOutput
+    if (opts['from-output']) {
+      try { fromOutput = readRunOutput(opts['from-output']) }
+      catch (e) { die(e.message) }
+    }
+
+    // --result wins over the payload derived from --from-output.
+    let payload
+    if (opts.result) payload = readJson(opts.result)
+    else if (fromOutput.result === undefined || fromOutput.result === null) die(`${opts['from-output']} carries no run result (doc.result is missing); pass --result <file.json>`)
+    else payload = fromOutput.result
+
+    // --started / --now win over the derived timestamps; if neither the flag nor the file supplies a value,
+    // finished_at falls back to the real clock and started_at falls back to finished_at (wall_clock_sec 0),
+    // which is exactly the shape the zero-wall-vs-nonzero-tokens check below is built to catch.
+    let finished_at
+    if (opts.now) finished_at = nowIso(opts.now)
+    else if (fromOutput?.finished_at) finished_at = fromOutput.finished_at
+    else finished_at = nowIso()
+
+    let started_at
+    if (opts.started) {
+      if (Number.isNaN(Date.parse(opts.started))) die(`bad --started timestamp: ${opts.started}`)
+      started_at = new Date(opts.started).toISOString()
+    } else if (fromOutput?.started_at) started_at = fromOutput.started_at
+    else started_at = finished_at
+
+    // tokens_by_model / tokens / agents: explicit flags win over derivation from the output file.
+    let tokensByModel
+    if (opts['tokens-by-model']) {
+      let map; try { map = JSON.parse(opts['tokens-by-model']) } catch { die('--tokens-by-model must be a JSON object of model → integer tokens') }
+      tokensByModel = normalizeMap(map)
+    } else if (fromOutput && Object.values(fromOutput.tokens_by_model).some(t => t > 0)) {
+      tokensByModel = fromOutput.tokens_by_model
+    }
+    let costInfo
+    if (tokensByModel) {
+      costInfo = estimateCost(tokensByModel)
+      if (costInfo.unpriced.length) process.stderr.write(`warning: no price for ${costInfo.unpriced.join(', ')}; excluded from cost_est_usd\n`)
+    }
+
+    const tokensOverride = int(opts.tokens, 'tokens')
+    let tokens = tokensOverride
+    if (tokens === undefined && tokensByModel) tokens = Object.values(tokensByModel).reduce((a, b) => a + b, 0)
+    if (tokens === undefined && fromOutput) tokens = fromOutput.tokens
+
+    const agentsOverride = int(opts.agents, 'agents')
+    let agentsCount = agentsOverride
+    if (agentsCount === undefined && fromOutput) agentsCount = fromOutput.agents
+
+    // Drop the clamp: a finished_at before started_at, or a zero wall clock beside non-zero tokens, refuses
+    // outright rather than silently reporting wall_clock_sec: 0 next to real tokens.
+    const wall = Math.round((Date.parse(finished_at) - Date.parse(started_at)) / 1000)
+    if (wall < 0) die(`finished_at ${finished_at} is before started_at ${started_at}; pass a correct --started/--now`)
+    if (wall === 0 && (tokens ?? 0) > 0) die(`wall_clock_sec is 0 (started_at ${started_at}, finished_at ${finished_at}) but tokens is ${tokens}; pass a correct --started/--now`)
+
     const id = `${safe(run)}-${safe(workflow)}`
     const runPath = path.join(RUNS, `${id}.json`)
     const entry = {
@@ -53,31 +112,36 @@ switch (cmd) {
       artifact_count: artifacts(payload).length,
       escalations: Array.isArray(payload.escalations) ? payload.escalations.length : 0,
     }
-    const tokens = int(opts.tokens, 'tokens'); if (tokens !== undefined) entry.tokens = tokens
-    if (opts['tokens-by-model']) {
-      let map; try { map = JSON.parse(opts['tokens-by-model']) } catch { die('--tokens-by-model must be a JSON object of model → integer tokens') }
-      entry.tokens_by_model = normalizeMap(map)
-      if (entry.tokens === undefined) entry.tokens = Object.values(entry.tokens_by_model).reduce((a, b) => a + b, 0)
-      const c = estimateCost(entry.tokens_by_model); entry.cost_est_usd = c.cost_est_usd
-      if (c.unpriced.length) process.stderr.write(`warning: no price for ${c.unpriced.join(', ')}; excluded from cost_est_usd\n`)
-    }
-    const agents = int(opts.agents, 'agents'); if (agents !== undefined) entry.agents = agents
+    if (tokens !== undefined) entry.tokens = tokens
+    if (tokensByModel) { entry.tokens_by_model = tokensByModel; entry.cost_est_usd = costInfo.cost_est_usd }
+    if (agentsCount !== undefined) entry.agents = agentsCount
     const human = int(opts['human-min'], 'human-min'); if (human !== undefined) entry.human_min = human
     if (payload.provenance) entry.provenance = payload.provenance
     else entry.provenance = { node: workflow, executor: 'ai_agent', method: 'hotl', run_id: run, created_at: started_at }
+
+    let tracePath
     if (opts.journal) {
       if (!fs.existsSync(opts.journal)) die(`no journal at ${opts.journal}`)
-      const tr = path.join(ARTIFACTS, 'traces', `${id}.jsonl`)
-      ensureDir(path.dirname(tr)); fs.copyFileSync(opts.journal, tr)
-      entry.trace_ref = absToRef(tr)
+      tracePath = path.join(ARTIFACTS, 'traces', `${id}.jsonl`)
+      entry.trace_ref = absToRef(tracePath)
     }
+
     const v = validate('LedgerEntry', entry)
     if (!v.ok) die(`LedgerEntry invalid:\n${formatErrors(v.errors)}`)
     if (fs.existsSync(runPath)) die(`ledger already has ${id}; a re-run needs a new run_id`, 1)
+
+    // Everything above is pure validation; only now does anything touch disk.
+    if (tracePath) { ensureDir(path.dirname(tracePath)); fs.copyFileSync(opts.journal, tracePath) }
+    ensureDir(RUNS)
     writeJson(runPath, { entry, result: payload })
     ensureDir(LEDGER); fs.appendFileSync(INDEX, JSON.stringify(entry) + '\n')
     const costTxt = entry.cost_est_usd !== undefined ? `, ~$` + entry.cost_est_usd.toFixed(2) : ''
     console.log(`appended ${id}: ${wall}s${entry.tokens !== undefined ? `, ${entry.tokens} tokens` : ''}${costTxt}, ${entry.artifact_count} artifacts, ${entry.escalations} escalations`)
+    if (tokensByModel) {
+      const rows = Object.entries(tokensByModel).map(([m, t]) => ({ m, t, cost: costInfo.priced[m] }))
+      rows.sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1))
+      for (const row of rows) console.log(`  ${row.m}: ${row.t} tokens, ${row.cost !== undefined ? '$' + row.cost.toFixed(2) : '$?'}`)
+    }
     break
   }
 
@@ -100,7 +164,7 @@ switch (cmd) {
     if (opts.json) { console.log(JSON.stringify(rows, null, 2)); break }
     if (!rows.length) { console.log('ledger is empty'); break }
     const usd = (r) => r.cost_est_usd !== undefined ? '$' + r.cost_est_usd.toFixed(2) : '$?'
-    for (const r of rows) console.log(`${r.id}\t${r.status}\t${r.provenance.method}\t${r.wall_clock_sec}s\t${r.tokens ?? '?'} tok\t${usd(r)}\t${r.artifact_count} artifacts\t${r.escalations} esc`)
+    for (const r of rows) console.log(`${r.id}\t${r.status}\t${r.provenance.method}\t${r.wall_clock_unknown ? '?' : r.wall_clock_sec}s\t${r.tokens ?? '?'} tok\t${usd(r)}\t${r.artifact_count} artifacts\t${r.escalations} esc`)
     break
   }
 
@@ -119,7 +183,7 @@ switch (cmd) {
     if (!['method', 'workflow', 'node', 'model'].includes(by)) die('--by must be method, workflow, node, or model')
     const rows = readIndex()
     const groups = {}
-    const add = (k, f) => { const g = groups[k] ??= { key: k, runs: 0, artifacts: 0, tokens: 0, cost_est_usd: 0, wall_clock_sec: 0, human_min: 0, escalations: 0 }; f(g) }
+    const add = (k, f) => { const g = groups[k] ??= { key: k, runs: 0, artifacts: 0, tokens: 0, cost_est_usd: 0, wall_clock_sec: 0, wall_unknown_runs: 0, human_min: 0, escalations: 0 }; f(g) }
     for (const r of rows) {
       if (by === 'model') {
         for (const [m, t] of Object.entries(r.tokens_by_model ?? {})) add(m, g => { g.runs++; g.tokens += t; g.cost_est_usd += estimateCost({ [m]: t }).cost_est_usd })
@@ -131,12 +195,19 @@ switch (cmd) {
         continue
       }
       const key = by === 'method' ? r.provenance.method : r.workflow
-      add(key, g => { g.runs++; g.artifacts += r.artifact_count; g.tokens += r.tokens ?? 0; g.cost_est_usd += r.cost_est_usd ?? 0; g.wall_clock_sec += r.wall_clock_sec; g.human_min += r.human_min ?? 0; g.escalations += r.escalations })
+      // A row marked wall_clock_unknown has a fabricated wall clock: keep its tokens/cost in the aggregate but
+      // pull its wall_clock_sec out, and count it separately so the gap is visible rather than silent.
+      add(key, g => {
+        g.runs++; g.artifacts += r.artifact_count; g.tokens += r.tokens ?? 0; g.cost_est_usd += r.cost_est_usd ?? 0
+        if (r.wall_clock_unknown) g.wall_unknown_runs++
+        else g.wall_clock_sec += r.wall_clock_sec
+        g.human_min += r.human_min ?? 0; g.escalations += r.escalations
+      })
     }
     const out = Object.values(groups).map(g => ({ ...g, cost_est_usd: Math.round(g.cost_est_usd * 100) / 100 })).sort((x, y) => y.tokens - x.tokens)
     if (opts.json) { console.log(JSON.stringify(out, null, 2)); break }
     if (!out.length) { console.log('ledger is empty'); break }
-    const cols = by === 'node' ? ['key', 'artifacts', 'tokens'] : by === 'model' ? ['key', 'runs', 'tokens', 'cost_est_usd'] : ['key', 'runs', 'artifacts', 'tokens', 'cost_est_usd', 'wall_clock_sec', 'human_min', 'escalations']
+    const cols = by === 'node' ? ['key', 'artifacts', 'tokens'] : by === 'model' ? ['key', 'runs', 'tokens', 'cost_est_usd'] : ['key', 'runs', 'artifacts', 'tokens', 'cost_est_usd', 'wall_clock_sec', 'wall_unknown_runs', 'human_min', 'escalations']
     console.log(cols.join('\t'))
     for (const g of out) console.log(cols.map(c => g[c]).join('\t'))
     break
