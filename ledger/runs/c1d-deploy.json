@@ -1,0 +1,142 @@
+{
+  "entry": {
+    "id": "c1d-deploy",
+    "run_id": "c1d",
+    "workflow": "deploy",
+    "status": "ok",
+    "started_at": "2026-09-11T02:25:00.000Z",
+    "finished_at": "2026-09-11T02:28:00.000Z",
+    "wall_clock_sec": 180,
+    "result_ref": "ledger/runs/c1d-deploy.json",
+    "artifact_count": 2,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 62890
+    },
+    "tokens": 62890,
+    "cost_est_usd": 0.09,
+    "agents": 5,
+    "human_min": 0,
+    "provenance": {
+      "node": "deploy",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "c1d",
+      "created_at": "2026-09-11T02:25:00Z"
+    },
+    "trace_ref": ".artifacts/traces/c1d-deploy.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-c1v",
+    "project_id": "toy",
+    "approved_by": "human_employee",
+    "approved_at": "2026-09-11T02:10:00.000Z",
+    "approval_gate_id": "c1v-launch_approval",
+    "deployed_at": "2026-09-11T02:25:00.000Z",
+    "strategy": "canary",
+    "watch_result": "auto_rolled_back",
+    "rolled_back_at": "2026-09-11T02:25:00Z",
+    "rollback_reasons": [
+      "error rate 0.133 vs baseline 0 (+0.02 allowed)"
+    ],
+    "artifact_ref": "integration/c1v",
+    "artifact_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "baseline_ref": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "baseline_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "live_url": "http://127.0.0.1:3100",
+    "live_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "canary": {
+      "project_id": "toy",
+      "env": "canary",
+      "url": "http://127.0.0.1:3101",
+      "port": 3101,
+      "ref": "HEAD",
+      "sha": "c8e12afa3ccae9e067fdf95903066e9e4bf32f49",
+      "worktree": ".artifacts/deploy/toy/canary",
+      "app_dir": ".artifacts/deploy/toy/canary/toy",
+      "pid": 4062,
+      "started_at": "2026-09-11T02:25:00.000Z",
+      "log_ref": ".artifacts/deploy/toy/canary.log",
+      "status": "running"
+    },
+    "prod": {
+      "project_id": "toy",
+      "env": "prod",
+      "url": "http://127.0.0.1:3100",
+      "port": 3100,
+      "ref": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+      "sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+      "worktree": ".artifacts/deploy/toy/prod",
+      "app_dir": ".artifacts/deploy/toy/prod/toy",
+      "pid": 3796,
+      "started_at": "2026-09-11T02:12:00.000Z",
+      "log_ref": ".artifacts/deploy/toy/prod.log",
+      "status": "running"
+    },
+    "watch": {
+      "release_candidate_id": "rc-c1v",
+      "project_id": "toy",
+      "window": {
+        "rounds_planned": 3,
+        "rounds_run": 1,
+        "round_seconds": 60
+      },
+      "thresholds": {
+        "error_rate_delta": 0.02,
+        "p95_factor": 3,
+        "p95_floor_ms": 25,
+        "min_requests": 20
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "canary": {
+            "requests": 1150,
+            "errors": 153,
+            "unreachable": 0,
+            "error_rate": 0.133,
+            "p50_ms": 0.91,
+            "p95_ms": 1.79
+          },
+          "baseline": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.89,
+            "p95_ms": 1.36
+          },
+          "verdict": "regressed",
+          "reasons": [
+            "error rate 0.133 vs baseline 0 (+0.02 allowed)"
+          ],
+          "raw_ref": ".artifacts/deploy/toy/watch/rc-c1v.r1.jsonl"
+        }
+      ],
+      "verdict": "regressed",
+      "reasons": [
+        "error rate 0.133 vs baseline 0 (+0.02 allowed)"
+      ],
+      "provenance": {
+        "node": "post_launch_watch",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "c1d",
+        "created_at": "2026-09-11T02:25:00Z"
+      }
+    },
+    "seeded_regression": "In toy/src/app.js, inside createApp() immediately before the line `app.get('/items', (req, res) => {`, add `let probeCount = 0` and as the FIRST statement inside that GET /items handler add `if (++probeCount % 3 === 0) return res.status(500).json({ error: 'boom' })` so every third GET /items request answers 500. Change nothing else.",
+    "release_notes_ref": ".artifacts/launch/c1v.notes.md",
+    "review_package_ref": ".artifacts/c1v-launch.json",
+    "provenance": {
+      "node": "deploy",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "c1d",
+      "created_at": "2026-09-11T02:25:00Z"
+    }
+  }
+}

@@ -28,7 +28,7 @@ Each row is one saved workflow. The gate column is where you act, in chat, betwe
 
 | Workflow | Runs the stretch | Gate that ends it | Your decision feeds |
 |---|---|---|---|
-| `/create-project` | Brief → Workspace + seeded backlog | none (Dark Factory) | — |
+| `/create-project` | Brief → Workspace + seeded backlog | none inside; **Brief approval** precedes it (`brief_approval` gate on the drafted Brief) | `/build-spec` |
 | `/build-spec` | Plan → Spec → Route ∥ Decompose | **Spec Gate** (high-risk only) | `/build-implement` |
 | `/build-implement` | Implement ∥ Test → Verify → Fix → Integrate → Evidence | **Escalations** (if any) | re-run for affected specs, or `/launch` |
 | `/launch` | Preflight ∥ Release notes → Review package | **Launch approval** | `/deploy` |
@@ -40,7 +40,7 @@ Each row is one saved workflow. The gate column is where you act, in chat, betwe
 
 Plant-level workflows (from `COMPANY.md`): `/scout`, `/thesis`, `/portfolio-review`, `/machine-registry`, `/plant-maintain`, `/process-eng`. Their gates: Portfolio Gate, Portfolio Review, Machine Release Gate, Risk & Security Review, Budget Allocation.
 
-Two exist (`build-spec`, `build-implement`). Claude Code writes the rest — production-line ones from `OPERATING_MODEL.md` §3–8, plant ones from `COMPANY.md` §2 — one per phase below.
+Five exist (`build-spec`, `build-implement`, `create-project`, `launch`, `deploy`). Claude Code writes the rest — production-line ones from `OPERATING_MODEL.md` §3–8, plant ones from `COMPANY.md` §2 — one per phase below.
 
 ## 2. Phases — paste these prompts
 

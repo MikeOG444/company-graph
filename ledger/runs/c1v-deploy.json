@@ -1,0 +1,177 @@
+{
+  "entry": {
+    "id": "c1v-deploy",
+    "run_id": "c1v",
+    "workflow": "deploy",
+    "status": "ok",
+    "started_at": "2026-09-11T02:12:00.000Z",
+    "finished_at": "2026-09-11T02:18:00.000Z",
+    "wall_clock_sec": 360,
+    "result_ref": "ledger/runs/c1v-deploy.json",
+    "artifact_count": 2,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 79524
+    },
+    "tokens": 79524,
+    "cost_est_usd": 0.11,
+    "agents": 7,
+    "human_min": 1,
+    "provenance": {
+      "node": "deploy",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "c1v",
+      "created_at": "2026-09-11T02:12:00Z"
+    },
+    "trace_ref": ".artifacts/traces/c1v-deploy.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-c1v",
+    "project_id": "toy",
+    "approved_by": "human_employee",
+    "approved_at": "2026-09-11T02:10:00.000Z",
+    "approval_gate_id": "c1v-launch_approval",
+    "deployed_at": "2026-09-11T02:12:00.000Z",
+    "strategy": "canary",
+    "watch_result": "healthy",
+    "artifact_ref": "integration/c1v",
+    "artifact_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "baseline_ref": "HEAD",
+    "baseline_sha": "2f3258d0295f950af63c298d7d20bd9e73f50206",
+    "live_url": "http://127.0.0.1:3100",
+    "live_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "canary": {
+      "project_id": "toy",
+      "env": "canary",
+      "url": "http://127.0.0.1:3101",
+      "port": 3101,
+      "ref": "HEAD",
+      "sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+      "worktree": ".artifacts/deploy/toy/canary",
+      "app_dir": ".artifacts/deploy/toy/canary/toy",
+      "pid": 3681,
+      "started_at": "2026-09-11T02:12:00.000Z",
+      "log_ref": ".artifacts/deploy/toy/canary.log",
+      "status": "running"
+    },
+    "prod": {
+      "project_id": "toy",
+      "env": "prod",
+      "url": "http://127.0.0.1:3100",
+      "port": 3100,
+      "ref": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+      "sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+      "worktree": ".artifacts/deploy/toy/prod",
+      "app_dir": ".artifacts/deploy/toy/prod/toy",
+      "pid": 3796,
+      "started_at": "2026-09-11T02:12:00.000Z",
+      "log_ref": ".artifacts/deploy/toy/prod.log",
+      "status": "running"
+    },
+    "watch": {
+      "release_candidate_id": "rc-c1v",
+      "project_id": "toy",
+      "window": {
+        "rounds_planned": 3,
+        "rounds_run": 3,
+        "round_seconds": 60
+      },
+      "thresholds": {
+        "error_rate_delta": 0.02,
+        "p95_factor": 3,
+        "p95_floor_ms": 25,
+        "min_requests": 20
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "canary": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.93,
+            "p95_ms": 1.88
+          },
+          "baseline": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.89,
+            "p95_ms": 1.44
+          },
+          "verdict": "healthy",
+          "reasons": [],
+          "raw_ref": ".artifacts/deploy/toy/watch/rc-c1v.r1.jsonl"
+        },
+        {
+          "round": 2,
+          "canary": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.99,
+            "p95_ms": 1.76
+          },
+          "baseline": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.92,
+            "p95_ms": 1.38
+          },
+          "verdict": "healthy",
+          "reasons": [],
+          "raw_ref": ".artifacts/deploy/toy/watch/rc-c1v.r2.jsonl"
+        },
+        {
+          "round": 3,
+          "canary": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 1.08,
+            "p95_ms": 1.81
+          },
+          "baseline": {
+            "requests": 1150,
+            "errors": 0,
+            "unreachable": 0,
+            "error_rate": 0,
+            "p50_ms": 0.95,
+            "p95_ms": 1.47
+          },
+          "verdict": "healthy",
+          "reasons": [],
+          "raw_ref": ".artifacts/deploy/toy/watch/rc-c1v.r3.jsonl"
+        }
+      ],
+      "verdict": "healthy",
+      "reasons": [],
+      "provenance": {
+        "node": "post_launch_watch",
+        "executor": "ai_agent",
+        "method": "dark_factory",
+        "model": "n/a",
+        "run_id": "c1v",
+        "created_at": "2026-09-11T02:12:00Z"
+      }
+    },
+    "release_notes_ref": ".artifacts/launch/c1v.notes.md",
+    "review_package_ref": ".artifacts/c1v-launch.json",
+    "provenance": {
+      "node": "deploy",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "c1v",
+      "created_at": "2026-09-11T02:12:00Z"
+    }
+  }
+}
