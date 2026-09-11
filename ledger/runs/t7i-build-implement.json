@@ -1,0 +1,1115 @@
+{
+  "entry": {
+    "id": "t7i-build-implement",
+    "run_id": "t7i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-11T19:22:29.836Z",
+    "finished_at": "2026-09-11T20:28:21.000Z",
+    "wall_clock_sec": 3951,
+    "result_ref": "ledger/runs/t7i-build-implement.json",
+    "artifact_count": 12,
+    "escalations": 1,
+    "tokens": 2313220,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 771014,
+      "claude-sonnet-5": 1465531,
+      "claude-opus-5": 76675
+    },
+    "cost_est_usd": 5.72,
+    "agents": 49,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t7i",
+      "created_at": "2026-09-11T19:21:58Z"
+    }
+  },
+  "result": {
+    "release_candidate_id": "rc-t7i",
+    "project_id": "toy",
+    "iteration": 7,
+    "artifact_ref": "integration/t7i",
+    "integration_commit": "25037c4359c3f61a303405c1798f869c30616cc8",
+    "specs": [
+      "spec-wi-owned-surfaces-boundary"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "t2-agent-documentation-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "confidence": 0.95,
+            "attempts": [
+              "Verified AC-13 full satisfaction: both lens files now state they judge only owned criteria, sibling-owned criteria are never findings, test assertions carry target='test' with location correctly routed, and all pre-existing rules (reject-by-default, three attempts, path:line location, dedupe_key format, permission envelope, re-panelling) survive in substance.",
+              "Verified AC-17 full satisfaction: implementer.md now states touched_surfaces must be reported completely and honestly, boundary is checked in code after ChangeSet return, writing to sibling's surface ends the task, and all existing rules (worktree only, criteria_ids only, diff by ref, notes hidden, no tests) are preserved.",
+              "Verified envelope and scope compliance: diff touches exactly t2's three owned surfaces (lens-spec-conformance.md, lens-correctness.md, implementer.md), does not intrude on t1's five surfaces (build-implement.js, contracts.schema.json, extract-fixloop.js, substrate/test, fixer.md), makes no out-of-scope changes (no workflow redesign, schema enum, or git strategy changes), and adds only new content without deleting required existing documentation."
+            ],
+            "findings": [],
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted code injection through criteria_ids and sibling_owner parameters: criteria_ids are metadata strings (like AC-1) from the spec, used only in string comparisons and conditionals, never in dynamic code execution. No injection vector found.",
+              "Attempted privilege escalation through target field: the target field is routing metadata (implementation vs test) but routing enforcement is in workflow code not in this diff. Lenses have no write permissions regardless of metadata emitted. No escalation vector found.",
+              "Attempted information disclosure through sibling_owner mapping: the disclosed information (task_id to criteria_id mappings) is metadata already public in spec definitions and task graphs, not implementation details or secrets. No confidential data leakage found."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Verified whether tests would fail on pre-change code — confirmed tests check for 'criteria_ids' keyword which is absent in HEAD lens-spec-conformance.md, so tests distinguish old from new",
+              "Examined test coverage for target 'test' requirement — found that AC-13 test uses only keyword matching and cannot detect if the documented requirement is too narrow (spec says 'any test-assertion finding' but doc says 'only when assertion is wrong/missing/tautological/asserts-on-nothing')",
+              "Checked whether test for touched_surfaces honesty is a tautology — found AC-17 test line 19-22 checks only for keyword presence ('touched_surfaces', 'completely', 'honestly', 'diff') and cannot fail even if the documented interpretation of 'completely and honestly' is semantically wrong"
+            ],
+            "findings": [
+              {
+                "id": "AC-13-target-test-narrower-than-spec",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".claude/agents/lens-correctness.md:19",
+                "claim": "Documentation narrows AC-13's test-assertion target requirement to only certain assertion types, but spec requires target 'test' for any 'finding about a test assertion'.",
+                "evidence": "Documentation says \"If a finding is about a test assertion — the assertion is wrong, missing, tautological, or asserts on nothing — set `target: \"test\"`\" but spec AC-13 says \"a finding about a test assertion carries target 'test' even when its location points at the code the assertion covers\" without the conditional qualifiers.",
+                "dedupe_key": ".claude/agents/lens-correctness.md:19|target-test-narrower-than-spec",
+                "status": "open"
+              },
+              {
+                "id": "AC-17-touched-surfaces-definition-missing",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".claude/agents/implementer.md:16",
+                "claim": "Documentation requires 'completely and honestly' touched_surfaces reporting but does not define what constitutes a 'touched' surface or the practical boundaries of completeness.",
+                "evidence": "Documentation states \"Report `touched_surfaces` completely and honestly from the diff — every path your diff actually touches, no more, no less\" but does not clarify whether this means: every file changed, every hunk, every possible affected path, or only syntactically valid paths—definitions that appear only in AC-2/AC-3 boundary-check functions outside this task's scope.",
+                "dedupe_key": ".claude/agents/implementer.md:16|touched-surfaces-definition-missing",
+                "status": "open"
+              },
+              {
+                "id": "AC-13-test-keyword-based-incomplete",
+                "lens": "correctness",
+                "severity": "low",
+                "location": ".artifacts/tests/t2-agent-documentation/AC-13-lens-criteria-scoping-doc.test.js:44-54",
+                "claim": "Test for target 'test' requirement uses only keyword matching and cannot detect if the documented scope is too narrow or too broad.",
+                "evidence": "Test at lines 44-54 checks for regex patterns /target/i, /'test'/, /assertion/i, and /even.*when|regardless/i but does not verify that ALL test-assertion findings (not just some) carry target 'test', nor does it verify that the narrowing to 'assertion is wrong/missing/tautological' is justified by spec AC-13.",
+                "dedupe_key": ".artifacts/tests/t2-agent-documentation/AC-13-lens-criteria-scoping-doc.test.js:44-54|keyword-test-incomplete",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.72,
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "AC-13-target-test-narrower-than-spec",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".claude/agents/lens-correctness.md:19",
+            "claim": "Documentation narrows AC-13's test-assertion target requirement to only certain assertion types, but spec requires target 'test' for any 'finding about a test assertion'.",
+            "evidence": "Documentation says \"If a finding is about a test assertion — the assertion is wrong, missing, tautological, or asserts on nothing — set `target: \"test\"`\" but spec AC-13 says \"a finding about a test assertion carries target 'test' even when its location points at the code the assertion covers\" without the conditional qualifiers.",
+            "dedupe_key": ".claude/agents/lens-correctness.md:19|target-test-narrower-than-spec",
+            "status": "open"
+          },
+          {
+            "id": "AC-17-touched-surfaces-definition-missing",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".claude/agents/implementer.md:16",
+            "claim": "Documentation requires 'completely and honestly' touched_surfaces reporting but does not define what constitutes a 'touched' surface or the practical boundaries of completeness.",
+            "evidence": "Documentation states \"Report `touched_surfaces` completely and honestly from the diff — every path your diff actually touches, no more, no less\" but does not clarify whether this means: every file changed, every hunk, every possible affected path, or only syntactically valid paths—definitions that appear only in AC-2/AC-3 boundary-check functions outside this task's scope.",
+            "dedupe_key": ".claude/agents/implementer.md:16|touched-surfaces-definition-missing",
+            "status": "open"
+          },
+          {
+            "id": "AC-13-test-keyword-based-incomplete",
+            "lens": "correctness",
+            "severity": "low",
+            "location": ".artifacts/tests/t2-agent-documentation/AC-13-lens-criteria-scoping-doc.test.js:44-54",
+            "claim": "Test for target 'test' requirement uses only keyword matching and cannot detect if the documented scope is too narrow or too broad.",
+            "evidence": "Test at lines 44-54 checks for regex patterns /target/i, /'test'/, /assertion/i, and /even.*when|regardless/i but does not verify that ALL test-assertion findings (not just some) carry target 'test', nor does it verify that the narrowing to 'assertion is wrong/missing/tautological' is justified by spec AC-13.",
+            "dedupe_key": ".artifacts/tests/t2-agent-documentation/AC-13-lens-criteria-scoping-doc.test.js:44-54|keyword-test-incomplete",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t1-decision-functions-integration-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Every acceptance criterion in the spec is addressed by the diff: systematically checked all 18 ACs, found AC-13 and AC-17 unaddressed because required markdown files are not modified",
+              "The diff does nothing outside spec.touched_surfaces or out_of_scope: all 4 modified files (fixer.md, build-implement.js, contracts.schema.json, extract-fixloop.js) are within the permission envelope",
+              "Behavior in the diff matches Given/When/Then wording: verified all 9 decision functions, boundary checking logic, criteria scoping, foreign-finding stripping, and TEST-ONLY routing are correctly implemented per spec"
+            ],
+            "findings": [
+              {
+                "id": "f1-ac13-spec-conf",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/agents/lens-spec-conformance.md:1",
+                "claim": "AC-13 acceptance criterion not addressed: lens-spec-conformance.md does not state that the lens judges only owned criteria or that findings about test assertions must carry target 'test'",
+                "evidence": "AC-13 when: each file is read then: both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding; both state that a finding about a test assertion carries target 'test' even when its location points at the code the assertion covers — the diff does not modify this file to add these required statements",
+                "dedupe_key": ".claude/agents/lens-spec-conformance.md|AC-13 not addressed",
+                "status": "open"
+              },
+              {
+                "id": "f2-ac13-correct",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/agents/lens-correctness.md:1",
+                "claim": "AC-13 acceptance criterion not addressed: lens-correctness.md does not state that the lens judges only owned criteria or that findings about test assertions must carry target 'test'",
+                "evidence": "AC-13 when: each file is read then: both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding; both state that a finding about a test assertion carries target 'test' — the diff does not modify this file to add these required statements",
+                "dedupe_key": ".claude/agents/lens-correctness.md|AC-13 not addressed",
+                "status": "open"
+              },
+              {
+                "id": "f3-ac17-implementer",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/agents/implementer.md:1",
+                "claim": "AC-17 acceptance criterion not addressed: implementer.md does not state that touched_surfaces are checked in code, that the boundary check ends tasks with violations, or that the boundary is enforced after ChangeSet return",
+                "evidence": "AC-17 when: the file is read then: it states that touched_surfaces must be reported completely and honestly from the diff, that the owned-surfaces boundary is now CHECKED IN CODE after the ChangeSet is returned, and that writing a sibling task's owned surface ends the task rather than helping it — the diff does not modify this file to add these required statements",
+                "dedupe_key": ".claude/agents/implementer.md|AC-17 not addressed",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.98,
+            "change_set_id": "t1-decision-functions-integration-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Injection vulnerabilities: tested regex escaping in citedCriteria (line 147 escape, line 148 word-boundary test), code evaluation scope in extract-fixloop.js (lines 476-483 sentinel-block-only), and all string concatenations in logs and prompts (lines 266, 290-292, 245-250) — all safe, no unparameterized operations or eval of untrusted input.",
+              "Authorization and permission: verified boundaryCheck call site enforces ownership before any agent runs (line 277-279 before lens execution), stripForeignFindings correctly filters foreign findings (lines 179-180 with isForeignCriterionFinding check at line 165), and TEST-ONLY re-routing is bounded to one per dedupe_key in same round (lines 387-394).",
+              "Data exposure and secrets: confirmed target field in Finding schema is routing metadata only (enum: implementation|test), boundary violation logs contain only task/criterion IDs not credentials (lines 266, 281, 325), criteria scope in prompts includes only benign identifiers like AC-1 (line 302), and no new agent outputs store sensitive data (fixOutcome, routeFinding, stripForeignFindings all return metadata only)."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-decision-functions-integration-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "AC-8 criteriaScope unassigned list includes criteria from different-spec tasks when it should only exclude globally unclaimed criteria",
+              "AC-4/AC-6 boundary violation text assertions fail because escalateBoundaryViolation is async and passed:false is hidden inside function body, not in visible lexical scope",
+              "AC-11 stripForeignFindings integrated with normalizeVerdict but unclear if order prevents foreign-findings-only verdicts from poisoning initial pass/fail state before correction"
+            ],
+            "findings": [
+              {
+                "id": "finding-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:357",
+                "claim": "criteriaScope incorrectly includes criteria owned by tasks in other specs in the unassigned list",
+                "evidence": "The unassigned filter at line 357 uses `claimed = new Set([...ownedSet, ...Object.keys(sibling_owner)])` which only includes criteria from the current task and same-spec siblings, not from any task across all specs; AC-8 test expects acceptance_ids=['AC-1','AC-2','AC-3','AC-12','AC-99'] to return unassigned=['AC-99'] but returns ['AC-3','AC-99'] because AC-3 (owned by other spec's task) is not in claimed",
+                "dedupe_key": ".claude/workflows/build-implement.js:357|criteriaScope-unassigned-different-spec-criteria",
+                "status": "open"
+              },
+              {
+                "id": "finding-2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:620-635",
+                "claim": "Async escalateBoundaryViolation function hides passed:false return statement from text-level test regex matching the control flow",
+                "evidence": "AC-4 test at boundary-wiring.test.js:41 asserts.match(section, /passed:\\s*false/) on source text between boundaryIdx and firstLensIdx looking for proof the violation ends the task, but escalateBoundaryViolation is async and the text `passed: false` appears only inside its function body at line 631, not in the if statement at line 635 where it's called, breaking text-based assertions of code flow",
+                "dedupe_key": ".claude/workflows/build-implement.js:635|async-escalate-boundary-violation-hides-flow",
+                "status": "open"
+              },
+              {
+                "id": "finding-3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:701-703",
+                "claim": "stripForeignFindings verdict handling with normalizeVerdict relies on normalizeVerdict correcting verdicts but test coverage unclear for verdict='fail' with zero defects after foreign findings removed",
+                "evidence": "AC-11 test expects stripForeignFindings to remove findings so a spec_conformance verdict with only foreign findings passes the normalization step, but line 703 normalizeVerdict(v, tag) is called AFTER stripForeignFindings, relying on normalizeVerdict's 'fail but carries no defect' correction path (added in this change); no integration test exercises a verdict that started 'fail' and had all its defects removed by stripForeignFindings",
+                "dedupe_key": ".claude/workflows/build-implement.js:703|stripForeignFindings-normalizeVerdict-integration-test-gap",
+                "status": "open"
+              },
+              {
+                "id": "finding-4",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".claude/workflows/build-implement.js:651-652",
+                "claim": "Verdict normalization 'fail but carries no defect' correction may not trigger if lens declares pass with defects due to missing re-evaluation of derived state",
+                "evidence": "The normalizeVerdict function added at line 45-56 corrects verdicts where verdict !== derived, but if a lens returns verdict='pass' while carrying defects (the r8 problem), or verdict='fail' with no defects (the new stripForeignFindings case), normalizeVerdict logs and returns the corrected state; however, tests 18-21 failures suggest the lens prompts may still receive foreign findings or routing may bypass this correction",
+                "dedupe_key": ".claude/workflows/build-implement.js:52|normalizeVerdict-derived-state-mismatch-test-coverage",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.6,
+            "change_set_id": "t1-decision-functions-integration-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-ac13-spec-conf",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/agents/lens-spec-conformance.md:1",
+            "claim": "AC-13 acceptance criterion not addressed: lens-spec-conformance.md does not state that the lens judges only owned criteria or that findings about test assertions must carry target 'test'",
+            "evidence": "AC-13 when: each file is read then: both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding; both state that a finding about a test assertion carries target 'test' even when its location points at the code the assertion covers — the diff does not modify this file to add these required statements",
+            "dedupe_key": ".claude/agents/lens-spec-conformance.md|AC-13 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "f2-ac13-correct",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/agents/lens-correctness.md:1",
+            "claim": "AC-13 acceptance criterion not addressed: lens-correctness.md does not state that the lens judges only owned criteria or that findings about test assertions must carry target 'test'",
+            "evidence": "AC-13 when: each file is read then: both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding; both state that a finding about a test assertion carries target 'test' — the diff does not modify this file to add these required statements",
+            "dedupe_key": ".claude/agents/lens-correctness.md|AC-13 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "f3-ac17-implementer",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/agents/implementer.md:1",
+            "claim": "AC-17 acceptance criterion not addressed: implementer.md does not state that touched_surfaces are checked in code, that the boundary check ends tasks with violations, or that the boundary is enforced after ChangeSet return",
+            "evidence": "AC-17 when: the file is read then: it states that touched_surfaces must be reported completely and honestly from the diff, that the owned-surfaces boundary is now CHECKED IN CODE after the ChangeSet is returned, and that writing a sibling task's owned surface ends the task rather than helping it — the diff does not modify this file to add these required statements",
+            "dedupe_key": ".claude/agents/implementer.md|AC-17 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "finding-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:357",
+            "claim": "criteriaScope incorrectly includes criteria owned by tasks in other specs in the unassigned list",
+            "evidence": "The unassigned filter at line 357 uses `claimed = new Set([...ownedSet, ...Object.keys(sibling_owner)])` which only includes criteria from the current task and same-spec siblings, not from any task across all specs; AC-8 test expects acceptance_ids=['AC-1','AC-2','AC-3','AC-12','AC-99'] to return unassigned=['AC-99'] but returns ['AC-3','AC-99'] because AC-3 (owned by other spec's task) is not in claimed",
+            "dedupe_key": ".claude/workflows/build-implement.js:357|criteriaScope-unassigned-different-spec-criteria",
+            "status": "open"
+          },
+          {
+            "id": "finding-2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:620-635",
+            "claim": "Async escalateBoundaryViolation function hides passed:false return statement from text-level test regex matching the control flow",
+            "evidence": "AC-4 test at boundary-wiring.test.js:41 asserts.match(section, /passed:\\s*false/) on source text between boundaryIdx and firstLensIdx looking for proof the violation ends the task, but escalateBoundaryViolation is async and the text `passed: false` appears only inside its function body at line 631, not in the if statement at line 635 where it's called, breaking text-based assertions of code flow",
+            "dedupe_key": ".claude/workflows/build-implement.js:635|async-escalate-boundary-violation-hides-flow",
+            "status": "open"
+          },
+          {
+            "id": "finding-3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:701-703",
+            "claim": "stripForeignFindings verdict handling with normalizeVerdict relies on normalizeVerdict correcting verdicts but test coverage unclear for verdict='fail' with zero defects after foreign findings removed",
+            "evidence": "AC-11 test expects stripForeignFindings to remove findings so a spec_conformance verdict with only foreign findings passes the normalization step, but line 703 normalizeVerdict(v, tag) is called AFTER stripForeignFindings, relying on normalizeVerdict's 'fail but carries no defect' correction path (added in this change); no integration test exercises a verdict that started 'fail' and had all its defects removed by stripForeignFindings",
+            "dedupe_key": ".claude/workflows/build-implement.js:703|stripForeignFindings-normalizeVerdict-integration-test-gap",
+            "status": "open"
+          },
+          {
+            "id": "finding-4",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".claude/workflows/build-implement.js:651-652",
+            "claim": "Verdict normalization 'fail but carries no defect' correction may not trigger if lens declares pass with defects due to missing re-evaluation of derived state",
+            "evidence": "The normalizeVerdict function added at line 45-56 corrects verdicts where verdict !== derived, but if a lens returns verdict='pass' while carrying defects (the r8 problem), or verdict='fail' with no defects (the new stripForeignFindings case), normalizeVerdict logs and returns the corrected state; however, tests 18-21 failures suggest the lens prompts may still receive foreign findings or routing may bypass this correction",
+            "dedupe_key": ".claude/workflows/build-implement.js:52|normalizeVerdict-derived-state-mismatch-test-coverage",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t2-agent-documentation-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Verify that AC-17 criteria_coverage claim matches actual tests_ref: The change claims to cover both AC-13 and AC-17 in criteria_coverage, but tests_ref points only to .artifacts/tests/t2-agent-documentation/AC-13-lens-criteria-scoping-doc.test.js; AC-17-implementer-boundary-doc.test.js exists but is not included in the test execution.",
+              "Confirm AC-17 tests exist but are not reported in results: The AC-17 test file contains four distinct tests (touched_surfaces completely/honestly, boundary checked in code, sibling surface ends task, existing rules preserved), yet the results_ref file reports only 7 tests (all AC-13) with no AC-17 test results included.",
+              "Check pre-existing rules are preserved in all modified documentation: Verify that lens-spec-conformance.md and lens-correctness.md retain all original rules (reject-by-default, three attempts, path:line location format, dedupe_key format) and that lens-spec-conformance.md retains the touched_surfaces permission envelope concept and solo re-panelling paragraph—all present and preserved, meaning documentation changes themselves appear valid."
+            ],
+            "findings": [
+              {
+                "id": "f-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/results/t2-agent-documentation.r2.json:1-7",
+                "claim": "AC-17 acceptance criteria are claimed in criteria_coverage but not included in test execution or results reporting.",
+                "evidence": "The test metadata states criteria_coverage: [\"AC-13\",\"AC-17\"], but results_ref contains only 7 AC-13 tests (passed: 7, failed: 0) with test_file pointing to AC-13-lens-criteria-scoping-doc.test.js exclusively; AC-17-implementer-boundary-doc.test.js exists in the test directory but is absent from tests_ref and results_ref.",
+                "dedupe_key": ".artifacts/results/t2-agent-documentation.r2.json|AC-17 claimed but not tested",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/results/t2-agent-documentation.r2.json:1-7",
+            "claim": "AC-17 acceptance criteria are claimed in criteria_coverage but not included in test execution or results reporting.",
+            "evidence": "The test metadata states criteria_coverage: [\"AC-13\",\"AC-17\"], but results_ref contains only 7 AC-13 tests (passed: 7, failed: 0) with test_file pointing to AC-13-lens-criteria-scoping-doc.test.js exclusively; AC-17-implementer-boundary-doc.test.js exists in the test directory but is absent from tests_ref and results_ref.",
+            "dedupe_key": ".artifacts/results/t2-agent-documentation.r2.json|AC-17 claimed but not tested",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "t1-decision-functions-integration-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Create a scenario where a task's ChangeSet touches a sibling task's owned_surfaces. Expectation: boundaryCheck is called on the settled ChangeSet after empty-diff resolution (AC-4) and the task escalates with passed:false instead of entering the verify-loop panel. Actual behavior: No boundaryCheck call exists anywhere in the workflow; the violation passes through unflagged and the task proceeds to the panel normally, failing to end early as the spec requires. Test 13 explicitly fails with 'a boundary violation must return the task as passed:false, never reaching the panel'.",
+              "Attempt 2: Construct a lens verdict with multiple findings, one citing only a sibling-owned criterion. Expectation: stripForeignFindings removes that finding before adjudicate (AC-11), preventing it from reaching the fixer, never entering ctx.seen, and the task can pass if remaining findings are fixed. Actual behavior: No stripForeignFindings call site exists in the workflow at any point; the foreign finding reaches the adjudicator, the fixer, and the dedupe list unchanged, wasting budget on a finding no fixer in this task can resolve. Test 17 explicitly fails with 'stripForeignFindings must run on the round's verdicts before they reach adjudicate'.",
+              "Attempt 3: A code Fixer returns a ChangeSet with notes='TEST-ONLY: the test asserts X but spec says Y' for a finding routed by location to the code path. Expectation: fixOutcome recognizes TEST-ONLY: prefix (distinct from DISPUTE), the finding is re-routed to the Test Author repair path once in the same round, never to the dispute judge, and never counted in applied fixes (AC-16). Actual behavior: No fixOutcome function exists to classify the notes; no TEST-ONLY re-routing branch exists; the finding is treated as a normal DISPUTE or applied fix, wasting a fixer attempt on a defect that belongs in a test the fixer cannot edit. Tests 11, 19, and 20 all fail on this path."
+            ],
+            "findings": [
+              {
+                "id": "f1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:136",
+                "claim": "AC-1 acceptance criterion: the decision block between sentinels does not expose the nine new decision functions required by the spec (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome).",
+                "evidence": "Lines 136-270 show the BEGIN and END fix-loop decision sentinels; reading lines 140-269 show only the eight existing decision functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate). Tests 3-11 all fail with errors like \"'surfaceRef is not a function'\" when loadFixLoopDecisions() attempts to extract these functions. The diff at lines 67-218 shows these functions should be added between lines 269 and 270, but they are not present in the actual file.",
+                "dedupe_key": ".claude/workflows/build-implement.js:136|decision functions not in block",
+                "status": "open"
+              },
+              {
+                "id": "f2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/test/extract-fixloop.js:46",
+                "claim": "AC-1 acceptance criterion: loadFixLoopDecisions() returns only seven function names in the return object, not the eight existing functions plus nine new ones required by the spec.",
+                "evidence": "Line 46 shows: `const factory = new Function(block + '\\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }')` — missing emptyDiffAction from the existing eight, and missing all nine new functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome). The diff at lines 481-487 shows it should be changed to return all 17 functions, but the actual file has the old version.",
+                "dedupe_key": "substrate/test/extract-fixloop.js:46|return statement incomplete",
+                "status": "open"
+              },
+              {
+                "id": "f3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:340",
+                "claim": "AC-4 and AC-6 acceptance criteria: no boundaryCheck call site exists to validate that the settled ChangeSet and round-level merged ChangeSets do not stray into a sibling task's owned_surfaces, leaving violations undetected before the verify-loop panel runs.",
+                "evidence": "Reading .claude/workflows/build-implement.js shows runTask() constructs ctx.changeSet around line 340 and the verify-loop begins at the first lens call. No call to boundaryCheck(...) appears between these lines or after the merge: mechanical call. Tests 13 and 15 both fail: test 13 expects 'a boundary violation must return the task as passed:false, never reaching the panel', and test 15 expects 'a round-level violation must end the task instead of starting another round'.",
+                "dedupe_key": ".claude/workflows/build-implement.js:340|boundaryCheck not called",
+                "status": "open"
+              },
+              {
+                "id": "f4",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:700",
+                "claim": "AC-11 acceptance criterion: no stripForeignFindings call site exists to drop findings whose only cited acceptance criteria belong to a sibling task, before those findings reach adjudicate, the fixer, or ctx.seen.",
+                "evidence": "The verify-loop around line 700 calls adjudicate(verdicts) after gathering lens verdicts, but no stripForeignFindings(...) call precedes it to filter out foreign findings. The diff shows stripForeignFindings should be called between lines 325-331, removing sibling-cited findings from rawVerdicts before they are normalized and adjudicated. Test 17 fails with error 'stripForeignFindings must run on the round's verdicts before they reach adjudicate'.",
+                "dedupe_key": ".claude/workflows/build-implement.js:700|stripForeignFindings not called",
+                "status": "open"
+              },
+              {
+                "id": "f5",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:676",
+                "claim": "AC-12 acceptance criterion: the shared lens prompt does not include a criteria scope note naming the criteria this task owns, listing which sibling owns each remaining criterion, and stating that a criterion this task does not own is never a finding.",
+                "evidence": "Reading the lens prompt around line 676 in the actual file shows no mention of 'criteria_ids', 'sibling', or which task owns each criterion. The spec's AC-12 describes the exact wording required ('This task owns exactly these acceptance criteria (task.criteria_ids): ...' and 'Every remaining acceptance criterion in this spec belongs to a sibling task: ...'). Test 18 fails with error 'the prompt must state the task's own criteria_ids verbatim'.",
+                "dedupe_key": ".claude/workflows/build-implement.js:676|criteria scope note missing from prompt",
+                "status": "open"
+              },
+              {
+                "id": "f6",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:540",
+                "claim": "AC-15 acceptance criterion: routeFinding is not defined or called anywhere; isTestFinding is still used at both the scope-slicer filter and the fixer dispatch, unable to route findings based on the target field the lens sets.",
+                "evidence": "Grepping .claude/workflows/build-implement.js for routeFinding returns no matches; Grepping for isTestFinding would show it still in use (not replaced as the spec requires). The spec's AC-15 requires routeFinding to decide by target when present and fall back to location only when target is absent. Test 19 fails with error 'isTestFinding must be fully replaced by routeFinding'.",
+                "dedupe_key": ".claude/workflows/build-implement.js:540|routeFinding not defined",
+                "status": "open"
+              },
+              {
+                "id": "f7",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:375",
+                "claim": "AC-16 acceptance criterion: no fixOutcome function exists or is called to classify a code Fixer's notes prefix; no TEST-ONLY re-routing branch exists to send TEST-ONLY findings to the Test Author repair path once per round.",
+                "evidence": "The fixes processing around line 375 shows only DISPUTE handling; no code path for TEST-ONLY: prefix exists. No 'testfix:' label agent call is made for TEST-ONLY outcomes, and no logic excludes TEST-ONLY fixes from the applied list. Tests 11, 20 fail: test 11 expects 'fixOutcome reads the fixer's notes prefix', and test 20 expects 'a TEST-ONLY fix must never be counted in applied, the same way a DISPUTE fix never is'.",
+                "dedupe_key": ".claude/workflows/build-implement.js:375|fixOutcome and TEST-ONLY reroute missing",
+                "status": "open"
+              },
+              {
+                "id": "f8",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "contracts.schema.json:171",
+                "claim": "AC-14 acceptance criterion: the Finding schema does not carry the optional target property (enum: ['implementation','test']) required to mark whether a defect is in test or implementation code.",
+                "evidence": "Line 171 shows Finding's status enum but no target property follows; the required array at line 173 correctly does not list target (as spec requires it to be optional). The diff shows contracts.schema.json should be changed to add: '\"target\": { \"type\": \"string\", \"enum\": [\"implementation\", \"test\"], ... }' but this property does not exist in the actual file.",
+                "dedupe_key": "contracts.schema.json:171|target property missing from Finding",
+                "status": "open"
+              },
+              {
+                "id": "f9",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/agents/lens-spec-conformance.md:1",
+                "claim": "AC-13 acceptance criterion: lens-spec-conformance.md does not state that the lens judges only the acceptance criteria the task owns, or that a finding about a test assertion must carry target 'test', or that a sibling-owned criterion is never a finding.",
+                "evidence": "Reading the entire lens-spec-conformance.md file shows no mention of 'sibling', 'criteria_ids', 'owns', 'target', or 'task owns'. The spec's AC-13 explicitly requires both spec_conformance.md and correctness.md to state these rules. The file documents the existing reject-by-default, three-attempts, location:line, and dedupe_key rules but adds nothing about criteria scope or target routing.",
+                "dedupe_key": ".claude/agents/lens-spec-conformance.md:1|AC-13 not addressed",
+                "status": "open"
+              },
+              {
+                "id": "f10",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/agents/lens-correctness.md:1",
+                "claim": "AC-13 acceptance criterion: lens-correctness.md does not state that the lens judges only the acceptance criteria the task owns, or that a finding about a test assertion must carry target 'test', or that a sibling-owned criterion is never a finding.",
+                "evidence": "Reading the entire lens-correctness.md file shows no mention of 'sibling', 'criteria_ids', 'owns', 'target', or 'task owns'. The spec's AC-13 explicitly requires both conformance.md and correctness.md to state these rules, and that findings about test assertions must carry target 'test'. The file documents the existing checks (criteria coverage, failed tests, edge cases) but adds nothing about criteria scope or target routing.",
+                "dedupe_key": ".claude/agents/lens-correctness.md:1|AC-13 not addressed",
+                "status": "open"
+              },
+              {
+                "id": "f11",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/agents/implementer.md:1",
+                "claim": "AC-17 acceptance criterion: implementer.md does not state that the owned-surfaces boundary is now CHECKED IN CODE after the ChangeSet is returned, that a violation ends the task, or explain the distinction between detecting an issue (an offense) versus helping it (good intentions).",
+                "evidence": "Reading implementer.md lines 13-14, the text still says 'Stay inside task.owned_surfaces. Touching a surface another task owns is a defect, not initiative.' and offers no mention of boundary checking, code validation, or task termination. The spec's AC-17 requires the rule to explicitly state that the boundary is now 'CHECKED IN CODE after the ChangeSet is returned' and that 'writing a sibling task's owned surface ends the task rather than helping it'.",
+                "dedupe_key": ".claude/agents/implementer.md:1|AC-17 not addressed",
+                "status": "open"
+              },
+              {
+                "id": "f12",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/agents/fixer.md:18",
+                "claim": "AC-16 acceptance criterion: fixer.md does not document the TEST-ONLY outcome as distinct from DISPUTE or explain when to use it (when the finding is real but the defect lives in a test assertion rather than the code).",
+                "evidence": "Reading the actual fixer.md file, line 16 documents 'DISPUTE:' but there is no documentation of 'TEST-ONLY:' anywhere in the file. The diff shows a new bullet point should be added after line 16 explaining TEST-ONLY as a distinct outcome from DISPUTE, but this addition does not exist in the actual file.",
+                "dedupe_key": ".claude/agents/fixer.md:18|TEST-ONLY outcome not documented",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.99,
+            "change_set_id": "t1-decision-functions-integration-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:136",
+            "claim": "AC-1 acceptance criterion: the decision block between sentinels does not expose the nine new decision functions required by the spec (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome).",
+            "evidence": "Lines 136-270 show the BEGIN and END fix-loop decision sentinels; reading lines 140-269 show only the eight existing decision functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate). Tests 3-11 all fail with errors like \"'surfaceRef is not a function'\" when loadFixLoopDecisions() attempts to extract these functions. The diff at lines 67-218 shows these functions should be added between lines 269 and 270, but they are not present in the actual file.",
+            "dedupe_key": ".claude/workflows/build-implement.js:136|decision functions not in block",
+            "status": "open"
+          },
+          {
+            "id": "f2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/extract-fixloop.js:46",
+            "claim": "AC-1 acceptance criterion: loadFixLoopDecisions() returns only seven function names in the return object, not the eight existing functions plus nine new ones required by the spec.",
+            "evidence": "Line 46 shows: `const factory = new Function(block + '\\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }')` — missing emptyDiffAction from the existing eight, and missing all nine new functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome). The diff at lines 481-487 shows it should be changed to return all 17 functions, but the actual file has the old version.",
+            "dedupe_key": "substrate/test/extract-fixloop.js:46|return statement incomplete",
+            "status": "open"
+          },
+          {
+            "id": "f3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:340",
+            "claim": "AC-4 and AC-6 acceptance criteria: no boundaryCheck call site exists to validate that the settled ChangeSet and round-level merged ChangeSets do not stray into a sibling task's owned_surfaces, leaving violations undetected before the verify-loop panel runs.",
+            "evidence": "Reading .claude/workflows/build-implement.js shows runTask() constructs ctx.changeSet around line 340 and the verify-loop begins at the first lens call. No call to boundaryCheck(...) appears between these lines or after the merge: mechanical call. Tests 13 and 15 both fail: test 13 expects 'a boundary violation must return the task as passed:false, never reaching the panel', and test 15 expects 'a round-level violation must end the task instead of starting another round'.",
+            "dedupe_key": ".claude/workflows/build-implement.js:340|boundaryCheck not called",
+            "status": "open"
+          },
+          {
+            "id": "f4",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:700",
+            "claim": "AC-11 acceptance criterion: no stripForeignFindings call site exists to drop findings whose only cited acceptance criteria belong to a sibling task, before those findings reach adjudicate, the fixer, or ctx.seen.",
+            "evidence": "The verify-loop around line 700 calls adjudicate(verdicts) after gathering lens verdicts, but no stripForeignFindings(...) call precedes it to filter out foreign findings. The diff shows stripForeignFindings should be called between lines 325-331, removing sibling-cited findings from rawVerdicts before they are normalized and adjudicated. Test 17 fails with error 'stripForeignFindings must run on the round's verdicts before they reach adjudicate'.",
+            "dedupe_key": ".claude/workflows/build-implement.js:700|stripForeignFindings not called",
+            "status": "open"
+          },
+          {
+            "id": "f5",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:676",
+            "claim": "AC-12 acceptance criterion: the shared lens prompt does not include a criteria scope note naming the criteria this task owns, listing which sibling owns each remaining criterion, and stating that a criterion this task does not own is never a finding.",
+            "evidence": "Reading the lens prompt around line 676 in the actual file shows no mention of 'criteria_ids', 'sibling', or which task owns each criterion. The spec's AC-12 describes the exact wording required ('This task owns exactly these acceptance criteria (task.criteria_ids): ...' and 'Every remaining acceptance criterion in this spec belongs to a sibling task: ...'). Test 18 fails with error 'the prompt must state the task's own criteria_ids verbatim'.",
+            "dedupe_key": ".claude/workflows/build-implement.js:676|criteria scope note missing from prompt",
+            "status": "open"
+          },
+          {
+            "id": "f6",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:540",
+            "claim": "AC-15 acceptance criterion: routeFinding is not defined or called anywhere; isTestFinding is still used at both the scope-slicer filter and the fixer dispatch, unable to route findings based on the target field the lens sets.",
+            "evidence": "Grepping .claude/workflows/build-implement.js for routeFinding returns no matches; Grepping for isTestFinding would show it still in use (not replaced as the spec requires). The spec's AC-15 requires routeFinding to decide by target when present and fall back to location only when target is absent. Test 19 fails with error 'isTestFinding must be fully replaced by routeFinding'.",
+            "dedupe_key": ".claude/workflows/build-implement.js:540|routeFinding not defined",
+            "status": "open"
+          },
+          {
+            "id": "f7",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:375",
+            "claim": "AC-16 acceptance criterion: no fixOutcome function exists or is called to classify a code Fixer's notes prefix; no TEST-ONLY re-routing branch exists to send TEST-ONLY findings to the Test Author repair path once per round.",
+            "evidence": "The fixes processing around line 375 shows only DISPUTE handling; no code path for TEST-ONLY: prefix exists. No 'testfix:' label agent call is made for TEST-ONLY outcomes, and no logic excludes TEST-ONLY fixes from the applied list. Tests 11, 20 fail: test 11 expects 'fixOutcome reads the fixer's notes prefix', and test 20 expects 'a TEST-ONLY fix must never be counted in applied, the same way a DISPUTE fix never is'.",
+            "dedupe_key": ".claude/workflows/build-implement.js:375|fixOutcome and TEST-ONLY reroute missing",
+            "status": "open"
+          },
+          {
+            "id": "f8",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "contracts.schema.json:171",
+            "claim": "AC-14 acceptance criterion: the Finding schema does not carry the optional target property (enum: ['implementation','test']) required to mark whether a defect is in test or implementation code.",
+            "evidence": "Line 171 shows Finding's status enum but no target property follows; the required array at line 173 correctly does not list target (as spec requires it to be optional). The diff shows contracts.schema.json should be changed to add: '\"target\": { \"type\": \"string\", \"enum\": [\"implementation\", \"test\"], ... }' but this property does not exist in the actual file.",
+            "dedupe_key": "contracts.schema.json:171|target property missing from Finding",
+            "status": "open"
+          },
+          {
+            "id": "f9",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/agents/lens-spec-conformance.md:1",
+            "claim": "AC-13 acceptance criterion: lens-spec-conformance.md does not state that the lens judges only the acceptance criteria the task owns, or that a finding about a test assertion must carry target 'test', or that a sibling-owned criterion is never a finding.",
+            "evidence": "Reading the entire lens-spec-conformance.md file shows no mention of 'sibling', 'criteria_ids', 'owns', 'target', or 'task owns'. The spec's AC-13 explicitly requires both spec_conformance.md and correctness.md to state these rules. The file documents the existing reject-by-default, three-attempts, location:line, and dedupe_key rules but adds nothing about criteria scope or target routing.",
+            "dedupe_key": ".claude/agents/lens-spec-conformance.md:1|AC-13 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "f10",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/agents/lens-correctness.md:1",
+            "claim": "AC-13 acceptance criterion: lens-correctness.md does not state that the lens judges only the acceptance criteria the task owns, or that a finding about a test assertion must carry target 'test', or that a sibling-owned criterion is never a finding.",
+            "evidence": "Reading the entire lens-correctness.md file shows no mention of 'sibling', 'criteria_ids', 'owns', 'target', or 'task owns'. The spec's AC-13 explicitly requires both conformance.md and correctness.md to state these rules, and that findings about test assertions must carry target 'test'. The file documents the existing checks (criteria coverage, failed tests, edge cases) but adds nothing about criteria scope or target routing.",
+            "dedupe_key": ".claude/agents/lens-correctness.md:1|AC-13 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "f11",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/agents/implementer.md:1",
+            "claim": "AC-17 acceptance criterion: implementer.md does not state that the owned-surfaces boundary is now CHECKED IN CODE after the ChangeSet is returned, that a violation ends the task, or explain the distinction between detecting an issue (an offense) versus helping it (good intentions).",
+            "evidence": "Reading implementer.md lines 13-14, the text still says 'Stay inside task.owned_surfaces. Touching a surface another task owns is a defect, not initiative.' and offers no mention of boundary checking, code validation, or task termination. The spec's AC-17 requires the rule to explicitly state that the boundary is now 'CHECKED IN CODE after the ChangeSet is returned' and that 'writing a sibling task's owned surface ends the task rather than helping it'.",
+            "dedupe_key": ".claude/agents/implementer.md:1|AC-17 not addressed",
+            "status": "open"
+          },
+          {
+            "id": "f12",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/agents/fixer.md:18",
+            "claim": "AC-16 acceptance criterion: fixer.md does not document the TEST-ONLY outcome as distinct from DISPUTE or explain when to use it (when the finding is real but the defect lives in a test assertion rather than the code).",
+            "evidence": "Reading the actual fixer.md file, line 16 documents 'DISPUTE:' but there is no documentation of 'TEST-ONLY:' anywhere in the file. The diff shows a new bullet point should be added after line 16 explaining TEST-ONLY as a distinct outcome from DISPUTE, but this addition does not exist in the actual file.",
+            "dedupe_key": ".claude/agents/fixer.md:18|TEST-ONLY outcome not documented",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "t2-agent-documentation-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Checked AC-13 compliance: both lens agent files must state judgment is scoped to owned criteria_ids, sibling-owned criteria are never findings, findings about test assertions carry target 'test' even when location points at code, and all pre-existing rules survive in substance. All requirements met.",
+              "Checked AC-17 compliance: implementer.md must state touched_surfaces must be completely and honestly reported (defined as 'every path your diff actually touches, no more, no less'), owned-surfaces boundary is checked in code after ChangeSet return, writing to sibling surface ends the task, and existing rules survive. All requirements met.",
+              "Checked scope and envelope: all three touched files are within spec.touched_surfaces permission envelope, none appear in out_of_scope, no schema changes or workflow code changes outside this task's boundary, touched_surfaces list matches diff's actual changes."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to bypass criteria scoping by injecting reports about sibling-owned findings into lens output—blocked by explicit prohibition: 'A criterion this task does not own is never a finding' plus AC-11 code filtering layer",
+              "Attempted to misroute implementation findings to test-only fixer by setting target:'test' on code defects—blocked by documented rule 'Leave target unset for findings about the implementation itself' plus AC-16 fixer rejection with TEST-ONLY outcome",
+              "Attempted to hide boundary violations by reporting incomplete or false touched_surfaces—blocked by 'Report touched_surfaces completely and honestly' plus guarantee that 'an inaccurate one only delays the same outcome' (AC-3-6 code validation against actual diff)"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t2-agent-documentation-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      },
+      {
+        "change_set_id": "t1-decision-functions-integration-r2",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "ATTEMPT 1: Extracted decision block does not expose the new functions. Test AC-1 ('the sentinel block still exposes the eight existing decision functions, plus exactly nine new ones') failed with 'Expected 17 functions, got 7'. The extract-fixloop.js factory return statement attempts to return all 17 functions, but it fails to find 9 of them (boundaryCheck, citedCriteria, criteriaScope, fixOutcome, isForeignCriterionFinding, routeFinding, stripForeignFindings, surfaceRef, withinOwned) because they are not present in the returned object.",
+              "ATTEMPT 2: New decision functions missing from actual workflow file. Grepping the main repo's .claude/workflows/build-implement.js for any of the 9 new function definitions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome) yields no matches. The decision block ends at line 270 with only 8 functions, but should extend much further with all 17 functions defined between the sentinels.",
+              "ATTEMPT 3: Boundary check not wired into workflow. Grepping for 'boundaryCheck(' in .claude/workflows/build-implement.js returns no results. AC-4 requires 'boundaryCheck to be called on the settled ChangeSet after the empty-diff resolution and before any verify-loop agent label' and 'AC-6 requires the same boundaryCheck function to be applied to merged ChangeSets'. These critical call sites do not exist in the actual workflow file."
+            ],
+            "findings": [
+              {
+                "id": "f1-ac1-missing-functions",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:136-270",
+                "claim": "AC-1 acceptance criterion FAILED: the decision block does not expose the nine new decision functions required by the spec; test extracted 7 functions when expecting 17.",
+                "evidence": "Test AC-1 in boundary-decision-functions.test.js failed with: 'Expected values to be strictly deep-equal' showing actual=[lensesToRun, nextLenses, roundBudget, scopeOf, scopeTargets, shouldEscalate, taskCeiling] (7 functions) vs expected=[8 existing + 9 new functions] (17 total). Functions citedCriteria, criteriaScope, boundaryCheck, fixOutcome, isForeignCriterionFinding, routeFinding, stripForeignFindings, surfaceRef, withinOwned are missing.",
+                "dedupe_key": ".claude/workflows/build-implement.js:136-270|AC-1 decision block missing 9 new functions in decision block definition",
+                "status": "open"
+              },
+              {
+                "id": "f2-ac1-missing-definitions",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:136-270",
+                "claim": "AC-1 acceptance criterion NOT MET: the nine new decision functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome) are not defined anywhere in the decision block between the sentinels.",
+                "evidence": "Grep search for 'function surfaceRef', 'function boundaryCheck', etc. in .claude/workflows/build-implement.js returns no matches. The decision block at lines 136-270 contains only the 8 original functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate). The worktree file at .artifacts/worktrees/t1-decision-functions-integration/.claude/workflows/build-implement.js has these functions properly defined at lines 291-440, proving the implementation was not committed to the actual repo file.",
+                "dedupe_key": ".claude/workflows/build-implement.js:136-270|nine new decision functions not defined in decision block",
+                "status": "open"
+              },
+              {
+                "id": "f3-ac4-missing-call",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-4 acceptance criterion NOT MET: boundaryCheck is never called on the settled ChangeSet after empty-diff resolution and before any verify-loop agent label. Wiring test would fail because the call site does not exist.",
+                "evidence": "Grep search for 'boundaryCheck(' in .claude/workflows/build-implement.js returns no results. AC-4 explicitly requires: 'the boundaryCheck call site appears in build-implement.js after the empty-diff loop and before the first verify-loop agent label'. The workflow has no such call. Test AC-4 ('boundaryCheck runs on the settled ChangeSet after the empty-diff resolution and before any verify-loop agent label') at boundary-wiring.test.js:18 attempts to locate this call with text.indexOf('boundaryCheck(', settledIdx) which would fail.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-4 boundaryCheck call site does not exist in workflow",
+                "status": "open"
+              },
+              {
+                "id": "f4-ac6-missing-roundlevel-check",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-6 acceptance criterion NOT MET: boundaryCheck is not called on each round's merged ChangeSet. The workflow lacks the re-check required by the spec after each fix round.",
+                "evidence": "AC-6 states: 'the same boundaryCheck function is applied to the merged ChangeSet, returned by the `merge:` mechanical agent'. A search for the merge agent call site combined with a boundaryCheck on the result should exist but does not. The implementation lacks the round-level boundary re-check entirely.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-6 round-level boundary recheck missing",
+                "status": "open"
+              },
+              {
+                "id": "f5-ac7-missing-escalation-wording",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-7 acceptance criterion NOT MET: when a sibling task recorded a boundary violation, the empty-diff refusal message must name that sibling and the straying paths, but the implementation never collects or uses boundary violation records.",
+                "evidence": "AC-7 requires the workflow to name 'at least one straying path' and identify the task recorded straying into a sibling's surfaces. The diff shows a boundaryViolations array should track violations, and strayedIntoMe logic should build the refusal message, but these do not exist in the actual .claude/workflows/build-implement.js file.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-7 sibling violation naming in empty-diff refusal not implemented",
+                "status": "open"
+              },
+              {
+                "id": "f6-ac12-missing-lens-prompt-binding",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-12 acceptance criterion NOT MET: the shared lens prompt never binds criteria to the task's owned_criteria_ids or names sibling owners. Lenses are not told which criteria they own and which siblings own the rest.",
+                "evidence": "AC-12 requires the prompt to 'state the task's own criteria_ids verbatim, list for each remaining acceptance criterion the sibling task id that owns it, and say that a criterion this task does not own is never a finding'. The criteriaScope function (which should compute this binding) is never called, and the lens prompt has no code to construct this binding using scopeOf/sibling_owner information.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-12 lens prompt missing criteria scope binding",
+                "status": "open"
+              },
+              {
+                "id": "f7-ac11-missing-stripforeignfindings",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-11 acceptance criterion NOT MET: stripForeignFindings is never called to drop findings whose only cited criteria belong to siblings. Tasks owning one criterion of seventeen will still be failed for the other sixteen.",
+                "evidence": "AC-11 requires 'stripForeignFindings returns verdicts with foreign findings removed' and 'applied before normalizeVerdict and adjudicate'. The workflow has no call to stripForeignFindings, so mixed verdicts with both owned and foreign findings are never pruned, violating the core isolation requirement.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-11 stripForeignFindings never called to prune sibling-owned findings",
+                "status": "open"
+              },
+              {
+                "id": "f8-ac15-missing-routefinding",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-15 acceptance criterion NOT MET: routeFinding is never called; the workflow's fan-out logic still uses the old isTestFinding decision by location alone, unable to respect the new target field.",
+                "evidence": "AC-15 requires 'the workflow's fan-out uses routeFinding in place of today's isTestFinding for both the scope-slicer filter and the fixer dispatch'. routeFinding is never invoked anywhere in the actual workflow, so findings with target='test' pointing at code locations will still be routed to the code fixer (forbidden to edit tests), instead of to the test author.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-15 routeFinding never called, target field still ignored",
+                "status": "open"
+              },
+              {
+                "id": "f9-ac16-missing-fixoutcome",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js",
+                "claim": "AC-16 acceptance criterion NOT MET: fixOutcome is never called to detect TEST-ONLY prefix in fixer notes; TEST-ONLY outcomes are never routed to the Test Author repair path.",
+                "evidence": "AC-16 requires 'fixOutcome(notes) returns test_only for TEST-ONLY: prefix' and 'the workflow re-routes a test_only finding to the Test Author repair path once within the same round'. The actual workflow has no logic to parse fixOutcome or handle test_only re-routing, so fixer responses starting with TEST-ONLY: are never re-routed, leaving the broken test unrepaired.",
+                "dedupe_key": ".claude/workflows/build-implement.js|AC-16 fixOutcome never called, TEST-ONLY findings never re-routed",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.99,
+            "change_set_id": "t1-decision-functions-integration-r2",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t7i",
+              "created_at": "2026-09-11T19:21:58Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-ac1-missing-functions",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:136-270",
+            "claim": "AC-1 acceptance criterion FAILED: the decision block does not expose the nine new decision functions required by the spec; test extracted 7 functions when expecting 17.",
+            "evidence": "Test AC-1 in boundary-decision-functions.test.js failed with: 'Expected values to be strictly deep-equal' showing actual=[lensesToRun, nextLenses, roundBudget, scopeOf, scopeTargets, shouldEscalate, taskCeiling] (7 functions) vs expected=[8 existing + 9 new functions] (17 total). Functions citedCriteria, criteriaScope, boundaryCheck, fixOutcome, isForeignCriterionFinding, routeFinding, stripForeignFindings, surfaceRef, withinOwned are missing.",
+            "dedupe_key": ".claude/workflows/build-implement.js:136-270|AC-1 decision block missing 9 new functions in decision block definition",
+            "status": "open"
+          },
+          {
+            "id": "f2-ac1-missing-definitions",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:136-270",
+            "claim": "AC-1 acceptance criterion NOT MET: the nine new decision functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome) are not defined anywhere in the decision block between the sentinels.",
+            "evidence": "Grep search for 'function surfaceRef', 'function boundaryCheck', etc. in .claude/workflows/build-implement.js returns no matches. The decision block at lines 136-270 contains only the 8 original functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate). The worktree file at .artifacts/worktrees/t1-decision-functions-integration/.claude/workflows/build-implement.js has these functions properly defined at lines 291-440, proving the implementation was not committed to the actual repo file.",
+            "dedupe_key": ".claude/workflows/build-implement.js:136-270|nine new decision functions not defined in decision block",
+            "status": "open"
+          },
+          {
+            "id": "f3-ac4-missing-call",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-4 acceptance criterion NOT MET: boundaryCheck is never called on the settled ChangeSet after empty-diff resolution and before any verify-loop agent label. Wiring test would fail because the call site does not exist.",
+            "evidence": "Grep search for 'boundaryCheck(' in .claude/workflows/build-implement.js returns no results. AC-4 explicitly requires: 'the boundaryCheck call site appears in build-implement.js after the empty-diff loop and before the first verify-loop agent label'. The workflow has no such call. Test AC-4 ('boundaryCheck runs on the settled ChangeSet after the empty-diff resolution and before any verify-loop agent label') at boundary-wiring.test.js:18 attempts to locate this call with text.indexOf('boundaryCheck(', settledIdx) which would fail.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-4 boundaryCheck call site does not exist in workflow",
+            "status": "open"
+          },
+          {
+            "id": "f4-ac6-missing-roundlevel-check",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-6 acceptance criterion NOT MET: boundaryCheck is not called on each round's merged ChangeSet. The workflow lacks the re-check required by the spec after each fix round.",
+            "evidence": "AC-6 states: 'the same boundaryCheck function is applied to the merged ChangeSet, returned by the `merge:` mechanical agent'. A search for the merge agent call site combined with a boundaryCheck on the result should exist but does not. The implementation lacks the round-level boundary re-check entirely.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-6 round-level boundary recheck missing",
+            "status": "open"
+          },
+          {
+            "id": "f5-ac7-missing-escalation-wording",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-7 acceptance criterion NOT MET: when a sibling task recorded a boundary violation, the empty-diff refusal message must name that sibling and the straying paths, but the implementation never collects or uses boundary violation records.",
+            "evidence": "AC-7 requires the workflow to name 'at least one straying path' and identify the task recorded straying into a sibling's surfaces. The diff shows a boundaryViolations array should track violations, and strayedIntoMe logic should build the refusal message, but these do not exist in the actual .claude/workflows/build-implement.js file.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-7 sibling violation naming in empty-diff refusal not implemented",
+            "status": "open"
+          },
+          {
+            "id": "f6-ac12-missing-lens-prompt-binding",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-12 acceptance criterion NOT MET: the shared lens prompt never binds criteria to the task's owned_criteria_ids or names sibling owners. Lenses are not told which criteria they own and which siblings own the rest.",
+            "evidence": "AC-12 requires the prompt to 'state the task's own criteria_ids verbatim, list for each remaining acceptance criterion the sibling task id that owns it, and say that a criterion this task does not own is never a finding'. The criteriaScope function (which should compute this binding) is never called, and the lens prompt has no code to construct this binding using scopeOf/sibling_owner information.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-12 lens prompt missing criteria scope binding",
+            "status": "open"
+          },
+          {
+            "id": "f7-ac11-missing-stripforeignfindings",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-11 acceptance criterion NOT MET: stripForeignFindings is never called to drop findings whose only cited criteria belong to siblings. Tasks owning one criterion of seventeen will still be failed for the other sixteen.",
+            "evidence": "AC-11 requires 'stripForeignFindings returns verdicts with foreign findings removed' and 'applied before normalizeVerdict and adjudicate'. The workflow has no call to stripForeignFindings, so mixed verdicts with both owned and foreign findings are never pruned, violating the core isolation requirement.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-11 stripForeignFindings never called to prune sibling-owned findings",
+            "status": "open"
+          },
+          {
+            "id": "f8-ac15-missing-routefinding",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-15 acceptance criterion NOT MET: routeFinding is never called; the workflow's fan-out logic still uses the old isTestFinding decision by location alone, unable to respect the new target field.",
+            "evidence": "AC-15 requires 'the workflow's fan-out uses routeFinding in place of today's isTestFinding for both the scope-slicer filter and the fixer dispatch'. routeFinding is never invoked anywhere in the actual workflow, so findings with target='test' pointing at code locations will still be routed to the code fixer (forbidden to edit tests), instead of to the test author.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-15 routeFinding never called, target field still ignored",
+            "status": "open"
+          },
+          {
+            "id": "f9-ac16-missing-fixoutcome",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-16 acceptance criterion NOT MET: fixOutcome is never called to detect TEST-ONLY prefix in fixer notes; TEST-ONLY outcomes are never routed to the Test Author repair path.",
+            "evidence": "AC-16 requires 'fixOutcome(notes) returns test_only for TEST-ONLY: prefix' and 'the workflow re-routes a test_only finding to the Test Author repair path once within the same round'. The actual workflow has no logic to parse fixOutcome or handle test_only re-routing, so fixer responses starting with TEST-ONLY: are never re-routed, leaving the broken test unrepaired.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-16 fixOutcome never called, TEST-ONLY findings never re-routed",
+            "status": "open"
+          }
+        ],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 62,
+      "failed": 1,
+      "results_ref": ".artifacts/integration/t7i.json"
+    },
+    "tests_landed": [
+      "AC-13-lens-criteria-scoping-doc.test.js"
+    ],
+    "tests_skipped": [],
+    "escalations": [
+      {
+        "task_id": "t1-decision-functions-integration",
+        "reason": "repeat_finding",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (7 findings)",
+          "r1: deferred 3 findings past the fixer cap: finding-2,finding-3,finding-4",
+          "r1: overruled spec_conformance x3 (lens-spec-conformance.md, lens-correctness.md, implementer.md) — all cited AC-13/AC-17, which the t7 decomposition assigns exclusively to sibling task t2-agent-documentation; all three locations lie outside t1's owned_surfaces. Correct no-op each time.",
+          "r2 [correctness]: fail (12 findings)",
+          "r2: deferred 8 findings past the fixer cap: f5,f6,f7,f8,f9,f10,f11,f12",
+          "r2: overruled correctness at build-implement.js:136 — judge verified the task worktree (commits 6782174, 9dc97b7), found sentinels at 149/441 with all 17 functions and 11/11 tests passing, and ruled the finding a stale/wrong-worktree evidence error.",
+          "r2: upheld correctness at substrate/test/extract-fixloop.js:46 — judge read the file 'at current HEAD' and saw the 7-key factory. VERIFIED WRONG IN THIS ESCALATION: `git show task/t1-decision-functions-integration:substrate/test/extract-fixloop.js` lines 49-55 contain the full 17-key factory (8 existing + 9 new). The judge read main at c5e465e, i.e. the pre-task state. The one surviving upheld finding is the same wrong-tree error as the one it overruled in the same round.",
+          "r3 [correctness]: fail (9 findings)",
+          "r3: correctness has failed 3 consecutive rounds — not converging.",
+          "ESCALATION VERIFICATION — main is at c5e465e (pre-task). build-implement.js there: sentinels 136/270, 8 functions. This is exactly what all 9 open findings describe. On task/t1-decision-functions-integration (4 commits: 6782174, 9dc97b7, de96cd0, 1c93c28): sentinels 149/441; surfaceRef:291, boundaryCheck:325, routeFinding:423; boundaryCheck called at 621 (settled ChangeSet, AC-4) and 916 (merged per round, AC-6); criteriaScope:652 (AC-12); stripForeignFindings:709 (AC-11); routeFinding:774 (AC-15); fixOutcome:827,828,852,857 (AC-16); boundaryViolations:498 and strayedIntoMe:581-585 (AC-7). All nine open findings and the one upheld dispute are false against the ChangeSet under review.",
+          "ESCALATION VERIFICATION — CAUSE: the lens prompt is the only agent prompt in the verify loop that never names the worktree. build-implement.js:445 tells the Test Runner 'In worktree ${wt} the change is already committed on branch ${branch}'; the lens builder at :456 passes only specText and JSON.stringify(diffOnly). The lens greps its cwd — the repo root at pre-task HEAD — and re-reports the pre-task file every round. overruledNote is a text nudge and cannot change which file a lens opens; that is why r2's correct overrule produced an identical r3.",
+          "ESCALATION VERIFICATION — TEST RUN in .artifacts/worktrees/t1-decision-functions-integration: boundary-decision-functions.test.js 11/11 pass; finding-target-contract.test.js 4/4 pass; boundary-wiring.test.js 9/12 pass. The 3 failures (AC-12, AC-15, AC-16) are test-assertion defects, not implementation defects: AC-12 slices workflow source from 'const lens = (name, focus' onward and asserts /criteria_ids/ inside it, but criteriaScopeNote is built at :653 ABOVE that slice and interpolated at :681 — wrong text region; AC-15 greps the identifier isTestFinding, which survives only in two comments at :421 and :771 that read 'Replaces isTestFinding' and 'routeFinding replaces isTestFinding'; AC-16 asserts a source pattern, but `applied` already filters fixOutcome(...)==='applied', which excludes test_only by construction (comment at :836 states it).",
+          "ESCALATION VERIFICATION — WHY THE LOOP CANNOT CLOSE THESE: all three real defects are target:'test' findings. The lens never set target, so routeFinding dispatched them to the code fixer, which is forbidden to edit tests and correctly disputed. The spec's own AC-16 TEST-ONLY path exists for exactly this case and could not engage because the classification it depends on was never made. Separately, the lens-prompt defect lives in the file under review while the running loop executes the OLD build-implement.js from main — the fix cannot take effect inside the run that needs it.",
+          "ESCALATION VERIFICATION — ARTIFACT SAFETY: the four commits are on branch task/t1-decision-functions-integration and survive the container. Per CLAUDE.md, .artifacts/worktrees/ is gitignored and dies with the container; nothing needed is held only there."
+        ],
+        "repeats": [
+          {
+            "id": "f1-ac1-missing-functions",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:136-270",
+            "claim": "AC-1 acceptance criterion FAILED: the decision block does not expose the nine new decision functions required by the spec; test extracted 7 functions when expecting 17.",
+            "evidence": "Test AC-1 in boundary-decision-functions.test.js failed with: 'Expected values to be strictly deep-equal' showing actual=[lensesToRun, nextLenses, roundBudget, scopeOf, scopeTargets, shouldEscalate, taskCeiling] (7 functions) vs expected=[8 existing + 9 new functions] (17 total). Functions citedCriteria, criteriaScope, boundaryCheck, fixOutcome, isForeignCriterionFinding, routeFinding, stripForeignFindings, surfaceRef, withinOwned are missing.",
+            "dedupe_key": ".claude/workflows/build-implement.js:136-270|AC-1 decision block missing 9 new functions in decision block definition",
+            "status": "open"
+          },
+          {
+            "id": "f2-ac1-missing-definitions",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:136-270",
+            "claim": "AC-1 acceptance criterion NOT MET: the nine new decision functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome) are not defined anywhere in the decision block between the sentinels.",
+            "evidence": "Grep search for 'function surfaceRef', 'function boundaryCheck', etc. in .claude/workflows/build-implement.js returns no matches. The decision block at lines 136-270 contains only the 8 original functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate). The worktree file at .artifacts/worktrees/t1-decision-functions-integration/.claude/workflows/build-implement.js has these functions properly defined at lines 291-440, proving the implementation was not committed to the actual repo file.",
+            "dedupe_key": ".claude/workflows/build-implement.js:136-270|nine new decision functions not defined in decision block",
+            "status": "open"
+          },
+          {
+            "id": "f3-ac4-missing-call",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-4 acceptance criterion NOT MET: boundaryCheck is never called on the settled ChangeSet after empty-diff resolution and before any verify-loop agent label. Wiring test would fail because the call site does not exist.",
+            "evidence": "Grep search for 'boundaryCheck(' in .claude/workflows/build-implement.js returns no results. AC-4 explicitly requires: 'the boundaryCheck call site appears in build-implement.js after the empty-diff loop and before the first verify-loop agent label'. The workflow has no such call. Test AC-4 ('boundaryCheck runs on the settled ChangeSet after the empty-diff resolution and before any verify-loop agent label') at boundary-wiring.test.js:18 attempts to locate this call with text.indexOf('boundaryCheck(', settledIdx) which would fail.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-4 boundaryCheck call site does not exist in workflow",
+            "status": "open"
+          },
+          {
+            "id": "f4-ac6-missing-roundlevel-check",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-6 acceptance criterion NOT MET: boundaryCheck is not called on each round's merged ChangeSet. The workflow lacks the re-check required by the spec after each fix round.",
+            "evidence": "AC-6 states: 'the same boundaryCheck function is applied to the merged ChangeSet, returned by the `merge:` mechanical agent'. A search for the merge agent call site combined with a boundaryCheck on the result should exist but does not. The implementation lacks the round-level boundary re-check entirely.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-6 round-level boundary recheck missing",
+            "status": "open"
+          },
+          {
+            "id": "f5-ac7-missing-escalation-wording",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-7 acceptance criterion NOT MET: when a sibling task recorded a boundary violation, the empty-diff refusal message must name that sibling and the straying paths, but the implementation never collects or uses boundary violation records.",
+            "evidence": "AC-7 requires the workflow to name 'at least one straying path' and identify the task recorded straying into a sibling's surfaces. The diff shows a boundaryViolations array should track violations, and strayedIntoMe logic should build the refusal message, but these do not exist in the actual .claude/workflows/build-implement.js file.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-7 sibling violation naming in empty-diff refusal not implemented",
+            "status": "open"
+          },
+          {
+            "id": "f6-ac12-missing-lens-prompt-binding",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-12 acceptance criterion NOT MET: the shared lens prompt never binds criteria to the task's owned_criteria_ids or names sibling owners. Lenses are not told which criteria they own and which siblings own the rest.",
+            "evidence": "AC-12 requires the prompt to 'state the task's own criteria_ids verbatim, list for each remaining acceptance criterion the sibling task id that owns it, and say that a criterion this task does not own is never a finding'. The criteriaScope function (which should compute this binding) is never called, and the lens prompt has no code to construct this binding using scopeOf/sibling_owner information.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-12 lens prompt missing criteria scope binding",
+            "status": "open"
+          },
+          {
+            "id": "f7-ac11-missing-stripforeignfindings",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-11 acceptance criterion NOT MET: stripForeignFindings is never called to drop findings whose only cited criteria belong to siblings. Tasks owning one criterion of seventeen will still be failed for the other sixteen.",
+            "evidence": "AC-11 requires 'stripForeignFindings returns verdicts with foreign findings removed' and 'applied before normalizeVerdict and adjudicate'. The workflow has no call to stripForeignFindings, so mixed verdicts with both owned and foreign findings are never pruned, violating the core isolation requirement.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-11 stripForeignFindings never called to prune sibling-owned findings",
+            "status": "open"
+          },
+          {
+            "id": "f8-ac15-missing-routefinding",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-15 acceptance criterion NOT MET: routeFinding is never called; the workflow's fan-out logic still uses the old isTestFinding decision by location alone, unable to respect the new target field.",
+            "evidence": "AC-15 requires 'the workflow's fan-out uses routeFinding in place of today's isTestFinding for both the scope-slicer filter and the fixer dispatch'. routeFinding is never invoked anywhere in the actual workflow, so findings with target='test' pointing at code locations will still be routed to the code fixer (forbidden to edit tests), instead of to the test author.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-15 routeFinding never called, target field still ignored",
+            "status": "open"
+          },
+          {
+            "id": "f9-ac16-missing-fixoutcome",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js",
+            "claim": "AC-16 acceptance criterion NOT MET: fixOutcome is never called to detect TEST-ONLY prefix in fixer notes; TEST-ONLY outcomes are never routed to the Test Author repair path.",
+            "evidence": "AC-16 requires 'fixOutcome(notes) returns test_only for TEST-ONLY: prefix' and 'the workflow re-routes a test_only finding to the Test Author repair path once within the same round'. The actual workflow has no logic to parse fixOutcome or handle test_only re-routing, so fixer responses starting with TEST-ONLY: are never re-routed, leaving the broken test unrepaired.",
+            "dedupe_key": ".claude/workflows/build-implement.js|AC-16 fixOutcome never called, TEST-ONLY findings never re-routed",
+            "status": "open"
+          }
+        ],
+        "hypothesis": "The lens prompt is the only verify-loop prompt that never names the task worktree or branch, so the lens greps the repo root at pre-task HEAD c5e465e and re-reports the pre-task file as nine defects every round — the fix loop cannot converge because the defect is in its evidence channel, upstream of anything a fixer can touch.",
+        "options": [
+          "direct_drive",
+          "guide"
+        ],
+        "disputes_lost": [
+          {
+            "id": "f2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/extract-fixloop.js:46",
+            "claim": "AC-1 acceptance criterion: loadFixLoopDecisions() returns only seven function names in the return object, not the eight existing functions plus nine new ones required by the spec.",
+            "evidence": "Line 46 shows: `const factory = new Function(block + '\\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }')` — missing emptyDiffAction from the existing eight, and missing all nine new functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome). The diff at lines 481-487 shows it should be changed to return all 17 functions, but the actual file has the old version.",
+            "dedupe_key": "substrate/test/extract-fixloop.js:46|return statement incomplete",
+            "status": "disputed"
+          }
+        ]
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 546256,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t7i",
+      "created_at": "2026-09-11T19:21:58Z"
+    }
+  }
+}
