@@ -1,0 +1,107 @@
+{
+  "id": "c1v-launch_approval",
+  "gate": "launch_approval",
+  "run_id": "c1v",
+  "workflow": "launch",
+  "status": "open",
+  "opened_at": "2026-09-11T02:02:00.000Z",
+  "options": [
+    "approve",
+    "veto"
+  ],
+  "provenance": {
+    "node": "launch_approval",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "c1v",
+    "created_at": "2026-09-11T02:02:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "deploy",
+  "payload": {
+    "release_candidate_id": "rc-c1v",
+    "project_id": "toy",
+    "iteration": 3,
+    "bundle_ref": ".artifacts/c1v-build-implement.json",
+    "artifact_ref": "integration/c1v",
+    "artifact_sha": "44df6d7adf44108db3062bc590ee4cc7677a68b7",
+    "preflight": {
+      "go": true,
+      "checks": [
+        {
+          "name": "suite_green_in_bundle",
+          "status": "pass",
+          "detail": "bundle reports 35 passed, 0 failed (.artifacts/integration/c1v.json)"
+        },
+        {
+          "name": "artifact_exists",
+          "status": "pass",
+          "detail": "integration/c1v = 44df6d7adf44108db3062bc590ee4cc7677a68b7"
+        },
+        {
+          "name": "suite_green_on_artifact",
+          "status": "pass",
+          "detail": "re-run at 44df6d7a: 35 passed, 0 failed (.artifacts/launch/rc-c1v.suite.json); bundle said 35"
+        },
+        {
+          "name": "all_change_sets_passed_panel",
+          "status": "pass",
+          "detail": "1/1 change sets pass on their final round; 0 veto round(s) over 1 rounds"
+        },
+        {
+          "name": "no_unresolved_escalations",
+          "status": "pass",
+          "detail": "0 in bundle; 0 open escalation gate(s)"
+        },
+        {
+          "name": "no_open_sev1",
+          "status": "pass",
+          "detail": "gate queue has no open sev1_page for this project"
+        },
+        {
+          "name": "migrations_reversible",
+          "status": "pass",
+          "detail": "no migration files in 3 changed file(s) since merge-base with main"
+        }
+      ]
+    },
+    "release_notes": "Added optional `offset` query parameter to GET /items for pagination. The parameter skips a specified number of results after filtering and sorting, enabling efficient page-based retrieval. Offset must be a non-negative integer; invalid values return 400 Bad Request. Requests beyond available results return an empty array. Fully backward compatible—existing requests work unchanged. Parameter is ignored on item detail routes.",
+    "release_notes_ref": ".artifacts/launch/c1v.notes.md",
+    "evidence": {
+      "specs": [
+        "spec-wi-c1-1"
+      ],
+      "suite": {
+        "passed": 35,
+        "failed": 0
+      },
+      "suite_on_artifact": {
+        "passed": 35,
+        "failed": 0,
+        "results_ref": ".artifacts/launch/rc-c1v.suite.json"
+      },
+      "panels": {
+        "change_sets": 1,
+        "final_pass": 1,
+        "final_fail": 0,
+        "vetoes": 0,
+        "rounds": 1
+      },
+      "escalations": [],
+      "starved_items": [],
+      "open_gates": []
+    },
+    "options": [
+      "approve",
+      "veto"
+    ],
+    "provenance": {
+      "node": "launch",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "model": "n/a",
+      "run_id": "c1v",
+      "created_at": "2026-09-11T02:00:00Z"
+    }
+  }
+}
