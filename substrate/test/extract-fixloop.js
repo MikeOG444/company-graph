@@ -1,8 +1,10 @@
-// Shared helper for the fix-loop cost-optimization tests (spec-wi-opp-p5-4 / AC-1).
+// Shared helper for the fix-loop decision-block tests (spec-wi-opp-p5-4 / AC-1, extended by
+// spec-wi-unactionable-findings / AC-1 with the nine owned-surfaces-boundary and unactionable-finding
+// decisions).
 //
 // Reads .claude/workflows/build-implement.js as text, cuts the pure-JavaScript block
 // delimited by the exact sentinel lines, and evaluates it with `new Function` exactly
-// the way AC-1 describes, so the seven decision functions can be exercised directly
+// the way AC-1 describes, so the seventeen decision functions can be exercised directly
 // without executing the rest of the workflow (which needs runtime handles this test
 // suite never constructs).
 import fs from 'node:fs'
@@ -37,12 +39,18 @@ export function extractBlock(text) {
   return { block, beginCount: beginIdxs.length, endCount: endIdxs.length }
 }
 
-// Evaluates the extracted block exactly as AC-1 prescribes and returns the object of
-// seven decision functions.
+// Evaluates the extracted block exactly as AC-1 prescribes and returns the object of all
+// seventeen decision functions: the eight pre-existing ones plus the nine added for the
+// owned-surfaces boundary and unactionable-finding work.
 export function loadFixLoopDecisions() {
   const { block } = extractBlock(readWorkflowText())
   if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
   // eslint-disable-next-line no-new-func
-  const factory = new Function(block + '\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }')
+  const factory = new Function(block + `
+    return {
+      scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate,
+      surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding,
+      stripForeignFindings, routeFinding, fixOutcome,
+    }`)
   return factory()
 }

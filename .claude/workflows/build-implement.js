@@ -52,6 +52,9 @@ const APP = `${A.repo}`
 // nothing. Pass test_dir explicitly whenever the app's test glob is not <repo>/test/.
 const TEST_DIR = A.test_dir ?? `${APP}/test`
 const VETO_LENS = 'security'
+// Surfaces the boundary check never flags: transient artifact-store paths a diff should never contain in the
+// first place, but the check is defensive rather than assuming that can never happen.
+const EXEMPT_PREFIXES = [`${ART}/`]
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 // Output tokens for this turn's shared pool at start; the runtime exposes no per-agent count, so spend is a run-level delta.
 const TOKENS_AT_START = budget.spent()
@@ -77,7 +80,10 @@ const Finding = { type: 'object', additionalProperties: false,
   required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
     location: { type: 'string' }, claim: { type: 'string' }, evidence: { type: 'string' }, dedupe_key: { type: 'string' },
-    status: { enum: ['open', 'fixed', 'disputed', 'overruled', 'repeat'] } } }
+    status: { enum: ['open', 'fixed', 'disputed', 'overruled', 'repeat'] },
+    // Additive, optional. The lens sets it when it knows which artifact the fix belongs in; routeFinding falls
+    // back to location only when it is absent. Never required — an older lens that never sets it keeps working.
+    target: { enum: ['implementation', 'test'] } } }
 const Verdict = { type: 'object', additionalProperties: false,
   required: ['lens', 'verdict', 'attempts', 'findings', 'confidence'],
   properties: { lens: { enum: ['spec_conformance', 'correctness', 'security', 'tiebreak'] },
@@ -111,11 +117,16 @@ const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
 // A verdict is derived from its findings, not declared beside them (r8: correctness listed a high-severity defect and said pass).
 // Findings are defects only, so any finding other than a SPEC-LEVEL note makes the lens a fail. Code decides; the lens only detects.
 const SPEC_LEVEL = /^SPEC-LEVEL:/
+// Fully derived, both directions: a lens's self-declared verdict never overrides what its own findings show.
+// The "pass but listed a defect" direction is r8's fix; the "fail but carries no defect" direction is needed now
+// that stripForeignFindings can remove every defect a lens raised (AC-11) — a lens that failed ONLY on a
+// sibling-owned criterion must read as pass once that finding is gone, not stay failed on its own say-so.
 function normalizeVerdict(v, tag) {
   const defects = (v.findings ?? []).filter(f => !SPEC_LEVEL.test(String(f.claim)))
-  if (v.verdict === 'pass' && defects.length) {
-    log(`${tag} ${v.lens}: said pass but listed ${defects.length} defect(s); recorded as fail`)
-    return { ...v, verdict: 'fail' }
+  const derived = defects.length ? 'fail' : 'pass'
+  if (v.verdict !== derived) {
+    log(`${tag} ${v.lens}: said ${v.verdict} but ${defects.length} defect(s) remain; recorded as ${derived}`)
+    return { ...v, verdict: derived }
   }
   return v
 }
@@ -267,6 +278,159 @@ function shouldEscalate(ctx, findings) {
   if (!keys.length || keys.every(k => seenKeys.has(k))) return 'no_fresh_findings'
   return null
 }
+
+// ---- Owned-surfaces boundary (wi-unactionable-findings) ----
+// Task.owned_surfaces was told to the decomposer and the implementer and verified by nobody; a ChangeSet's
+// touched_surfaces were reported and compared to nothing. These functions close that gap in pure code, called on
+// the settled ChangeSet before any lens, test runner or fixer runs, and again on each round's merged ChangeSet.
+
+// Canonical form of a Surface ref: drop a '#...' fragment (a schema pointer), a leading './', and a trailing '/'.
+// {kind:'schema', ref:'contracts.schema.json#/$defs/Finding'} -> 'contracts.schema.json'.
+function surfaceRef(surface) {
+  let ref = String(surface?.ref ?? '')
+  const hashIdx = ref.indexOf('#')
+  if (hashIdx !== -1) ref = ref.slice(0, hashIdx)
+  if (ref.startsWith('./')) ref = ref.slice(2)
+  if (ref.length > 1 && ref.endsWith('/')) ref = ref.slice(0, -1)
+  return ref
+}
+
+// True when touchedRef sits inside one of ownedRefs or exemptPrefixes. An owned/exempt ref ending in '/' is
+// directory-shaped: it covers itself and everything under it. One that does NOT end in '/' covers only an exact
+// match — 'substrate/test' never covers 'substrate/testing/x.js', a sibling-prefix near-miss a naive startsWith
+// would wrongly allow.
+function withinOwned(touchedRef, ownedRefs, exemptPrefixes) {
+  const t = surfaceRef({ ref: touchedRef })
+  const covers = (rawRef) => {
+    let owned = String(rawRef ?? '')
+    const hashIdx = owned.indexOf('#')
+    if (hashIdx !== -1) owned = owned.slice(0, hashIdx)
+    if (owned.startsWith('./')) owned = owned.slice(2)
+    if (t === owned) return true
+    if (owned.endsWith('/')) {
+      const dir = owned.slice(0, -1)
+      if (t === dir || t.startsWith(owned)) return true
+    }
+    return false
+  }
+  return (ownedRefs ?? []).some(covers) || (exemptPrefixes ?? []).some(covers)
+}
+
+// Sorts every touched surface into: within this task's own envelope (ignored), within a sibling task's envelope
+// (a stray — the boundary violation), or claimed by nobody in the graph (unowned — a warning, never a defect).
+// touched_surfaces stays a permission ENVELOPE: only work OUTSIDE it is ever a problem, and this function is the
+// only place that decides "outside".
+function boundaryCheck({ touched_surfaces, owned_surfaces, siblings, exempt_prefixes }) {
+  const ownRefs = (owned_surfaces ?? []).map(s => s.ref)
+  const exempts = exempt_prefixes ?? []
+  const strays = []
+  const unowned = []
+  for (const surf of touched_surfaces ?? []) {
+    const ref = surfaceRef(surf)
+    if (withinOwned(ref, ownRefs, exempts)) continue
+    let owner = null
+    for (const sib of siblings ?? []) {
+      const sibRefs = (sib.owned_surfaces ?? []).map(s => s.ref)
+      if (withinOwned(ref, sibRefs, exempts)) { owner = sib.id; break }
+    }
+    if (owner) strays.push({ ref, owner })
+    else unowned.push(ref)
+  }
+  const verdict = strays.length ? 'violation' : (unowned.length ? 'unowned' : 'clean')
+  return { verdict, strays, unowned }
+}
+
+// The acceptance criteria this task owns, which sibling task (same spec, same TaskGraph) owns each of the rest,
+// and which criteria in acceptance_ids no task of this spec claims at all. A task in a DIFFERENT spec is never a
+// sibling. Degrades to an empty unassigned list — never throws — when acceptance_ids is not supplied.
+function criteriaScope({ task, tasks, acceptance_ids }) {
+  const owned = [...(task?.criteria_ids ?? [])]
+  const siblingTasks = (tasks ?? []).filter(t => t && t.spec_id === task?.spec_id && t.id !== task?.id)
+  const sibling_owner = {}
+  for (const sib of siblingTasks) {
+    for (const c of sib.criteria_ids ?? []) {
+      if (!(c in sibling_owner)) sibling_owner[c] = sib.id
+    }
+  }
+  const ownedSet = new Set(owned)
+  const claimed = new Set([...ownedSet, ...Object.keys(sibling_owner)])
+  const unassigned = (acceptance_ids ?? []).filter(id => !claimed.has(id))
+  return { owned, sibling_owner, unassigned }
+}
+
+// Acceptance-criterion ids cited as WHOLE tokens across a finding's claim, evidence and location — never a
+// substring hit inside a longer id ('AC-12' inside 'AC-121') or a longer word ('AC-1' inside 'xAC-1').
+function citedCriteria(finding, acceptanceIds) {
+  const text = [finding?.claim, finding?.evidence, finding?.location].filter(Boolean).join('\n')
+  const found = []
+  for (const id of acceptanceIds ?? []) {
+    const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`\\b${escaped}\\b`)
+    if (re.test(text)) found.push(id)
+  }
+  return found
+}
+
+// True only when a finding cites criteria and EVERY criterion it cites belongs to a sibling — never this task's
+// own, never an uncited finding, never a mix, and never a criterion nobody in the spec owns (unassigned stays
+// today's behaviour: nobody to attribute it to, so it is not dropped as foreign).
+function isForeignCriterionFinding(finding, scope) {
+  const owned = new Set(scope?.owned ?? [])
+  const siblingIds = Object.keys(scope?.sibling_owner ?? {})
+  const unassigned = new Set(scope?.unassigned ?? [])
+  const universe = [...owned, ...siblingIds, ...unassigned]
+  const cited = citedCriteria(finding, universe)
+  if (!cited.length) return false
+  if (cited.some(c => owned.has(c))) return false
+  return cited.length > 0 && cited.every(c => siblingIds.includes(c))
+}
+
+// Removes, from each verdict's findings, every finding whose only cited acceptance criteria belong to a sibling
+// task — so a task owning one criterion of seventeen is never failed for the other sixteen. Returns the pruned
+// verdicts plus a dropped list (dedupe_key, the cited criterion, and the sibling task id that owns it) so the
+// caller can log it and keep it out of `seen` and the deduped findings list.
+function stripForeignFindings(verdicts, scope) {
+  const siblingOwner = scope?.sibling_owner ?? {}
+  const siblingIds = Object.keys(siblingOwner)
+  const dropped = []
+  const next = (verdicts ?? []).map(v => {
+    const kept = []
+    for (const f of v.findings ?? []) {
+      if (isForeignCriterionFinding(f, scope)) {
+        const cited = citedCriteria(f, siblingIds)
+        const criterion = cited[0]
+        dropped.push({ dedupe_key: f.dedupe_key, criterion, sibling: siblingOwner[criterion] })
+      } else {
+        kept.push(f)
+      }
+    }
+    return { ...v, findings: kept }
+  })
+  return { verdicts: next, dropped }
+}
+
+// Which repair path a finding belongs to. target, when the lens set it, decides outright. Only when it is absent
+// does the existing location rule decide: under the test artifact directory or the TestSet's tests_ref is "test",
+// everything else is "code". Replaces isTestFinding, which decided by location alone and sent a finding about a
+// test assertion (whose location points at the code the assertion covers) to the code Fixer, forbidden to edit tests.
+function routeFinding(finding, { tests_ref, artifact_dir } = {}) {
+  if (finding?.target === 'test') return 'test'
+  if (finding?.target === 'implementation') return 'code'
+  const loc = String(finding?.location ?? '')
+  const testsDir = artifact_dir ? `${artifact_dir}/tests/` : null
+  if ((testsDir && loc.includes(testsDir)) || (tests_ref && loc.includes(tests_ref))) return 'test'
+  return 'code'
+}
+
+// A code Fixer's notes decide the outcome of its fix: 'TEST-ONLY:' means the defect is really in the test, not
+// the code the Fixer owns — routed once to the Test Author repair path, distinct from 'DISPUTE:', which the
+// dispute judge rules on. Anything else is a normal applied fix.
+function fixOutcome(notes) {
+  const n = String(notes ?? '')
+  if (n.startsWith('TEST-ONLY:')) return 'test_only'
+  if (n.startsWith('DISPUTE:')) return 'dispute'
+  return 'applied'
+}
 // ---- END fix-loop decisions ----
 
 // =====================================================================
@@ -321,6 +485,10 @@ for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerW
 
 const panelResults = []
 const escalations = []
+// Run-level record of every recorded boundary violation: { straying_task_id, strays: [{ref, owner}] }. Read by a
+// later task's empty-diff refusal (AC-7) to name the sibling recorded straying into ITS owned surfaces, instead of
+// the generic "check whether that implementer wrote outside its owned surfaces".
+const boundaryViolations = []
 const taskDone = {}, resolveTask = {}
 for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
 
@@ -338,6 +506,9 @@ async function runTask({ spec, task, spec_ref }) {
   const specText = spec_ref
     ? `Spec: the FULL spec (acceptance criteria, touched surfaces, exclusions) is at ${spec_ref}; read it before acting. Summary: ${JSON.stringify({ id: spec.id, goal: spec.goal, touched_surfaces: spec.touched_surfaces, exclusions: spec.out_of_scope })}`
     : `Spec: ${JSON.stringify({ id: spec.id, goal: spec.goal, acceptance: spec.acceptance, touched_surfaces: spec.touched_surfaces, exclusions: spec.out_of_scope })}`
+  // Sibling tasks: same spec's TaskGraph, everyone else. Used by the boundary check (a stray into a sibling's
+  // owned surfaces is a violation) and by the lens prompt's criteria scope (AC-12).
+  const siblingTasks = tasks.filter(t => t.spec.id === spec.id && t.task.id !== task.id).map(t => t.task)
   const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
   const deps = await Promise.all(depIds.map(d => taskDone[d]))
   if (deps.some(d => !d || !d.passed)) {
@@ -398,8 +569,14 @@ async function runTask({ spec, task, spec_ref }) {
       continue
     }
     // refuse: nothing to review and no dependency left to explain it. Say so; spend no round on it.
+    // If a sibling was already RECORDED straying into this task's owned surfaces (AC-7), name it and the path
+    // instead of the generic hedge — the run measured the cause, it does not need to guess at it.
+    const strayedIntoMe = boundaryViolations.flatMap(v => v.strays
+      .filter(s => s.owner === task.id).map(s => ({ straying_task_id: v.straying_task_id, ref: s.ref })))
     const why = `${task.id}: the captured diff is EMPTY (${cs.diff_bytes} bytes) against ${recaptured ? BASE : base} on branch ${branch}`
-      + (deps.length ? `. Its dependency ${deps.map(d => d.task.id).join(', ')} may already carry this task's work — check whether that implementer wrote outside its owned surfaces.` : '.')
+      + (strayedIntoMe.length
+          ? `. Task ${strayedIntoMe[0].straying_task_id} was recorded straying into this task's owned surfaces at ${strayedIntoMe.map(s => s.ref).join(', ')} — that almost certainly explains the empty diff.`
+          : (deps.length ? `. Its dependency ${deps.map(d => d.task.id).join(', ')} may already carry this task's work — check whether that implementer wrote outside its owned surfaces.` : '.'))
     log(why)
     const esc = await agent(`Write an Escalation for a human. Reason: cannot_repro. History: ${JSON.stringify([why])}.
                              Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
@@ -434,6 +611,42 @@ async function runTask({ spec, task, spec_ref }) {
                 history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set() }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
+  // ---- Boundary check: Task.owned_surfaces is told to the implementer and verified by nobody. Run t5i wrote
+  // ledger/index.jsonl and ledger/runs/m2-maintain-triage.json, both owned by sibling t2, which then found its
+  // work done, committed nothing, and deadlocked on an empty diff. A stray into a SIBLING's owned surfaces ends
+  // the task here, before any lens, test runner or fixer is called; a surface no task in the graph owns is only
+  // a warning, and the task proceeds. touched_surfaces stays a permission ENVELOPE — only work OUTSIDE it, in a
+  // surface someone else owns, is ever a defect.
+  const escalateBoundaryViolation = async (boundary) => {
+    boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
+    const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
+    lines.forEach(l => ctx.history.push(l))
+    const esc = await agent(`Write an Escalation for a human. Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
+                             disjoint across tasks in the same spec); no panel was run and no round was spent on it.
+                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
+      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
+    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
+    return { ...ctx, passed: false }
+  }
+  const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+    siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
+  if (initialBoundary.verdict === 'violation') return escalateBoundaryViolation(initialBoundary)
+  if (initialBoundary.verdict === 'unowned') {
+    initialBoundary.unowned.forEach(ref => ctx.history.push(`${task.id} touched ${ref}, which no task in the graph owns`))
+  }
+
+  // Criteria scope (SCOPE MISMATCH fix): bind every lens to the criteria THIS task owns, and name the sibling
+  // that owns every remaining criterion, so a task owning one criterion of seventeen is never failed for the
+  // other sixteen.
+  const acceptanceIds = spec.acceptance?.map(a => a.id)
+  const scope = criteriaScope({ task, tasks: tasks.map(t => t.task), acceptance_ids: acceptanceIds })
+  const siblingCriteriaLines = Object.entries(scope.sibling_owner).map(([c, sib]) => `${c} is owned by sibling task ${sib}`)
+  const criteriaScopeNote = `This task owns exactly these acceptance criteria (task.criteria_ids): ${JSON.stringify(scope.owned)}.`
+    + (siblingCriteriaLines.length ? ` Every remaining acceptance criterion in this spec belongs to a sibling task: ${siblingCriteriaLines.join('; ')}.` : '')
+    + ` A criterion this task does not own is NEVER a finding, however unmet it looks — judge this change only against its own criteria_ids.`
+
   // ---- Verify → Fix cycle ----
   let confirming = false
   for (;;) {
@@ -458,11 +671,14 @@ async function runTask({ spec, task, spec_ref }) {
              three concrete attempts you made to break it. ${focus}
              Findings are DEFECTS ONLY: an attack you tried that the change blocks is an attempt, not a finding. Behavior the spec
              requires is never a finding. If you believe the spec itself is unsafe, record ONE finding with severity "low" and a claim
-             starting "SPEC-LEVEL:" and do not fail the change on it alone. ${overruledNote}
+             starting "SPEC-LEVEL:" and do not fail the change on it alone. ${criteriaScopeNote} ${overruledNote}
              ${specText}. Change (read the diff at diff_ref): ${JSON.stringify(diffOnly)}. ${extra}
-             Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".`,
+             Every finding needs location (path:line), claim, evidence, status "open", and dedupe_key = "<location>|<short normalized claim>".
+             Every finding also needs target: "test" when the defect is really in a test assertion (even one whose location points at
+             the code it covers) and you want it repaired by the Test Author rather than the code Fixer; "implementation" when it is a
+             defect in the code; omit target only if you cannot tell.`,
         { label: `lens:${name}:${task.id}:${tag}`, model: MODEL.cheap, ...AT(`lens-${name.replace(/_/g, '-')}`), schema: Verdict })
-        .then(v => v && normalizeVerdict({ ...v, lens: name }, tag))   // the script names the lens; the agent does not
+        .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
     const lensThunks = {
@@ -478,7 +694,13 @@ async function runTask({ spec, task, spec_ref }) {
         'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
         `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
     }
-    const verdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean).map(v => sealVerdict(v, MODEL.cheap))
+    const rawVerdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean)
+    // stripForeignFindings runs BEFORE normalizeVerdict and adjudicate (ROUTING/SCOPE fix): a finding whose only
+    // cited acceptance criteria belong to a sibling never reaches the adjudicator, never enters `seen`, and never
+    // gets a fixer, a diff-slicer or a test-repair agent spent on it.
+    const { verdicts: scopedVerdicts, dropped } = stripForeignFindings(rawVerdicts, scope)
+    dropped.forEach(d => ctx.history.push(`${tag}: dropped a finding citing ${d.criterion}, owned by sibling task ${d.sibling} — not this task's criterion to fail on`))
+    const verdicts = scopedVerdicts.map(v => sealVerdict(normalizeVerdict(v, tag), MODEL.cheap))
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
@@ -538,7 +760,10 @@ async function runTask({ spec, task, spec_ref }) {
     fresh.forEach(f => ctx.seen.add(f.dedupe_key))   // deferred findings stay out of `seen` and come back as fresh next round
     if (deferred.length) { log(`${task.id} ${tag}: fixer cap ${MAX_FIXERS}; deferred ${deferred.length} finding(s)`); ctx.history.push(`${tag}: deferred ${deferred.length} findings past the fixer cap: ${deferred.map(d => d.id).join(',')}`) }
 
-    const isTestFinding = (f) => String(f.location).includes(`${ART}/tests/`) || String(f.location).includes(ctx.testSet.tests_ref)
+    // routeFinding replaces isTestFinding: target (set by the lens) decides first, location decides only when
+    // target is absent — a finding about a test assertion whose location points at the code it covers still
+    // routes to the Test Author when the lens marked target "test".
+    const findingRoute = (f) => routeFinding(f, { tests_ref: ctx.testSet.tests_ref, artifact_dir: ART })
     const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
       properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
 
@@ -547,7 +772,7 @@ async function runTask({ spec, task, spec_ref }) {
     const ScopeMap = { type: 'object', additionalProperties: false, required: ['files'],
       properties: { files: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'scoped_diff_ref'],
         properties: { file: { type: 'string' }, scoped_diff_ref: { type: 'string' } } } } } }
-    const codeFresh = fresh.filter(f => !isTestFinding(f))
+    const codeFresh = fresh.filter(f => findingRoute(f) !== 'test')
     const scopeFiles = scopeTargets(codeFresh)
     let scopedByFile = new Map()
     if (scopeFiles.length) {
@@ -560,7 +785,7 @@ async function runTask({ spec, task, spec_ref }) {
       scopedByFile = new Map((sliced?.files ?? []).map(x => [x.file, x.scoped_diff_ref]))
     }
 
-    const fixes = (await parallel(fresh.map(f => () => isTestFinding(f)
+    const fixes = (await parallel(fresh.map(f => () => findingRoute(f) === 'test'
       ? agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
              Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref} so it asserts exactly what the spec says; do not read or modify
              the implementation. If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
@@ -582,22 +807,54 @@ async function runTask({ spec, task, spec_ref }) {
              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
              FIRST reproduce the finding empirically (run the code, a request, or the test it cites); lenses are read-only and can
              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
-             asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>".`,
+             asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>". If the
+             defect is real but lives in a TEST assertion rather than in this code — you are forbidden to edit tests — make no change
+             and set notes to "TEST-ONLY: <what the test asserts and why the code is right>"; it will be routed to the Test Author once.`,
             { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })
         })()))).filter(Boolean)
 
-    const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
+    // fixOutcome reads a code Fixer's notes: 'dispute' goes to the dispute judge as before; 'test_only' is a
+    // DIFFERENT outcome — the Fixer is forbidden to edit tests, so it is re-routed to the Test Author repair path
+    // once, in this same round, instead of the dispute judge; anything else is a normal applied fix.
+    const disputed = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')
+    const testOnly = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'test_only')
     const testRepairs = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
     if (testRepairs.length) {
       ctx.testSet = { ...ctx.testSet, tests_ref: testRepairs[testRepairs.length - 1].p.tests_ref }
       ctx.history.push(`${tag}: ${testRepairs.length} test finding(s) repaired by the Test Author`)
     }
-    const applied = fixes.filter(x => x.kind === 'code' && !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
+
+    // TEST-ONLY re-route (ROUTING fix, c): one repair attempt per finding, in this round, never twice for the
+    // same dedupe_key and never to the dispute judge. Not counted in `applied` either way.
+    let testOnlyRepairs = []
+    if (testOnly.length) {
+      testOnlyRepairs = (await parallel(testOnly.map(x => () =>
+        agent(`A code Fixer determined this finding is really a defect in the TESTS, not the implementation (its own reasoning: ${x.p.notes}).
+               Location: ${x.f.location}. Evidence: ${x.f.evidence}. Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref}
+               so it asserts exactly what the spec says; do not read or modify the implementation. If the test is right and the finding is
+               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Return tests_ref and the criteria the tests now cover.`,
+          { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p })))).filter(Boolean)
+      const resolvedTestOnly = testOnlyRepairs.filter(x => !x.p.notes?.startsWith('DISPUTE:'))
+      if (resolvedTestOnly.length) {
+        ctx.testSet = { ...ctx.testSet, tests_ref: resolvedTestOnly[resolvedTestOnly.length - 1].p.tests_ref }
+        ctx.history.push(`${tag}: ${resolvedTestOnly.length} TEST-ONLY finding(s) re-routed from the code Fixer and repaired by the Test Author`)
+      }
+    }
+
+    const applied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied').map(x => x.p)
     // Resolution of every finding raised this round, keyed by dedupe_key (the stable identity nextLenses and `seen`
     // both use — a finding's id is regenerated per round, dedupe_key is not): the input nextLenses re-panels from.
     const resolution = {}
     deferred.forEach(f => { resolution[f.dedupe_key] = 'deferred' })
-    fixes.forEach(x => { if (!x.p.notes?.startsWith('DISPUTE:')) resolution[x.f.dedupe_key] = 'fixed' })
+    fixes.forEach(x => { if (fixOutcome(x.p.notes) === 'applied') resolution[x.f.dedupe_key] = 'fixed' })
+    // A TEST-ONLY finding's resolution follows its ONE repair attempt: fixed when the Test Author's repair
+    // returns and is not itself a dispute, unresolved when the repair fails to run or disputes back (the
+    // catch-all below marks anything left unset "unresolved" — the same treatment every other unresolved
+    // finding gets).
+    testOnly.forEach(x => {
+      const repaired = testOnlyRepairs.find(r => r.f.dedupe_key === x.f.dedupe_key && !r.p.notes?.startsWith('DISPUTE:'))
+      if (repaired) resolution[x.f.dedupe_key] = 'fixed'
+    })
     let rulings = []
     if (disputed.length) {
       // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
@@ -645,6 +902,12 @@ async function runTask({ spec, task, spec_ref }) {
       { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (!merged) return { ...ctx, passed: false }
     ctx.changeSet = { ...merged, notes: undefined }
+    // Re-check the boundary on the ROUND's merged ChangeSet, not just the settled one — a fixer's incremental
+    // commit can stray just as an implementer's can. A violation ends the task instead of starting another round;
+    // clean or unowned changes nothing about how the loop continues.
+    const roundBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+      siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
+    if (roundBoundary.verdict === 'violation') return escalateBoundaryViolation(roundBoundary)
     ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
   }
 }
