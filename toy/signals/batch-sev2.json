@@ -1,0 +1,12 @@
+[
+  {
+    "id": "sig-p4-1",
+    "project_id": "toy",
+    "source": "user_report",
+    "fingerprint": "get-items:q-with-limit:missing-matches",
+    "first_seen": "2026-09-11T09:05:00Z",
+    "count": 3,
+    "payload_ref": "toy/signals/sig-p4-1.json",
+    "surfaces": [{ "kind": "api", "ref": "GET /items" }]
+  }
+]
