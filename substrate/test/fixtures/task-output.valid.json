@@ -1,0 +1,42 @@
+{
+  "summary": "build-implement r5 completed",
+  "logs": ["planning", "implementing", "verifying"],
+  "workflowProgress": [
+    {
+      "type": "workflow_agent",
+      "agentType": "implementer",
+      "model": "claude-sonnet-5",
+      "tokens": 30000,
+      "queuedAt": 1757563200000,
+      "startedAt": 1757563205000,
+      "lastProgressAt": 1757563500000
+    },
+    {
+      "type": "workflow_agent",
+      "agentType": "test-author",
+      "model": "claude-sonnet-5",
+      "tokens": 18000,
+      "queuedAt": 1757563210000,
+      "startedAt": 1757563215000,
+      "lastProgressAt": 1757563600000
+    },
+    {
+      "type": "workflow_agent",
+      "agentType": "lens-security",
+      "model": "claude-haiku-4-5-20251001",
+      "tokens": 4000,
+      "queuedAt": 1757563610000,
+      "startedAt": 1757563615000,
+      "durationMs": 45000
+    },
+    {
+      "type": "workflow_status",
+      "note": "not an agent entry; must be ignored by the workflow_agent filter"
+    }
+  ],
+  "result": {
+    "release_candidate_id": "r5-build-implement",
+    "artifacts": [],
+    "provenance": { "node": "build-implement", "executor": "ai_agent", "method": "hotl", "model": "sonnet", "run_id": "r5", "created_at": "2026-09-11T08:00:00Z" }
+  }
+}
