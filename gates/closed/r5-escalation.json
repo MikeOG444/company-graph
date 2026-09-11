@@ -1,0 +1,48 @@
+{
+  "id": "r5-escalation",
+  "gate": "escalation",
+  "run_id": "r5",
+  "workflow": "build-implement",
+  "status": "decided",
+  "opened_at": "2026-09-10T18:31:00.000Z",
+  "options": [
+    "guide",
+    "direct_drive",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r5",
+    "created_at": "2026-09-10T18:31:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-implement",
+  "payload": {
+    "task_id": "impl-wi-6-query-filter",
+    "reason": "repeat_finding",
+    "hypothesis": "The loop is stuck because the implementation is already spec-correct and all four surviving findings are defects in artifacts the fixer is forbidden to edit — a self-contradictory AC-2 fixture inside spec-wi-6 itself (its seed word 'widget' contains the needle 'get', so the fixture contradicts the spec's own literal-substring rule), two combination tests the spec ordered held until wi-5 that the test author shipped live anyway, and a README surface the decomposer assigned to no task — so every round the fixer correctly declines to touch app.js and the same four findings regenerate unchanged.",
+    "options": [
+      "guide",
+      "direct_drive",
+      "kill_to_spec"
+    ],
+    "history": [
+      "r1 [spec_conformance,security,correctness]: fail (4 findings)",
+      "r1: overruled correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:45-57 — the finding rests on a false premise ('widget'.includes('get') === false). Re-verified here by running node -e: 'widget'.toLowerCase().includes('get') === true, 'Gadget' === true, 'sprocket' === false. The implementation (needle = q.toLowerCase(); item.name.toLowerCase().includes(needle)) is exactly the normative rule in spec-wi-6's goal, decision (a). The defect is in spec-wi-6's own AC-2 illustrative fixture, which asserts the body is exactly [{id:2,name:'Gadget'}] for q=GET over the seed ['widget','Gadget','sprocket'] — that expectation contradicts the spec's own literal-substring rule because the seed word 'widget' ends in the needle 'get'. The test transcribed the bad fixture faithfully. Fix AC-2 and the test, not app.js.",
+      "r1: overruled spec_conformance at toy/README.md — touched_surfaces is a permission envelope, not a mandate; no acceptance criterion (AC-1..AC-14 are all behavioral HTTP assertions) requires documentation; and the decomposer's task record in .artifacts/traces/r4.1-build-spec.jsonl granted owned_surfaces of only toy/src/app.js plus the GET /items handler, deliberately excluding README.md, so editing it would itself have been a scope violation. Verified: .artifacts/worktrees/impl-wi-6-query-filter/toy/README.md is 11 lines and documents no query parameter at all — it does not document ?limit either, so the claimed wi-5 precedent is not visible on this base. The real object of the finding is a decomposition gap: the new q parameter and the new 400 {\"error\":\"invalid q\"} response have no documentation owner.",
+      "r1: upheld correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:165-173 — a real, spec-grounded defect in the test artifact, not the implementation. spec-wi-6's DEPENDENCY note states AC-11..AC-13 'are testable only on a base where wi-5 has already landed' and 'the combination tests are held until wi-5 merges', yet the test file ships AC-11, AC-12 and AC-13 as live unheld tests at lines 165-199. The finding's stated remedy is 'Test should not run' — it does not ask for ?limit=N — so the fixer's dispute (limit is wi-5, out of scope) rebutted a claim nobody made. Action: mark AC-11/AC-12/AC-13 held pending wi-5.",
+      "r1: overruled correctness at .artifacts/tests/impl-wi-6-query-filter/query-filter.test.js:187-199 — AC-13's assertions can only go green by building wi-5's limit validation into toy/src/app.js, which out_of_scope forbids ('Implementing ?limit=N itself — that is wi-5'). Verified the handler contains no limit parsing and applies the q filter to the full insertion-ordered [...items.values()] list, so a later cap step composes correctly when wi-5 lands. Same held-test gating matter as AC-11.",
+      "r1 verification pass (this escalation): .artifacts/results/impl-wi-6-query-filter.r1.json records 30/33 passing — 19/19 app tests green, 11/14 external green, failures exactly AC-2, AC-11, AC-13. All three failures are the artifacts adjudicated above. Zero in-scope edits to app.js remain that would change any of them.",
+      "r1: artifact inconsistency found while verifying — the test source at query-filter.test.js:45-57 queries q=GET, but the recorded error in .artifacts/results/impl-wi-6-query-filter.r1.json says \"Case-insensitive filter is including 'widget' when searching for 'GAD'\". Those cannot both be true: 'widget' does not contain 'gad'. The results file's error prose does not match the test it reports on, so the AC-2 evidence trail is itself unreliable and should be regenerated after the fixture is corrected.",
+      "r2: not attempted — the fix loop has no legal move. Every remaining finding names an artifact outside the task's owned_surfaces (spec-wi-6.json, the generated test file, toy/README.md). Escalating rather than burning a round that can only re-emit the same four findings."
+    ]
+  },
+  "decision": {
+    "option": "kill_to_spec",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T20:10:00.000Z",
+    "note": "HE: the spec's AC-2 fixture contradicts its own rule ('widget' contains 'get'); AC-11..13 were held on wi-5, which has now landed in integration/r5. Spec revised by hand; wi-6 re-runs on integration/r5."
+  }
+}

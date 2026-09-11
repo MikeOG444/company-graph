@@ -20,7 +20,12 @@
       "run_id": "r3",
       "created_at": "2026-09-10T07:27:00Z"
     },
-    "trace_ref": ".artifacts/traces/r3-build-spec.jsonl"
+    "trace_ref": ".artifacts/traces/r3-build-spec.jsonl",
+    "tokens_by_model": {
+      "claude-haiku-4-5": 109410,
+      "claude-opus-5": 57755
+    },
+    "cost_est_usd": 0.56
   },
   "result": {
     "ready": [],

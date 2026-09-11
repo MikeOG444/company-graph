@@ -451,6 +451,8 @@
         "finished_at":    { "type": "string", "format": "date-time" },
         "wall_clock_sec": { "type": "integer", "minimum": 0 },
         "tokens":         { "type": "integer", "minimum": 0 },
+        "tokens_by_model":{ "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }, "description": "Runtime token count per model id. Tokens are not comparable across tiers; this is what the Method Ledger prices." },
+        "cost_est_usd":   { "type": "number", "minimum": 0, "description": "Estimated cost from substrate/lib/pricing.json (blended per-model rate; see its note)." },
         "agents":         { "type": "integer", "minimum": 0 },
         "human_min":      { "type": "integer", "minimum": 0 },
         "artifact_count": { "type": "integer", "minimum": 0, "description": "Nested objects carrying provenance in the stored result." },

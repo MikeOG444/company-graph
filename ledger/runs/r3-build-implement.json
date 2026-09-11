@@ -20,7 +20,13 @@
       "run_id": "r3",
       "created_at": "2026-09-10T07:32:00Z"
     },
-    "trace_ref": ".artifacts/traces/r3-build-implement.jsonl"
+    "trace_ref": ".artifacts/traces/r3-build-implement.jsonl",
+    "tokens_by_model": {
+      "claude-sonnet-5": 142604,
+      "claude-haiku-4-5": 316873,
+      "claude-opus-5": 59825
+    },
+    "cost_est_usd": 1.26
   },
   "result": {
     "release_candidate_id": "rc-r3",

@@ -1,0 +1,1631 @@
+{
+  "entry": {
+    "id": "r4-build-spec",
+    "run_id": "r4",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-10T16:49:00.000Z",
+    "finished_at": "2026-09-10T16:59:00.000Z",
+    "wall_clock_sec": 600,
+    "result_ref": "ledger/runs/r4-build-spec.json",
+    "artifact_count": 17,
+    "escalations": 0,
+    "tokens": 1128031,
+    "agents": 25,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r4",
+      "created_at": "2026-09-10T16:49:00Z"
+    },
+    "trace_ref": ".artifacts/traces/r4-build-spec.jsonl",
+    "tokens_by_model": {
+      "claude-haiku-4-5": 654420,
+      "claude-opus-5": 473611
+    },
+    "cost_est_usd": 4.23
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-5",
+          "work_item_id": "wi-5",
+          "goal": "Add an optional `limit` query parameter to the existing `GET /items` collection route in toy/src/app.js so clients paging a large list can cap the response size. When `limit` is absent the route behaves exactly as it does today (200 with every item as a JSON array in insertion order). When `limit` is present it must be a canonical positive decimal integer — one or more ASCII digits, no leading zero, no sign, no decimal point, no exponent, no surrounding whitespace, and within JavaScript's safe-integer range (matching `/^[1-9][0-9]*$/` and `Number.isSafeInteger`), which is the same canonical-decimal-integer convention already used by `GET /items/:id`. A valid limit returns the first N items in insertion order (ascending id), or all items when N is greater than or equal to the number stored. Any other value — zero, negative, non-numeric, non-canonical, out of safe range, empty, or repeated (`?limit=1&limit=2`, which Express parses to an array) — returns 400 with the JSON body exactly `{ \"error\": \"invalid limit\" }` and changes nothing. Validation is scoped to the `GET /items` collection route only; `limit` on any other route is ignored, and unknown query parameters on `GET /items` are ignored. No other route, response shape, or storage behavior changes.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a fresh app with three items created in order via POST /items named \"a\", \"b\", \"c\"",
+              "when": "the client sends GET /items with no query string",
+              "then": "the response is 200 with a JSON array of all three items in insertion order [a, b, c] — behavior identical to before this change",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a fresh app with three items created in order named \"a\", \"b\", \"c\"",
+              "when": "the client sends GET /items?limit=2",
+              "then": "the response is 200 with a JSON array of exactly the first two items in insertion order, deep-equal to [a, b]",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a fresh app with three items created in order named \"a\", \"b\", \"c\"",
+              "when": "the client sends GET /items?limit=3 and separately GET /items?limit=10",
+              "then": "both responses are 200 and each body is deep-equal to [a, b, c]; a limit greater than the number of stored items is not an error and returns everything",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "a fresh app with no items created",
+              "when": "the client sends GET /items?limit=1",
+              "then": "the response is 200 with body deep-equal to []",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "a fresh app with one item created",
+              "when": "the client sends GET /items?limit=1",
+              "then": "the response is 200 with body deep-equal to [thatItem] (boundary N=1 returns exactly one item)",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "a fresh app with two items created",
+              "when": "the client sends GET /items?limit=0",
+              "then": "the response is 400 with content-type matching application/json and body deep-equal to { \"error\": \"invalid limit\" } — zero is rejected rather than returning an empty array",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "a fresh app with two items created",
+              "when": "the client sends GET /items?limit=-1 and separately GET /items?limit=-5",
+              "then": "each response is 400 with body deep-equal to { \"error\": \"invalid limit\" }",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "a fresh app with two items created",
+              "when": "the client sends GET /items?limit=<v> for each of the non-integer or non-canonical values \"abc\", \"1.5\", \"1e1\", \"0x1\", \"+1\", \"01\", \" 1\" (percent-encoded as %201), \"1 \" (percent-encoded as 1%20), \"true\", and the empty value (the literal query string \"?limit=\")",
+              "then": "every response is 400 with body deep-equal to { \"error\": \"invalid limit\" }",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "a fresh app with two items created",
+              "when": "the client sends GET /items?limit=99999999999999999999 (a 20-digit value beyond Number.MAX_SAFE_INTEGER)",
+              "then": "the response is 400 with body deep-equal to { \"error\": \"invalid limit\" }",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "a fresh app with two items created, running on Express's default query parser which parses repeated keys into an array",
+              "when": "the client sends GET /items?limit=1&limit=2",
+              "then": "the response is 400 with body deep-equal to { \"error\": \"invalid limit\" } — a non-string (array) limit is never treated as valid",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "a fresh app with two items created in order named \"a\", \"b\"",
+              "when": "the client sends GET /items?limit=0 (rejected with 400), then GET /items with no query string, then POST /items { name: \"c\" }",
+              "then": "the follow-up GET /items returns 200 with [a, b] unchanged, and the POST returns 201 with an item whose id is 3, proving a rejected limit consumed no id and mutated no state",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "a fresh app with two items created in order named \"a\", \"b\"",
+              "when": "the client sends GET /items?limit=1&offset=1&foo=bar",
+              "then": "the response is 200 with body deep-equal to [a]; unknown query parameters on GET /items are ignored and do not trigger the 400",
+              "testable": true
+            },
+            {
+              "id": "ac-13",
+              "given": "a fresh app with one item created (id 1)",
+              "when": "the client sends GET /items/1?limit=0 and separately GET /items/999?limit=abc",
+              "then": "GET /items/1?limit=0 returns 200 with the item body (limit is ignored on the single-item route, not validated) and GET /items/999?limit=abc returns 404 with { \"error\": \"not found\" } — limit validation never changes the status of a non-collection route",
+              "testable": true
+            },
+            {
+              "id": "ac-14",
+              "given": "the repository at toy/ with dependencies installed",
+              "when": "`npm test` is run in toy/",
+              "then": "the whole suite passes, including every pre-existing test in toy/test/items.test.js and toy/test/health.test.js — POST /items name validation, GET /items/:id 200/404 behavior, per-instance store isolation, and GET /health are unchanged",
+              "testable": true
+            },
+            {
+              "id": "ac-15",
+              "given": "the updated toy/README.md",
+              "when": "a reader looks up the routes section",
+              "then": "it documents GET /items as accepting an optional ?limit=N with N a positive integer, states that a missing limit returns everything, and states that an invalid limit returns 400 { \"error\": \"invalid limit\" }",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items?limit=N"
+            }
+          ],
+          "out_of_scope": [
+            "Offset, page, cursor, or any other pagination parameter — only `limit` is added.",
+            "Pagination metadata: no Link headers, no X-Total-Count, no envelope object; GET /items keeps returning a bare JSON array.",
+            "A default or maximum cap on limit — an absent limit still returns every item, and there is no upper bound beyond the safe-integer check.",
+            "Sorting or filtering parameters; insertion order (ascending id) remains the only order.",
+            "Any change to POST /items, GET /items/:id, or GET /health request handling or response shapes.",
+            "Adding a DELETE /items/:id route or admin-token auth (wi-4 is not present in toy/src/app.js and must not be introduced here).",
+            "Changing the storage layer: the in-memory Map, id assignment, and per-app-instance isolation stay as they are.",
+            "Adding dependencies, changing toy/package.json, the test runner, or toy/test/helpers.js.",
+            "Rate limiting, caching headers, or performance work on the list endpoint.",
+            "Any file outside toy/ — no workflow, agent, substrate, or contract changes."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Purely additive query parameter on existing route—existing clients with no limit parameter see identical behavior",
+            "No breaking changes to existing route contracts (GET /items/:id, POST /items, GET /health unchanged)",
+            "No changes to stored data shape, storage layer, or in-memory Map",
+            "No auth, secrets, payments, or infrastructure touched",
+            "Fully reversible and has no side effects",
+            "Client is self/founder with no external consumers, so blast is contained"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-5",
+          "tasks": [
+            {
+              "id": "impl-limit-parameter",
+              "spec_id": "spec-wi-5",
+              "description": "Implement optional limit query parameter for GET /items collection route with validation and documentation",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "toy/README.md"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items?limit=N"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13",
+                "ac-14",
+                "ac-15"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-8",
+          "work_item_id": "wi-8",
+          "goal": "Replace Express's default HTML 404 with a JSON 404 for every request that matches no route in the toy app. Any method/path combination that falls through all registered routes must respond 404 with Content-Type application/json and body exactly {\"error\":\"not found\"}, matching the shape GET /items/:id already returns. All existing routes (GET /health, GET /items, POST /items, GET /items/:id) and their status codes, bodies and error payloads are unchanged, and the change must not convert real errors (e.g. malformed JSON bodies rejected by express.json()) into 404s. Implemented as a terminal catch-all handler registered in toy/src/app.js after every route, so it applies to each app instance returned by createApp().",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a running toy app instance with no items created",
+              "when": "a client sends GET /nope",
+              "then": "the response status is 404, the Content-Type header matches application/json, and the parsed body deep-equals { \"error\": \"not found\" }",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a running toy app instance",
+              "when": "a client sends GET / (the root path, which matches no route)",
+              "then": "the response status is 404 with Content-Type application/json and body { \"error\": \"not found\" }",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a running toy app instance with one item created via POST /items",
+              "when": "a client sends GET /items/1/extra (a deeper path under an existing route prefix)",
+              "then": "the response status is 404 with Content-Type application/json and body { \"error\": \"not found\" }, and the item is still retrievable via GET /items/1 with status 200",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "a running toy app instance with one item created via POST /items",
+              "when": "a client sends requests whose path exists but whose method is not registered — POST /health, DELETE /items/1, PUT /items",
+              "then": "each response is 404 with Content-Type application/json and body { \"error\": \"not found\" } (no HTML body), and GET /items afterwards still lists the created item unchanged",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "a running toy app instance",
+              "when": "a client sends HEAD /nope",
+              "then": "the response status is 404 with Content-Type matching application/json and an empty body (HEAD carries no payload)",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "a running toy app instance",
+              "when": "a client sends GET /health, GET /items, POST /items with { \"name\": \"widget\" }, and GET /items/1 for the created item",
+              "then": "every response is what it was before this change — 200 { status: \"ok\", uptime_seconds } for /health, 200 array for /items, 201 item for POST /items, 200 item with Content-Type application/json; charset=utf-8 for /items/1 — none of them intercepted by the catch-all",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "a running toy app instance with one item created",
+              "when": "a client sends GET /items/abc, GET /items/1.5, and GET /items/999 (route-matched but invalid or unknown ids)",
+              "then": "each still returns 404 with body { \"error\": \"not found\" } produced by the existing GET /items/:id handler, i.e. the existing 404 contract is unchanged and indistinguishable to the client",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "a running toy app instance",
+              "when": "a client sends POST /items with header content-type: application/json and a malformed body (the literal text {\"name\":), and separately POST /items with { } and with { \"name\": \"a\" repeated 65 times }",
+              "then": "the malformed-body request still fails with a 4xx status that is not 404 (express.json()'s existing 400 behavior is preserved — errors are not rewritten as not-found), and the other two still return 400 with { \"error\": \"name is required\" } and { \"error\": \"name too long\" } respectively",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "two independent app instances created by createApp() listening on separate ephemeral ports",
+              "when": "each receives GET /nope",
+              "then": "both return 404 with body { \"error\": \"not found\" }, showing the handler is installed per app instance by createApp() rather than only by src/server.js",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "the toy package as checked out after the change",
+              "when": "npm test is run in toy/",
+              "then": "the whole suite passes, including the pre-existing toy/test/health.test.js and toy/test/items.test.js unmodified, plus the new unmatched-route tests",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/not-found.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "HTTP 404 response for any unmatched method/path in the toy API"
+            }
+          ],
+          "out_of_scope": [
+            "Changing the behavior, status codes, or response bodies of GET /health, GET /items, POST /items, or GET /items/:id.",
+            "Adding 405 Method Not Allowed semantics or an Allow header: a method mismatch on an existing path is answered with the same 404 JSON, not 405.",
+            "A general error-handling middleware for 5xx responses or for rewriting express.json() parse failures; error handling stays as Express provides it today.",
+            "Request logging of unmatched routes (covered by wi-9).",
+            "Other backlog items touching the same file (wi-4 DELETE, wi-5 ?limit, wi-6 ?q, wi-7 version, wi-10 ?sort, wi-11 created_at, wi-12 tags) — this spec neither implements nor anticipates them.",
+            "Adding an error code, human message, path echo, or any field beyond \"error\" to the 404 body.",
+            "CORS, security headers, content negotiation (e.g. serving HTML 404s to browsers based on Accept), or rate limiting.",
+            "Changes to toy/src/server.js, port/env handling, the Express dependency version, or toy/package.json scripts.",
+            "Modifying toy/test/helpers.js or the existing test files."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Additive change: adds JSON 404 handler for unmatched routes without modifying any existing route contracts (ac-6 verifies GET /health, GET /items, POST /items, GET /items/:id remain unchanged)",
+            "No data shape change: purely response-level formatting, no schema or persistence impact",
+            "No infrastructure/auth/secrets touched: isolated to HTTP response behavior",
+            "Reversible: removing the handler restores previous behavior",
+            "No external consumers: toy venture with internal-only API; even if clients existed, all existing route contracts are preserved",
+            "Isolated scope: changes only app.js and new test file, no dependencies or shared infrastructure"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-8",
+          "tasks": [
+            {
+              "id": "task-spec-wi-8-impl",
+              "spec_id": "spec-wi-8",
+              "description": "Add a terminal catch-all 404 handler in toy/src/app.js that responds with JSON {\"error\":\"not found\"} for any request matching no route. The handler must set Content-Type to application/json, preserve all existing route behavior, not intercept real errors from express.json() or route handlers, apply per app instance, and pass all acceptance tests including the full npm test suite.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-10",
+          "work_item_id": "wi-10",
+          "goal": "Add an optional `sort` query parameter to `GET /items` in toy/src/app.js. `?sort=name` returns items ordered by `name` ascending using a plain code-unit string comparison (no locale/collation, no case folding); `?sort=id` and an absent `sort` both return the existing insertion order. Any other present value — including an empty string, a differently-cased or padded variant, or a repeated parameter — returns 400 with the exact body { \"error\": \"invalid sort\" } and no items. The handler must be structured as a filter -> sort -> cap pipeline so that when wi-6 (?q) and wi-5 (?limit) land, filtering happens first, then sorting, then the cap. No other route, and no stored Item shape, changes.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "A running app with items created in this order: \"banana\", \"apple\", \"cherry\"",
+              "when": "GET /items?sort=name",
+              "then": "200 with content-type application/json; charset=utf-8 and the body is the three items in the order apple, banana, cherry — each object deep-equal to the item returned by its POST",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "A running app with items created in this order: \"banana\", \"apple\", \"cherry\"",
+              "when": "GET /items?sort=id",
+              "then": "200 and the body is the three items in insertion order banana, apple, cherry — identical to the array GET /items returns with no query string",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "A running app with several items created",
+              "when": "GET /items with no query string",
+              "then": "200 and the existing insertion-order array, unchanged from the current baseline behavior (no regression on the pre-existing items tests)",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "A running app with items \"Zebra\", \"apple\", \"Apple\", \"banana\" created in that order",
+              "when": "GET /items?sort=name",
+              "then": "200 and the order is Apple, Zebra, apple, banana — i.e. a plain `<` code-unit comparison where all uppercase ASCII sorts before all lowercase, proving localeCompare / Intl.Collator / case-insensitive compare was NOT used",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "A running app with three items all named \"dup\" (ids 1, 2, 3) created in that order",
+              "when": "GET /items?sort=name",
+              "then": "200 and the three items appear in id order 1, 2, 3 — equal names keep insertion order (stable sort)",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "A running app with one item created",
+              "when": "GET /items?sort=created",
+              "then": "400 with content-type application/json; charset=utf-8 and body exactly { \"error\": \"invalid sort\" }, with no items array in the response",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "A running app with one item created",
+              "when": "GET /items?sort= (the parameter is present with an empty value)",
+              "then": "400 and body exactly { \"error\": \"invalid sort\" } — an empty string is a present value, not an absent parameter",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "A running app with one item created",
+              "when": "GET /items?sort=Name, then ?sort=NAME, then ?sort=ID, then ?sort=%20name (leading space), then ?sort=name%20 (trailing space)",
+              "then": "each request returns 400 with body exactly { \"error\": \"invalid sort\" } — matching is exact against the literal strings \"name\" and \"id\", with no case folding and no trimming",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "A running app with one item created",
+              "when": "GET /items?sort=name&sort=id (repeated parameter, which Express parses as an array)",
+              "then": "400 with body exactly { \"error\": \"invalid sort\" } rather than a 500, an unhandled throw, or silently honoring one of the values",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "A running app with items \"banana\" and \"apple\" created in that order",
+              "when": "GET /items?sort=bogus is issued (400), then GET /items?sort=name, then GET /items",
+              "then": "the 400 leaves the store untouched: the sorted request returns apple, banana and the unsorted request returns banana, apple with the same ids as before — sorting never mutates the stored insertion order",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "A running app on the current baseline, where ?q and ?limit are not implemented (wi-6 and wi-5 are unbuilt)",
+              "when": "GET /items?sort=name&q=an&limit=1",
+              "then": "200 (not 400) with all items sorted by name — unrecognized query parameters are ignored, so the new validation rejects only the `sort` value itself and does not gate on unknown params",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "wi-6 (?q substring filter) and wi-5 (?limit=N cap) are also implemented in toy/src/app.js — neither is on the current baseline, so this is a design constraint on the handler's shape rather than a test that can run today",
+              "when": "GET /items?q=an&sort=name&limit=1 against items \"banana\", \"apple\", \"cherry\", \"mango\"",
+              "then": "the pipeline runs filter -> sort -> cap: q=an keeps banana and mango, sorting by name gives banana then mango, and limit=1 yields exactly [banana] — the cap is applied last, never before the sort",
+              "testable": false
+            },
+            {
+              "id": "ac-13",
+              "given": "The toy package as checked in",
+              "when": "cd toy && npm test",
+              "then": "the whole node:test suite passes, including every pre-existing test in toy/test/items.test.js and toy/test/health.test.js left unmodified",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items?sort=name|id (200 Item[]; 400 { \"error\": \"invalid sort\" })"
+            }
+          ],
+          "out_of_scope": [
+            "Implementing ?q (wi-6) or ?limit (wi-5) — neither exists in toy/src/app.js today; this work item only requires that the handler be shaped so they compose (filter -> sort -> cap) when they land.",
+            "Precedence between competing 400s when an invalid sort arrives alongside an invalid limit or another invalid parameter — unspecified until wi-5 exists; do not invent a rule.",
+            "Descending order, an ?order=asc|desc parameter, or any multi-field or comma-separated sort spec.",
+            "Sorting by any field other than name and id (e.g. created_at from wi-11, tags from wi-12).",
+            "Locale-aware or case-insensitive collation (localeCompare, Intl.Collator, lowercasing before compare) — the spec deliberately requires plain string comparison.",
+            "Changing the stored Item shape, the id allocation scheme, or the in-memory Map store.",
+            "GET /items/:id, POST /items, GET /health, and any behavior of those routes.",
+            "Offset/cursor pagination, total counts, Link headers, or any response envelope around the items array.",
+            "The JSON 404 handler for unknown routes (wi-8) and per-request logging (wi-9).",
+            "Persistence, sorting performance/indexing, and any change to toy/package.json dependencies or scripts."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Additive API change: new optional query parameter; existing unsorted behavior unchanged and explicitly tested (AC-3, AC-10, AC-11)",
+            "No stored data shape change: sort happens on retrieval only; Item storage and in-memory Map untouched per out-of-scope list",
+            "No backward compatibility break: existing clients without sort parameter receive identical responses; unrecognized params still ignored",
+            "No critical surface touched: not auth, secrets, payments, or infrastructure; isolated to GET /items query handling",
+            "Fully reversible: self-contained feature with no persistent state impact",
+            "Low environmental risk: no external consumers, self-funded toy venture, additive API changes routine per project context"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-10",
+          "tasks": [
+            {
+              "id": "task-wi-10-implement-sort",
+              "spec_id": "spec-wi-10",
+              "description": "Implement the `sort` query parameter handler in the GET /items endpoint. Add validation logic that accepts exactly \"name\" or \"id\" (case-sensitive, no trimming, no arrays); return 400 with { \"error\": \"invalid sort\" } for any other value including empty strings and repeated parameters. When sort=name, apply plain code-unit string comparison (no locale/collation). When sort=id or absent, preserve insertion order. Structure the handler as a filter → sort → cap pipeline to support future query parameters (?q for filtering, ?limit for capping). Ensure the implementation does not mutate the stored insertion order and that all existing tests continue to pass.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      }
+    ],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-6",
+          "work_item_id": "wi-6",
+          "goal": "Add an optional `q` query parameter to `GET /items` in `toy/src/app.js` that filters the returned list to items whose `name` contains `q` as a case-insensitive substring, preserving insertion order. A missing or empty `q` returns everything, exactly as today. Non-matching searches return `200 []`, never 404. Two decisions the work item leaves open are fixed here so implementer, test author and lenses read the same contract: (a) matching is plain, literal `String.prototype.includes` on both sides lower-cased with `toLowerCase()` — no trimming, no regex, no accent folding, no Unicode normalization; (b) a `q` that Express does not parse as a string (repeated `?q=a&q=b`, or bracketed `?q[x]=y`) is rejected with `400 { \"error\": \"invalid q\" }`, matching the project's existing `invalid limit` / `invalid sort` error convention rather than silently guessing which value the client meant. DEPENDENCY: `GET /items` on the current base does NOT yet support `?limit=N` (that is wi-5, still unimplemented — the handler today is `res.json([...items.values()])`). This spec does not add `limit`. AC-11 through AC-13 specify the filter-then-cap ordering and are testable only on a base where wi-5 has already landed; if this task is implemented before or beside wi-5, the implementer must still structure the handler so the `q` filter is applied to the full insertion-ordered list before any later capping step, and the combination tests are held until wi-5 merges.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "A fresh app with items created in order: \"widget\" (id 1), \"Gadget\" (id 2), \"sprocket\" (id 3)",
+              "when": "The client sends `GET /items` with no `q` parameter",
+              "then": "The response is 200 with `content-type: application/json; charset=utf-8` and the body is all three items in insertion order — behavior identical to before this change",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "A fresh app with items \"widget\" (id 1), \"Gadget\" (id 2), \"sprocket\" (id 3)",
+              "when": "The client sends `GET /items?q=GET` and, separately, `GET /items?q=get`",
+              "then": "Both responses are 200 and both bodies are exactly `[{ id: 2, name: \"Gadget\" }]` — matching is case-insensitive in both directions (uppercase query against mixed-case name, and lowercase query against mixed-case name)",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "A fresh app with items \"widget\" (id 1) and \"Gadget\" (id 2)",
+              "when": "The client sends `GET /items?q=` (empty value)",
+              "then": "The response is 200 and the body is both items in insertion order — an empty `q` returns everything, not an empty list",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "A fresh app with items \"widget\" (id 1) and \"Gadget\" (id 2)",
+              "when": "The client sends `GET /items?q` (bare key, no `=`), which Express parses as the empty string",
+              "then": "The response is 200 and the body is both items in insertion order — identical to AC-3",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "A fresh app with items \"widget\" (id 1) and \"Gadget\" (id 2)",
+              "when": "The client sends `GET /items?q=zzz`, which matches no item",
+              "then": "The response is 200 with `content-type: application/json; charset=utf-8` and the body is `[]` — an empty match is not a 404 and not an error",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "A fresh app with items created in order: \"alpha widget\" (id 1), \"beta\" (id 2), \"gamma widget\" (id 3), \"delta widget\" (id 4)",
+              "when": "The client sends `GET /items?q=widget`",
+              "then": "The response is 200 and the body is `[id 1, id 3, id 4]` in that order — matches keep insertion order, with the non-matching item removed and no reordering",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "A fresh app with items \"widgetry\" (id 1), \"a widget b\" (id 2), \"my widget\" (id 3), \"wid get\" (id 4)",
+              "when": "The client sends `GET /items?q=widget`",
+              "then": "The response is 200 and the body is items 1, 2 and 3 — a substring match anywhere in the name (prefix, middle, suffix) counts, and item 4 (\"wid get\") is excluded because the substring is not contiguous",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "A fresh app with items \"widget\" (id 1) and \"Gadget\" (id 2)",
+              "when": "The client sends `GET /items?q=widget` and then sends `GET /items` with no parameter",
+              "then": "The first response is `[{ id: 1, name: \"widget\" }]` and the second response is both items in insertion order — filtering is read-only and does not mutate, reorder, or drop anything from the in-memory store, and does not consume ids",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "A fresh app with items \"widget\" (id 1) and \"Gadget\" (id 2)",
+              "when": "The client sends `GET /items?q=wid&q=gad` (repeated key, parsed by Express as an array) and, separately, `GET /items?q[x]=wid` (bracketed object form)",
+              "then": "Both responses are 400 with body exactly `{ \"error\": \"invalid q\" }`, and a following `GET /items` with no parameter still returns both items unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "A fresh app with items \"a.b\" (id 1), \"axb\" (id 2), \"50% off\" (id 3), \"one two\" (id 4)",
+              "when": "The client sends `GET /items?q=a.b`, then `GET /items?q=50%25`, then `GET /items?q=e%20t` (a URL-encoded space)",
+              "then": "The first returns only item 1 (the `.` is a literal character, not a regex wildcard, so \"axb\" is excluded), the second returns only item 3, and the third returns only item 4 — `q` is used verbatim after URL-decoding, with no trimming of leading or trailing whitespace and no regex interpretation",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "A base where `GET /items?limit=N` is already supported (wi-5 has landed) and a fresh app with items \"widget one\" (id 1), \"other\" (id 2), \"widget two\" (id 3), \"widget three\" (id 4)",
+              "when": "The client sends `GET /items?q=widget&limit=2`",
+              "then": "The response is 200 and the body is `[id 1, id 3]` — the `q` filter is applied to the full list first and the `limit` cap is applied to the filtered result, so the cap never counts the non-matching item 2",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "A base where `GET /items?limit=N` is already supported (wi-5 has landed) and a fresh app with items \"widget\" (id 1), \"other\" (id 2), \"widget two\" (id 3)",
+              "when": "The client sends `GET /items?q=widget&limit=10`",
+              "then": "The response is 200 and the body is `[id 1, id 3]` — a limit larger than the number of matches returns every match and pads nothing",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "A base where `GET /items?limit=N` is already supported (wi-5 has landed) and a fresh app with item \"widget\" (id 1)",
+              "when": "The client sends `GET /items?q=widget&limit=0` and, separately, `GET /items?q=zzz&limit=abc`",
+              "then": "Both responses are 400 with body exactly `{ \"error\": \"invalid limit\" }` — limit validation still fires when `q` is present, whether or not `q` matches anything, and a valid `q` never suppresses an invalid-limit error",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "A fresh app with item \"widget\" (id 1)",
+              "when": "The client sends `GET /items/1?q=zzz`, `GET /items/999?q=widget`, `GET /health?q=widget`, and `POST /items` with body `{ \"name\": \"gadget\" }`",
+              "then": "`GET /items/1?q=zzz` returns 200 with `{ id: 1, name: \"widget\" }` (the `:id` route ignores `q`), `GET /items/999?q=widget` returns 404 `{ \"error\": \"not found\" }`, `GET /health?q=widget` returns 200 `{ status: \"ok\", uptime_seconds: <integer> }`, and the POST returns 201 `{ id: 2, name: \"gadget\" }` — no route other than the `GET /items` collection route changes behavior",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items (new optional `q` query parameter; new 400 `{ \"error\": \"invalid q\" }` response for a non-string `q`)"
+            },
+            {
+              "kind": "module",
+              "ref": "createApp() in toy/src/app.js — the `app.get('/items', ...)` collection handler only"
+            }
+          ],
+          "out_of_scope": [
+            "Implementing `?limit=N` itself — that is wi-5; this spec only fixes the ordering contract (filter, then cap) for when the two meet",
+            "Implementing `?sort=name|id` — that is wi-10; no sorting or reordering of any kind is introduced here",
+            "Offset, cursor, or page-number pagination, and any response envelope carrying total/match counts — the response stays a bare JSON array",
+            "Fuzzy, prefix-only, regex, tokenized, or ranked/relevance search — matching is literal contiguous substring only",
+            "Unicode normalization, accent or diacritic folding, and locale-aware casing (`toLocaleLowerCase`) — plain `toLowerCase()` on both sides",
+            "Searching or filtering on any field other than `name`, including `id`",
+            "Any change to `POST /items` validation, including the 64-character name limit and the `name is required` / `name too long` errors",
+            "Any change to `GET /items/:id`, `GET /health`, or the Express HTML 404 for unmatched paths (wi-8)",
+            "Any change to the `Item` shape — no `created_at` (wi-11) and no `tags` (wi-12)",
+            "Persistence, indexing, or any performance work on the in-memory `Map` — a linear scan per request is acceptable at this scale",
+            "Authentication or authorization on `GET /items`",
+            "Rate limiting, caching headers, or ETag support",
+            "Changes to `toy/src/server.js`, `toy/package.json`, or `toy/test/helpers.js`"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: goal mentions a high-risk term",
+            "Purely additive—the q parameter is optional and requests without it return identical results to today",
+            "No data shape change—filtering is read-only and the in-memory store is untouched",
+            "Does not touch auth/secrets/payments/infra—a substring filter on item names has no security or infrastructure surface",
+            "Does not break existing routes—GET /items contract is fully preserved; existing clients see identical behavior",
+            "Project context states 'additive API changes are routine' and 'no external consumers yet'"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-6",
+          "tasks": [
+            {
+              "id": "impl-wi-6-query-filter",
+              "spec_id": "spec-wi-6",
+              "description": "Implement the `q` query parameter for `GET /items` in toy/src/app.js. Add optional case-insensitive substring filtering on the `name` field, validate that `q` is a string (reject arrays/objects with 400 { \"error\": \"invalid q\" }), return matches in insertion order, and structure filtering to apply before any future limit parameter. An empty or missing `q` returns all items unchanged. Non-matching searches return 200 with an empty array. The parameter must be ignored on all other routes.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items (new optional `q` query parameter; new 400 `{ \"error\": \"invalid q\" }` response for a non-string `q`)"
+                },
+                {
+                  "kind": "module",
+                  "ref": "createApp() in toy/src/app.js — the `app.get('/items', ...)` collection handler only"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-7",
+          "work_item_id": "wi-7",
+          "goal": "GET /health returns the deployed package version alongside the existing fields. The response body becomes exactly { \"status\": \"ok\", \"uptime_seconds\": <integer >= 0>, \"version\": <string from toy/package.json \"version\"> }. The version string is read once when the module loads (not per request), resolved relative to the app source file so it works regardless of process cwd or worktree location. status and uptime_seconds keep their current semantics and values.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a running app instance created by createApp() and toy/package.json declaring \"version\": \"0.1.0\"",
+              "when": "a client sends GET /health",
+              "then": "the response is 200 with a JSON content-type and a body whose keys, sorted, are exactly [\"status\", \"uptime_seconds\", \"version\"]; body.version === \"0.1.0\" — the exact string from toy/package.json, not a parsed or reformatted value",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a running app instance",
+              "when": "a client sends GET /health",
+              "then": "body.status === \"ok\" and body.uptime_seconds is an integer >= 0 derived from process start, unchanged from current behavior; the existing health tests for status, uptime monotonicity and cross-instance uptime agreement still pass once their key-set assertion is widened to include \"version\"",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a running app instance",
+              "when": "a client sends GET /health twice, separated by at least 1.1 seconds",
+              "then": "body.version is identical (===) in both responses and is a non-empty string; only uptime_seconds differs",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "two app instances created by two separate createApp() calls in the same process, each listening on its own ephemeral port",
+              "when": "GET /health is sent to each",
+              "then": "both report the same version string, showing the version is process-wide startup state rather than per-instance construction state",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "the process started from a working directory other than toy/ (e.g. the repository root, or a worktree such as .artifacts/worktrees/<task>/)",
+              "when": "toy/src/app.js is imported and GET /health is served",
+              "then": "the module loads without throwing and body.version is still the value from toy/package.json — i.e. the package.json location is resolved from the module's own URL/path, never from process.cwd() or a bare relative filesystem path",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "the change is complete",
+              "when": "npm test is run in toy/",
+              "then": "the full suite passes with no test skipped or deleted, including every existing assertion in toy/test/items.test.js and the pre-existing /health behaviors in toy/test/health.test.js",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "the app module source",
+              "when": "the GET /health handler is inspected, or the endpoint is called many times in a row",
+              "then": "no filesystem read, require, or import of package.json occurs inside the request handler — the version is resolved exactly once at module load / app startup and reused for every request",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "the routes GET /items, GET /items/:id and POST /items",
+              "when": "they are exercised as before",
+              "then": "their status codes and response bodies are unchanged — no version field is added to any of them",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/health.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /health response body (adds \"version\": string)"
+            },
+            {
+              "kind": "config",
+              "ref": "toy/package.json (read-only source of the version string; its \"version\" value is not modified by this work item)"
+            }
+          ],
+          "out_of_scope": [
+            "Bumping or otherwise changing the \"version\" value in toy/package.json.",
+            "Adding a separate GET /version endpoint or any other new route.",
+            "Adding version, build, git-sha, commit, build-time, environment or hostname fields to any endpoint other than GET /health.",
+            "Validating that the version string is semver-shaped, or normalizing/coercing it.",
+            "Defining behavior when toy/package.json is missing, unreadable, or lacks a \"version\" key — the file ships with the package and is assumed present; no fallback string or degraded-mode response is specified.",
+            "Making the version configurable at runtime (env var override, re-read on SIGHUP, hot reload).",
+            "Changing the semantics, precision or type of status or uptime_seconds.",
+            "Caching headers, ETags, or any HTTP-level caching on /health.",
+            "Authentication, authorization or rate limiting on /health.",
+            "Changes to toy/src/server.js, toy/test/helpers.js, or toy/test/items.test.js.",
+            "Updating toy/README.md — its route list is unchanged, since no new route is added."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind config: toy/package.json (read-only source of the version string; its \"version\" value is not modified by this work item)",
+            "Change is purely additive: adds a single 'version' field to GET /health response while preserving existing 'status' and 'uptime_seconds' fields unchanged",
+            "No existing API contracts are broken: clients consuming 'status' and 'uptime_seconds' fields continue to work; GET /items routes are untouched (AC-8)",
+            "No stored data shape impact: version is an in-memory computed field from package.json read at module startup, not persistent data",
+            "No auth, secrets, payments, or infrastructure touch: reads shipped package.json configuration only",
+            "Fully reversible: field can be removed without affecting app behavior",
+            "Project context: additive API changes are routine; client is self (founder); no external consumers yet"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-7",
+          "tasks": [
+            {
+              "id": "wi-7-impl",
+              "spec_id": "spec-wi-7",
+              "description": "Implement version field in GET /health endpoint. Read toy/package.json version once at module load time (resolved relative to app.js, independent of process cwd), and include it in the /health response body alongside status and uptime_seconds. Update existing toy/test/health.test.js assertions to verify the new field structure and behavior.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "toy/test/health.test.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-9",
+          "work_item_id": "wi-9",
+          "goal": "Add a cross-cutting request logger to the toy Express app (toy/src/app.js) so that every HTTP request the app answers writes exactly one line to stdout after that response has been sent. The line is exactly four space-separated fields — request method, request path (query string excluded), final HTTP status code, elapsed whole milliseconds — followed by a single newline, e.g. `GET /items/1 200 3`. Logging is suppressed when process.env.NODE_ENV === \"test\", evaluated per request at the moment the line would be written (not cached at import or createApp() time) so tests can flip it; toy/package.json's test script sets NODE_ENV=test so `npm test` output stays clean. No route's status, headers, or response body changes.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "A running app from createApp(), process.env.NODE_ENV set to a value other than \"test\" (e.g. \"production\"), stdout captured, and one item already created",
+              "when": "A client sends GET /items/1 and reads the full response body",
+              "then": "Exactly one new line is written to stdout and it matches /^GET \\/items\\/1 200 \\d+\\n$/ — four fields separated by single spaces, no leading or trailing spaces, no prefix, suffix, timestamp or color codes, terminated by exactly one \\n",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "A running app with logging enabled (NODE_ENV !== \"test\") and stdout captured",
+              "when": "A client sends POST /items with body {\"name\":\"widget\"} and receives 201",
+              "then": "Exactly one new stdout line is written whose first field is POST, second field is /items, and third field is 201",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "A client sends GET /items/abc (404 not found) and then POST /items with body {} (400 name is required)",
+              "then": "Two stdout lines are written, in that order: `GET /items/abc 404 <ms>` then `POST /items 400 <ms>` — the logged status equals the status the client actually received in each case",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "A client sends GET /nope, a path no route handles, and receives Express's default 404",
+              "then": "Exactly one stdout line is written matching /^GET \\/nope 404 \\d+\\n$/ — requests that no route handles are logged too",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "A client sends GET /items?x=1&y=2, and separately GET /items/%20",
+              "then": "The first logged path field is exactly /items — the query string and its leading ? are not part of the line; the second logs the path /items/%20 — the path is logged as received, without percent-decoding or normalization",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "A client sends any request that completes normally",
+              "then": "The fourth field matches /^\\d+$/ and parses to a non-negative integer number of milliseconds (Number.isInteger, >= 0), below 10000 for these fast in-memory routes, written as a bare number with no unit suffix and no decimal point",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "A running app and stdout captured, with process.env.NODE_ENV === \"test\"",
+              "when": "A client sends GET /health, GET /items, POST /items and GET /items/1",
+              "then": "The logger writes zero bytes to stdout for those requests, while every response's status and body are exactly what they were before this change",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "A running app and stdout captured",
+              "when": "The same request is sent once with process.env.NODE_ENV deleted (undefined) and once with process.env.NODE_ENV === \"production\"",
+              "then": "A log line is written in both cases — only the exact string \"test\" disables logging; any other value, including unset, leaves it enabled",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "A single app instance created while process.env.NODE_ENV === \"test\", with stdout captured",
+              "when": "A request is sent, then process.env.NODE_ENV is set to \"production\" on the same process and same instance and a second request is sent, then it is set back to \"test\" and a third request is sent",
+              "then": "Exactly one line is written, for the second request only — proving the NODE_ENV check is re-read per request rather than captured at module load or at createApp() time",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "Three requests are sent sequentially and each response is fully received",
+              "then": "Exactly three lines are written to stdout — one per request, no duplicates and no other output — each ending in a newline, in the order the three responses completed",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "A running app with logging enabled and stdout captured",
+              "when": "A client sends a request and the log line for it is examined",
+              "then": "The line is emitted only after the response has been sent: its status field equals the final status the client received, and the line is observed in the capture at or after the point the client has read the full response body (a poll window of up to 200ms is allowed for the response-finish callback); no line for a request appears before that request's response is complete",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "The repository at toy/",
+              "when": "`npm test` is run from toy/",
+              "then": "All pre-existing tests in toy/test/health.test.js and toy/test/items.test.js still pass, and the suite's stdout contains no request-log lines, because the package.json test script runs the suite with NODE_ENV=test",
+              "testable": true
+            },
+            {
+              "id": "ac-13",
+              "given": "A running app with logging enabled (NODE_ENV !== \"test\")",
+              "when": "Each existing route is exercised: GET /health, GET /items, POST /items (valid, missing name, 65-char name, 64-char name), GET /items/:id (hit, miss, non-canonical id)",
+              "then": "Every status code, response header (including content-type application/json; charset=utf-8 on JSON responses) and response body is identical to the behavior before this change — adding the logger changes observable HTTP behavior in no way",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "module",
+              "ref": "toy/src/app.js:createApp"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/package.json"
+            },
+            {
+              "kind": "config",
+              "ref": "toy/package.json#scripts.test (must set NODE_ENV=test)"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/request-log.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            },
+            {
+              "kind": "api",
+              "ref": "toy: all HTTP routes (cross-cutting request-logging middleware)"
+            }
+          ],
+          "out_of_scope": [
+            "Any change to the request/response contract of GET /health, GET /items, POST /items or GET /items/:id — statuses, headers and bodies stay exactly as they are",
+            "Structured or JSON logging, log levels, severity prefixes, timestamps, request ids or correlation ids, or any field beyond the four specified (method, path, status, elapsed_ms)",
+            "Logging the query string, request or response headers, request or response bodies, payload sizes, user agent, or client IP",
+            "Writing to stderr, to a file, to a ring buffer, or to any transport other than the process's stdout",
+            "Adding a logging library (morgan, pino, winston, ...) or any new dependency to toy/package.json",
+            "Configurability beyond the NODE_ENV === \"test\" suppression — no LOG_LEVEL or LOG_FORMAT env var, no per-route opt-out, no createApp() option flag as the primary switch, no sampling or rate limiting",
+            "Log lines for requests whose connection is aborted or closed before the response finishes — no line is required in that case",
+            "Changing the existing signature or behavior of start() in toy/test/helpers.js, and rewriting the existing tests in toy/test/health.test.js or toy/test/items.test.js",
+            "Changes to toy/src/server.js, including its existing `toy listening on <port>` startup message",
+            "Log rotation, aggregation, shipping, or any operator tooling that consumes the lines",
+            "Performance targets for logging overhead beyond keeping the elapsed-time measurement cheap",
+            "Applying request logging anywhere outside toy/ — the company-graph substrate, workflows and agents are untouched"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind config: toy/package.json#scripts.test (must set NODE_ENV=test)",
+            "No existing HTTP contract breaks — all route statuses, headers, and response bodies remain identical",
+            "Additive middleware layer only — observes responses without modifying them or persisting data",
+            "No data shape changes, no schema migrations, no stored state modifications",
+            "No sensitive operations — stdout logging is not an auth/secrets/payments/infra surface",
+            "Fully reversible — middleware can be removed with zero side effects",
+            "Scope limited to toy venture — no substrate, workflow, or cross-venture impact",
+            "Toy venture has no external consumers — zero production client dependency on exact behavior",
+            "NODE_ENV evaluated per-request, not cached — allows test/production coexistence safely"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-9",
+          "tasks": [
+            {
+              "id": "impl-request-logger",
+              "spec_id": "spec-wi-9",
+              "description": "Add cross-cutting request logger middleware to the Express app in toy/src/app.js. The logger writes exactly one line to stdout after each response is sent with format: METHOD PATH STATUS ELAPSED_MS (four space-separated fields, no other output). Logging is suppressed when process.env.NODE_ENV === 'test', evaluated per-request at the moment the line would be written. Update toy/package.json test script to set NODE_ENV=test so existing tests run without logging output. No changes to route statuses, headers, or response bodies.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "module",
+                  "ref": "toy/src/app.js:createApp"
+                },
+                {
+                  "kind": "config",
+                  "ref": "toy/package.json#scripts.test"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-11",
+          "work_item_id": "wi-11",
+          "goal": "Every Item stored by the toy API carries a third field, created_at: a server-generated ISO-8601 UTC timestamp (Z-suffixed, millisecond precision, e.g. \"2026-09-10T17:00:00.000Z\") recorded at the moment the item is created. The Item shape becomes exactly { id, name, created_at }, and that full shape is returned by POST /items (201), GET /items, and GET /items/:id (200). The timestamp is assigned once, by the server, from the system clock at creation time; it is never re-derived on read, never mutated, and never taken from client input. All other behavior is unchanged: id assignment and its non-consumption on rejected requests, name validation (400 \"name is required\" for missing/empty/non-string, 400 \"name too long\" above 64 UTF-16 code units), 404 \"not found\" semantics including non-canonical integer ids, JSON content types, and the GET /health body. The existing suite in toy/test/items.test.js compares Items API-response-to-API-response (e.g. assert.deepEqual(list, [item])), so those assertions remain valid rather than breaking; they must be extended — not weakened or deleted — so the new field is actually asserted instead of silently carried along, and any assertion enumerating an Item's keys must now expect created_at.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a fresh app instance",
+              "when": "a client sends POST /items with body {\"name\":\"widget\"}",
+              "then": "the response is 201 with content-type \"application/json; charset=utf-8\" and a JSON body whose own enumerable keys, sorted, are exactly [\"created_at\",\"id\",\"name\"], with id a number, name \"widget\", and created_at a string",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a fresh app instance",
+              "when": "a client sends POST /items with a valid name",
+              "then": "the returned created_at matches the regex ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$ and round-trips: new Date(created_at).toISOString() === created_at",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a test that records before = Date.now() immediately before the request and after = Date.now() immediately after the response body is read",
+              "when": "a client sends POST /items with a valid name",
+              "then": "Date.parse(created_at) is a finite number satisfying before <= Date.parse(created_at) <= after, proving the value comes from the clock at creation time and is not a constant or placeholder",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "an item created by POST /items whose 201 body is `created`",
+              "when": "the client sends GET /items/:id for created.id",
+              "then": "the response is 200 and its JSON body deep-equals `created`, including an identical created_at string",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "an item created by POST /items whose 201 body is `created`",
+              "when": "the client sends GET /items",
+              "then": "the response is 200 and its JSON body deep-equals [created], including the identical created_at string",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "an item created by POST /items",
+              "when": "the client sends GET /items/:id twice, separated by at least 1100 ms of real time",
+              "then": "both responses are 200 and both bodies deep-equal each other and the original 201 body, so created_at is frozen at creation and not recomputed per read",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "a fresh app instance",
+              "when": "the client creates three items a, b, c by three sequential POST /items requests",
+              "then": "each 201 body carries its own created_at, GET /items returns [a,b,c] deep-equal to those three bodies in insertion order, and Date.parse(a.created_at) <= Date.parse(b.created_at) <= Date.parse(c.created_at)",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "a fresh app instance",
+              "when": "the client sends POST /items with body {\"name\":\"widget\",\"created_at\":\"1999-01-01T00:00:00.000Z\",\"id\":999}",
+              "then": "the response is 201, id is the server-assigned 1, created_at is the server clock value (not \"1999-01-01T00:00:00.000Z\") and satisfies the window check of ac-3, and the body still has exactly the three keys of ac-1 — client-supplied fields are ignored, not merged",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "a fresh app instance",
+              "when": "the client sends POST /items with {}, then {\"name\":\"\"}, then {\"name\":123}, then {\"name\":\"a\".repeat(65)}",
+              "then": "the responses are 400 with bodies exactly {\"error\":\"name is required\"}, {\"error\":\"name is required\"}, {\"error\":\"name is required\"} and {\"error\":\"name too long\"} respectively, no error body gains a created_at field, GET /items returns [], and a subsequent valid POST /items returns 201 with id === 1",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "a fresh app instance with one item created",
+              "when": "the client sends GET /items/999, GET /items/abc, GET /items/1.5, GET /items/-1, GET /items/1e0 and GET /items/0x1",
+              "then": "each response is 404 with body exactly {\"error\":\"not found\"} and no created_at field anywhere in the body",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "a fresh app instance",
+              "when": "the client sends GET /health",
+              "then": "the response is 200 and its body's keys, sorted, are exactly [\"status\",\"uptime_seconds\"] — no created_at is added to the health payload",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "two independently started app instances via start() in toy/test/helpers.js",
+              "when": "an item is created on the first instance",
+              "then": "GET /items/1 on the second instance returns 404 {\"error\":\"not found\"}, confirming the created_at change introduces no shared or module-level state across instances",
+              "testable": true
+            },
+            {
+              "id": "ac-13",
+              "given": "the repository working tree after the change",
+              "when": "`npm test` is run from toy/",
+              "then": "the process exits 0 with zero failures, the 19 pre-existing tests are all still present and passing (none deleted, skipped, or relaxed to stop asserting an Item's full shape), and the suite additionally covers ac-1 through ac-12",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "POST /items — 201 response body gains created_at"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items — every array element gains created_at"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items/:id — 200 response body gains created_at"
+            },
+            {
+              "kind": "schema",
+              "ref": "Item = { id: number, name: string, created_at: string (ISO-8601 UTC, Z-suffixed, millisecond precision) }"
+            }
+          ],
+          "out_of_scope": [
+            "Any change to toy/src/server.js, toy/test/helpers.js, toy/test/health.test.js, toy/package.json or toy/package-lock.json — no new dependency may be added; the timestamp comes from the built-in Date.",
+            "Any change to GET /health, including adding created_at or any other key to its body.",
+            "Accepting, validating or honouring a client-supplied created_at (or id) in the POST /items body — such fields are ignored, and no new 400 is introduced for them.",
+            "An updated_at / modified_at field, or any other new Item field.",
+            "Mutating created_at after creation: this app has no update route and none is added.",
+            "Sorting, filtering or paginating by created_at; no ?since=, ?before=, ?sort= or ?limit= query parameter (?limit=N is separate backlog item wi-5).",
+            "An injectable, mockable or configurable clock; a configurable timestamp format; epoch-millisecond or local-time representations; sub-millisecond or second-only precision.",
+            "Guaranteeing strictly increasing timestamps across rapid creations — millisecond resolution means two items created in the same millisecond may share a created_at; only non-decreasing order is required (ac-7).",
+            "Persistence, serialization to disk, or survival of created_at across process restarts — the store stays a per-instance in-memory Map.",
+            "Changing id assignment, the 64-UTF-16-code-unit name limit, error message strings, status codes, content-type headers, or the canonical-decimal-integer id parsing rule.",
+            "Implementing any other backlog item (e.g. DELETE /items/:id, GET /items?limit=N).",
+            "Updating toy/README.md — it lists routes only and does not document the Item shape.",
+            "Adding a JSON Schema or OpenAPI description of Item anywhere in the repository, including contracts.schema.json (that file describes workflow edge shapes, not the toy app's domain objects)."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: Item = { id: number, name: string, created_at: string (ISO-8601 UTC, Z-suffixed, millisecond precision) }",
+            "Additive field only — spec explicitly states additive fields are low; all existing response fields remain unchanged",
+            "No breaking contract — existing clients still receive all fields they previously got, plus one new field",
+            "No external consumers — toy venture is self-owned with no client contracts to honor",
+            "Stored data shape is extended, not altered — existing fields untouched, change is purely additive",
+            "Reversible — timestamps can be removed without affecting stored structure or dependencies",
+            "Error contracts unchanged — validation and 404 responses carry no created_at field and remain identical",
+            "Isolated scope — only app.js and items.test.js touched; no package.json, helpers, server, or infra changes"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-11",
+          "tasks": [
+            {
+              "id": "impl-wi-11-created-at",
+              "spec_id": "spec-wi-11",
+              "description": "Implement created_at timestamp field for Items - modify POST /items to generate server-generated ISO-8601 UTC timestamp (millisecond precision, Z-suffixed) at creation time, store it immutably with each item, and return it in all item responses (POST 201, GET /items, GET /items/:id 200), while ignoring any client-supplied created_at or id fields and excluding created_at from error responses",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "api",
+                  "ref": "POST /items — 201 response body gains created_at"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items — every array element gains created_at"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items/:id — 200 response body gains created_at"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "Item = { id: number, name: string, created_at: string (ISO-8601 UTC, Z-suffixed, millisecond precision) }"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      },
+      {
+        "spec": {
+          "id": "spec-wi-12",
+          "work_item_id": "wi-12",
+          "goal": "Add an optional `tags` field to the toy Item. `POST /items` accepts an optional `tags` key whose value must be an array of 1–32 character strings with at most 10 entries; any other value is rejected with 400 `{ \"error\": \"invalid tags\" }` and no state change. Accepted items store `tags` (defaulting to `[]` when the key is absent) and every representation of an Item — the `POST /items` 201 body, `GET /items` entries, and the `GET /items/:id` body — carries exactly the keys `id`, `name`, `tags`. Existing name validation, ids, insertion order, `GET /items/:id` 404 behavior and `GET /health` are unchanged.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with body {\"name\":\"widget\"} and no tags key",
+              "then": "the response is 201 and the JSON body is exactly {\"id\":1,\"name\":\"widget\",\"tags\":[]} — Object.keys(body).sort() equals [\"id\",\"name\",\"tags\"] and tags is an empty array",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with body {\"name\":\"widget\",\"tags\":[\"a\",\"b\"]}",
+              "then": "the response is 201 and the body is exactly {\"id\":1,\"name\":\"widget\",\"tags\":[\"a\",\"b\"]}, preserving the submitted order and values verbatim (no trimming, case-folding, sorting or de-duplication)",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with body {\"name\":\"widget\",\"tags\":[]}",
+              "then": "the response is 201 and the body's tags field is an empty array (an explicit empty array is valid and indistinguishable from an absent key)",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags equal to an array of exactly 10 strings, each exactly 32 characters long",
+              "then": "the response is 201 and the body's tags array deep-equals the submitted array (both boundaries are inclusive)",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags equal to an array of 11 one-character strings",
+              "then": "the response is 400 with body exactly {\"error\":\"invalid tags\"} and GET /items returns []",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags containing a 33-character string",
+              "then": "the response is 400 with body exactly {\"error\":\"invalid tags\"} and GET /items returns []",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags containing an empty string, e.g. [\"ok\",\"\"]",
+              "then": "the response is 400 with body exactly {\"error\":\"invalid tags\"} (each tag must be at least 1 character)",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags containing a non-string element, once for each of 1, true, null, {\"a\":1} and [\"nested\"]",
+              "then": "each response is 400 with body exactly {\"error\":\"invalid tags\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with a present but non-array tags value, once for each of \"a\", 1, true, null and {\"0\":\"a\"}",
+              "then": "each response is 400 with body exactly {\"error\":\"invalid tags\"} (a present tags key must be an array; null is not treated as absent)",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with an invalid tags value and then POSTs a valid {\"name\":\"widget\"}",
+              "then": "the rejected request mutated nothing: the accepted item has id 1 and GET /items returns exactly that one item (rejection consumes no id and stores nothing)",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with a body that is invalid on both name and tags, e.g. {\"tags\":\"nope\"} (name missing) and {\"name\":123,\"tags\":\"nope\"} and {\"name\":\"a\".repeat(65),\"tags\":\"nope\"}",
+              "then": "name validation wins: the responses are 400 {\"error\":\"name is required\"}, 400 {\"error\":\"name is required\"} and 400 {\"error\":\"name too long\"} respectively — never {\"error\":\"invalid tags\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "an app instance where an item was created with tags [\"x\",\"y\"]",
+              "when": "a client GETs /items/:id for that item's id",
+              "then": "the response is 200 with content-type application/json; charset=utf-8 and a body that deep-equals the 201 body returned by the POST, including tags [\"x\",\"y\"]",
+              "testable": true
+            },
+            {
+              "id": "ac-13",
+              "given": "an app instance where items were created with tags [\"a\"], [] and [\"b\",\"c\"] in that order",
+              "when": "a client GETs /items",
+              "then": "the response is 200 and the array deep-equals the three 201 bodies in insertion order, each carrying its own tags with no cross-contamination",
+              "testable": true
+            },
+            {
+              "id": "ac-14",
+              "given": "a fresh app instance",
+              "when": "a client POSTs /items with tags [\"dup\",\"dup\"] and separately with tags [\" \"] (a single space)",
+              "then": "both responses are 201 and the stored tags are [\"dup\",\"dup\"] and [\" \"] respectively (duplicates are allowed; length is measured in UTF-16 code units with no trimming)",
+              "testable": true
+            },
+            {
+              "id": "ac-15",
+              "given": "the existing suite in toy/test/items.test.js and toy/test/health.test.js",
+              "when": "npm test is run from toy/",
+              "then": "every pre-existing test still passes — GET /health is byte-for-byte unchanged, POST /items name errors and their bodies are unchanged, ids remain 1-based sequential over accepted items, and GET /items/:id still 404s with {\"error\":\"not found\"} for unknown and non-canonical ids",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "POST /items (request body gains optional tags; new 400 {\"error\":\"invalid tags\"})"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items (each element gains tags)"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items/:id (response body gains tags)"
+            },
+            {
+              "kind": "schema",
+              "ref": "Item = { id: number, name: string, tags: string[] }"
+            }
+          ],
+          "out_of_scope": [
+            "Updating or replacing tags after creation — no PUT/PATCH/POST tag-mutation route is added",
+            "Filtering, searching or sorting items by tag (no ?tag= or ?tags= query parameter on GET /items)",
+            "Tag normalization of any kind: trimming, lowercasing, Unicode normalization, de-duplication, or rejecting particular characters — tags are stored exactly as submitted",
+            "Any change to GET /health, including its body, keys or status (wi-7's version field remains unbuilt)",
+            "The created_at field from wi-11 — the Item shape after this work item is exactly { id, name, tags } and nothing else",
+            "DELETE /items/:id (wi-4), ?limit= (wi-5), ?q= (wi-6), ?sort= (wi-10), the JSON 404 fallback (wi-8) and request logging (wi-9) — all still unbuilt and untouched",
+            "Changing the existing name validation rules, their error strings, their order relative to each other, or the 64-code-unit name limit",
+            "Changing id allocation, insertion ordering, or the in-memory Map store; no persistence, no cross-instance sharing",
+            "Changing the malformed-JSON body behavior (Express's own error handling for an unparsable request body is left as-is)",
+            "toy/README.md, toy/package.json, toy/src/server.js and toy/test/helpers.js — no edits required; the README documents routes, not the Item shape",
+            "Any per-tag or aggregate tag index, count endpoint, or tag listing route"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: Item = { id: number, name: string, tags: string[] }",
+            "Additive field only—no existing Item fields removed or modified",
+            "No external consumers (internal-only toy project; founder controls both client and server)",
+            "No auth, secrets, payments, or infrastructure changes",
+            "Reversible (field can be removed later if needed)",
+            "Project guidance explicitly states 'additive API changes are routine'"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-12",
+          "tasks": [
+            {
+              "id": "impl-wi-12-tags",
+              "spec_id": "spec-wi-12",
+              "description": "Add optional tags field to toy Items: validate tags as array of 1-32 char strings (max 10), store and return in all Item representations, prioritize name validation, ensure existing tests pass",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "api",
+                  "ref": "POST /items"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items/:id"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "Item = { id: number, name: string, tags: string[] }"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13",
+                "ac-14",
+                "ac-15"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "r4",
+            "created_at": "2026-09-10T16:49:00Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "r4",
+      "created_at": "2026-09-10T16:49:00Z"
+    }
+  }
+}

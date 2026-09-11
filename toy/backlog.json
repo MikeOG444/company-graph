@@ -78,5 +78,165 @@
       "run_id": "seed",
       "created_at": "2026-09-10T07:25:00Z"
     }
+  },
+  {
+    "id": "wi-5",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /items supports ?limit=N",
+    "intent": "Clients paging a large list need a cap. GET /items?limit=N returns at most N items in insertion order. N must be a positive integer; a missing limit returns everything (unchanged); a non-integer, zero, or negative limit returns 400 { \"error\": \"invalid limit\" }.",
+    "priority": 5,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-6",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /items supports ?q= substring filter",
+    "intent": "Clients need to search by name. GET /items?q=text returns only items whose name contains text, case-insensitive. An empty q returns everything. Combines with limit if both are present: filter first, then cap.",
+    "priority": 6,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-7",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /health reports the package version",
+    "intent": "Operators want to see what is deployed. GET /health adds \"version\": the version string from toy/package.json, read once at startup. Existing status and uptime_seconds fields are unchanged.",
+    "priority": 7,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-8",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "Unknown routes return JSON 404",
+    "intent": "Clients currently get an HTML 404 from Express for unmatched paths. Any request to a path that matches no route returns 404 with JSON body { \"error\": \"not found\" }. Existing routes are unchanged.",
+    "priority": 8,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-9",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "Request log line per request",
+    "intent": "Operators want a request log. Every request writes one line to stdout after the response is sent: method, path, status code, and elapsed milliseconds, space-separated. Disabled when NODE_ENV is \"test\" so the suite output stays clean.",
+    "priority": 9,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-10",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "GET /items supports ?sort=name|id",
+    "intent": "Clients need ordered lists. GET /items?sort=name sorts by name ascending (locale-insensitive, plain string compare); ?sort=id is the default insertion order. Any other sort value returns 400 { \"error\": \"invalid sort\" }. Combines with q and limit: filter, sort, then cap.",
+    "priority": 10,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-11",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "Item gains a created_at timestamp",
+    "intent": "Every Item now carries \"created_at\": an ISO-8601 UTC timestamp set when the item is created. It is returned by POST /items, GET /items, and GET /items/:id. This changes the stored Item shape; existing tests that deep-equal an Item must be updated to account for the new field.",
+    "priority": 11,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
+  },
+  {
+    "id": "wi-12",
+    "project_id": "toy",
+    "source": "brief",
+    "title": "Item gains optional tags",
+    "intent": "Items can be labelled. POST /items accepts an optional \"tags\": string[] (each tag 1–32 chars, at most 10 tags; anything else is 400 { \"error\": \"invalid tags\" }). Items store and return \"tags\" (default []). This changes the stored Item shape and the POST validation; GET responses include tags.",
+    "priority": 12,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 20
+    },
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "seed",
+      "created_at": "2026-09-10T17:00:00Z"
+    }
   }
 ]

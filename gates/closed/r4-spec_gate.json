@@ -1,0 +1,68 @@
+{
+  "id": "r4-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "r4",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-10T17:05:00.000Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "r4",
+    "created_at": "2026-09-10T17:05:00.000Z"
+  },
+  "project_id": "toy",
+  "next_workflow": "build-implement",
+  "payload": {
+    "specs": [
+      {
+        "id": "spec-wi-11",
+        "work_item_id": "wi-11",
+        "goal": "Every Item stored by the toy API carries a third field, created_at: a server-generated ISO-8601 UTC timestamp (Z-suffixed, millisecond precision, e.g. \"2026-09-10T17:00:00.000Z\") recorded at the moment the item is created. The Item shape becomes exactly { id, name, created_at }, and that full shape is returned by POST /items (201), GET /items, and GET /items/:id (200). The timestamp is assigned once, by the server, from the system clock at creation time; it is never re-derived on read, never mutated, and never taken from client input. All other behavior is unchanged: id assignment and its non-consumption on rejected requests, name validation (400 \"name is required\" for missing/empty/non-string, 400 \"name too long\" above 64 UTF-16 code units), 404 \"not found\" semantics including non-canonical integer ids, JSON content types, and the GET /health body. The existing suite in toy/test/items.test.js compares Items API-response-to-API-response (e.g. assert.deepEqual(list, [item])), so those assertions remain valid rather than breaking; they must be extended — not weakened or deleted — so the new field is actually asserted instead of silently carried along, and any assertion enumerating an Item's keys must now expect created_at.",
+        "risk_reasons": [
+          "rule: surface kind schema: Item = { id: number, name: string, created_at: string (ISO-8601 UTC, Z-suffixed, millisecond precision) }",
+          "Additive field only — adds created_at without removing or changing id or name",
+          "No external consumers — toy venture with internal-only use",
+          "Backward-compatible — existing clients expecting id and name still receive them",
+          "Not irreversible — timestamps are generated fresh per instance at creation time",
+          "No auth, secrets, payments, or infra touched",
+          "Guidance explicitly states additive field additions are low blast radius"
+        ],
+        "criteria": 13,
+        "tasks": [
+          "task-wi-11-impl"
+        ]
+      },
+      {
+        "id": "spec-wi-12",
+        "work_item_id": "wi-12",
+        "goal": "Add an optional `tags` field to the toy Item. `POST /items` accepts an optional `tags` key whose value must be an array of 1–32 character strings with at most 10 entries; any other value is rejected with 400 `{ \"error\": \"invalid tags\" }` and no state change. Accepted items store `tags` (defaulting to `[]` when the key is absent) and every representation of an Item — the `POST /items` 201 body, `GET /items` entries, and the `GET /items/:id` body — carries exactly the keys `id`, `name`, `tags`. Existing name validation, ids, insertion order, `GET /items/:id` 404 behavior and `GET /health` are unchanged.",
+        "risk_reasons": [
+          "rule: surface kind schema: Item = { id: number, name: string, tags: string[] }",
+          "Additive field addition: specs explicitly classify additive fields as low-risk",
+          "No external clients: toy venture with no external consumers means no existing client contracts to break",
+          "Backwards compatible: new tags field in responses is safe for clients that don't use it to ignore",
+          "No infrastructure changes: purely in-memory data model expansion, no auth/secrets/payments/infra touched",
+          "Existing contracts preserved: name validation, id sequencing, insertion order, health endpoint, and 404 behavior all unchanged",
+          "Reversible: data model change can be rolled back without irreversible consequences"
+        ],
+        "criteria": 15,
+        "tasks": [
+          "impl-wi-12-tags-field"
+        ]
+      }
+    ]
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-10T17:10:00.000Z",
+    "note": "HE approved both schema changes in chat (created_at, tags)."
+  }
+}

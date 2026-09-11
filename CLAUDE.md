@@ -41,8 +41,8 @@ substrate/                  artifact store, gate queue, ledger + run trace, vali
 
 ## Model tiering
 
-Strong: spec writing, tiebreak, dispute ruling, escalation packaging, opportunity synthesis, integration conflicts.
-Mid: implement, test author, fixer, fix planner, root cause.
+Strong: spec writing, tiebreak, escalation packaging, opportunity synthesis, integration conflicts.
+Mid: implement, test author, fixer, fix planner, root cause, dispute ruling (moved from Strong after Phase 2: Opus rulings were the largest cost line; the Tiebreak Judge stays Strong and the ledger watches ruling quality).
 Cheap: risk router, decomposer, all verifier lenses, triage, feedback analyst, and every mechanical agent (run tests, merge patches, read/write artifacts).
 
 When writing a workflow, use `/workflow-authoring` first for the runtime reference, then apply the rules above. Where this file and the runtime reference conflict on mechanics, the runtime wins; where they conflict on structure (what is an edge, what is a barrier), this file wins.

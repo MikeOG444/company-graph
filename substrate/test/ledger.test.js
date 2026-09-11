@@ -39,3 +39,21 @@ test('append validates a LedgerEntry, stores the result, copies the journal, and
 
   assert.equal(cli('ledger', ['append', '--workflow', 'x', '--run', 'r3', '--started', '2026-09-10T12:00:00Z', '--result', spec, '--tokens', '-1'], { root }).code, 2)
 })
+
+test('tokens-by-model prices each model separately; recost follows pricing.json; summary --by model', () => {
+  const root = tmpRoot()
+  const spec = path.join(root, 'r.json')
+  fs.writeFileSync(spec, JSON.stringify({ provenance: { node: 'x', executor: 'ai_agent', method: 'hotl', run_id: 'r9', created_at: '2026-09-10T10:00:00Z' } }))
+  const r = cli('ledger', ['append', '--workflow', 'w', '--run', 'r9', '--started', '2026-09-10T10:00:00Z', '--result', spec, '--now', '2026-09-10T10:01:00Z',
+    '--tokens-by-model', JSON.stringify({ 'claude-opus-5[1m]': 1000000, 'claude-haiku-4-5-20251001': 1000000 })], { root })
+  assert.equal(r.code, 0, r.err)
+  const entry = JSON.parse(fs.readFileSync(path.join(root, 'ledger', 'index.jsonl'), 'utf8').trim())
+  assert.deepEqual(entry.tokens_by_model, { 'claude-opus-5': 1000000, 'claude-haiku-4-5': 1000000 })
+  assert.equal(entry.tokens, 2000000)
+  // opus: 0.9*5 + 0.1*25 = 7.00 per M; haiku: 0.9*1 + 0.1*5 = 1.40 per M
+  assert.equal(entry.cost_est_usd, 8.4)
+  assert.equal(cli('validator', ['LedgerEntry', '-'], { root, input: JSON.stringify(entry) }).code, 0)
+  const byModel = JSON.parse(cli('ledger', ['summary', '--by', 'model', '--json'], { root }).out)
+  assert.deepEqual(byModel.map(g => [g.key, g.cost_est_usd]).sort(), [['claude-haiku-4-5', 1.4], ['claude-opus-5', 7]])
+  assert.match(cli('ledger', ['recost'], { root }).out, /recosted 1 row/)
+})
