@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "t4i",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T07:01:25.999Z",
   "options": [
     "accept_fix_test",
@@ -42,5 +42,11 @@
     },
     "cost": "1,113,406 tokens, ~$2.72, 21 agents, 47 minutes. Nothing merged.",
     "irony": "The work item to make the fix loop cheaper was killed by an expensive fix loop — and the three structural findings above came out of exactly that."
+  },
+  "decision": {
+    "option": "accept_fix_test",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T07:05:00.000Z",
+    "note": "HE decided in chat. The implementation satisfies 16/17 criteria; AC-15's assertion is a character-distance proxy for a contract that IS met, so the test is corrected rather than the code contorted to satisfy a positional assertion. Verified by the main session in the worktree before the decision, not taken from the packager."
   }
 }

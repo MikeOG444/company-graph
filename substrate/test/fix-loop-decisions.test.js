@@ -1,0 +1,179 @@
+// Tests for spec-wi-opp-p5-4's seven pure fix-loop decision functions
+// (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling,
+// shouldEscalate). Written from the spec only: every scenario below is transcribed
+// from the acceptance criteria's own given/when/then, not from reading the
+// implementation. Lands in substrate/test/ and runs under the repo's `npm test`
+// (node --test "substrate/test/*.test.js").
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readWorkflowText, extractBlock, loadFixLoopDecisions } from './extract-fixloop.js'
+
+const LENSES3 = ['spec_conformance', 'security', 'correctness']
+
+// A minimal, contract-shaped Finding (see contracts.schema.json #/$defs/Finding).
+function finding(overrides) {
+  return {
+    id: 'f0', lens: 'security', severity: 'medium',
+    location: 'toy/src/app.js:1', claim: 'claim', evidence: 'evidence',
+    dedupe_key: 'k0', status: 'open',
+    ...overrides,
+  }
+}
+
+test('AC-1: the sentinel block extracts exactly the seven pure decision functions with no runtime handles', () => {
+  const text = readWorkflowText()
+  const { block, beginCount, endCount } = extractBlock(text)
+  assert.equal(beginCount, 1, 'BEGIN sentinel line must appear exactly once')
+  assert.equal(endCount, 1, 'END sentinel line must appear exactly once')
+  assert.ok(block && block.trim().length > 0, 'a non-empty block must be extractable between the sentinels')
+
+  let result
+  assert.doesNotThrow(() => {
+    // eslint-disable-next-line no-new-func
+    result = new Function(block + '\nreturn { scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate }')()
+  }, 'evaluating the block with new Function must not throw')
+
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['lensesToRun', 'nextLenses', 'roundBudget', 'scopeOf', 'scopeTargets', 'shouldEscalate', 'taskCeiling'].sort(),
+  )
+  for (const [name, fn] of Object.entries(result)) {
+    assert.equal(typeof fn, 'function', `${name} must be a function`)
+  }
+
+  for (const token of ['args', 'agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.']) {
+    assert.ok(!block.includes(token), `the extractable block must not reference "${token}"`)
+  }
+  assert.ok(!/\bawait\b/.test(block), 'the extractable block must not contain await')
+})
+
+test('AC-2: scopeOf strips a trailing :line[:col], trims whitespace, and returns "" for anything that is not a bare file path', () => {
+  const { scopeOf } = loadFixLoopDecisions()
+  assert.equal(scopeOf('toy/src/app.js:42'), 'toy/src/app.js')
+  assert.equal(scopeOf('toy/src/app.js:42:9'), 'toy/src/app.js')
+  assert.equal(scopeOf('toy/src/app.js'), 'toy/src/app.js')
+  assert.equal(scopeOf(' .claude/workflows/build-implement.js:300 '), '.claude/workflows/build-implement.js')
+  assert.equal(scopeOf('GET /items'), '')
+  assert.equal(scopeOf(''), '')
+  assert.equal(scopeOf(undefined), '')
+})
+
+test('AC-3: scopeTargets collects distinct file locations from findings in first-seen order, dropping non-file locations', () => {
+  const { scopeTargets } = loadFixLoopDecisions()
+  const findings = [
+    finding({ location: 'toy/src/app.js:10' }),
+    finding({ location: 'toy/src/app.js:88' }),
+    finding({ location: 'toy/README.md:3' }),
+    finding({ location: 'GET /items' }),
+    finding({ location: 'toy/src/app.js' }),
+  ]
+  assert.deepEqual(scopeTargets(findings), ['toy/src/app.js', 'toy/README.md'])
+  assert.deepEqual(scopeTargets([]), [], 'a round with no code findings asks for no slices')
+})
+
+test('AC-4: nextLenses retries only the lens with a live finding, settling the lens whose findings were all overruled', () => {
+  const { nextLenses } = loadFixLoopDecisions()
+  const findings = [
+    finding({ id: 'f1', lens: 'security', location: 'toy/src/app.js:1', dedupe_key: 's1' }),
+    finding({ id: 'f2', lens: 'security', location: 'toy/src/app.js:2', dedupe_key: 's2' }),
+    finding({ id: 'f3', lens: 'spec_conformance', location: 'toy/src/app.js:3', dedupe_key: 'p1' }),
+  ]
+  const resolution = { s1: 'fixed', s2: 'overruled', p1: 'overruled' }
+  const result = nextLenses({ lenses: LENSES3, findings, resolution, mode: 'retry', verified: [] })
+  assert.deepEqual(result.retry, ['security'])
+  assert.deepEqual(result.settled, ['spec_conformance'])
+  for (const l of result.retry) assert.ok(!result.settled.includes(l), 'a lens in retry must never also be in settled')
+})
+
+test('AC-5: a finding upheld on dispute, deferred past the fixer cap, or left unresolved all keep their lens in the re-panel set', () => {
+  const { nextLenses } = loadFixLoopDecisions()
+  for (const resolutionValue of ['upheld', 'deferred', 'unresolved']) {
+    const findings = [finding({ id: 'f1', lens: 'correctness', location: 'toy/src/app.js:5', dedupe_key: 'c1' })]
+    const result = nextLenses({ lenses: LENSES3, findings, resolution: { c1: resolutionValue }, mode: 'retry', verified: [] })
+    assert.deepEqual(result, { retry: ['correctness'], settled: [] }, `resolution "${resolutionValue}" must keep correctness in retry`)
+  }
+})
+
+test('AC-6: mode "all" retries every lens in order regardless of resolutions, and lensesToRun runs the whole panel', () => {
+  const { nextLenses, lensesToRun } = loadFixLoopDecisions()
+  const result = nextLenses({ lenses: LENSES3, findings: [finding()], resolution: { k0: 'fixed' }, mode: 'all', verified: [] })
+  assert.deepEqual(result.retry, LENSES3)
+  assert.deepEqual(result.settled, [])
+  assert.deepEqual(lensesToRun({ lenses: LENSES3, retry: result.retry, verified: ['security'], mode: 'all' }), LENSES3)
+})
+
+test('AC-7: a round the adjudicator resolved as pass retries nothing, and lensesToRun signals the loop is done', () => {
+  const { nextLenses, lensesToRun } = loadFixLoopDecisions()
+  const next = nextLenses({ lenses: LENSES3, findings: [], resolution: {}, mode: 'retry', verified: [] })
+  assert.deepEqual(next, { retry: [], settled: [] })
+  const run = lensesToRun({ lenses: LENSES3, retry: [], verified: ['spec_conformance', 'security', 'correctness'], mode: 'retry' })
+  assert.deepEqual(run, [], 'an empty list is the signal that every lens is verified')
+})
+
+test('AC-8: lensesToRun prefers outstanding retries, and otherwise confirms only lenses not yet verified', () => {
+  const { lensesToRun } = loadFixLoopDecisions()
+  assert.deepEqual(
+    lensesToRun({ lenses: LENSES3, retry: ['security'], verified: ['spec_conformance'], mode: 'retry' }),
+    ['security'],
+  )
+  assert.deepEqual(
+    lensesToRun({ lenses: LENSES3, retry: [], verified: ['security', 'spec_conformance'], mode: 'retry' }),
+    ['correctness'],
+  )
+})
+
+test('AC-9: roundBudget defaults to floor(task_tokens / k_rounds), honors an explicit override, floors at 1, and degrades to the task ceiling when k_rounds is falsy', () => {
+  const { roundBudget } = loadFixLoopDecisions()
+  assert.equal(roundBudget({ task_tokens: 300000, k_rounds: 3 }), 100000)
+  assert.equal(roundBudget({ task_tokens: 300000, k_rounds: 3, round_tokens: 50000 }), 50000)
+  assert.equal(roundBudget({ task_tokens: 2, k_rounds: 5 }), 1)
+  assert.equal(roundBudget({ task_tokens: 300000, k_rounds: 0 }), 300000)
+})
+
+test('AC-10: taskCeiling splits a WorkItem token budget evenly across its tasks, falling back to the default when absent or zero', () => {
+  const { taskCeiling } = loadFixLoopDecisions()
+  assert.equal(taskCeiling({ work_item_tokens: 1100000, tasks_for_work_item: 2, default_task_tokens: 250000 }), 550000)
+  assert.equal(taskCeiling({ work_item_tokens: 0, tasks_for_work_item: 2, default_task_tokens: 250000 }), 250000)
+  assert.equal(taskCeiling({ tasks_for_work_item: 1, default_task_tokens: 250000 }), 250000)
+})
+
+test('AC-11: shouldEscalate returns "budget" once cumulative task spend reaches the task ceiling, even with rounds left and a fresh finding', () => {
+  const { shouldEscalate } = loadFixLoopDecisions()
+  const ctx = { round: 1, k_rounds: 3, tokens: 560000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
+  const findings = [finding({ dedupe_key: 'fresh-1' })]
+  assert.equal(shouldEscalate(ctx, findings), 'budget')
+})
+
+test('AC-12: shouldEscalate returns "budget" when the round just finished overran its own per-round ceiling, else null when inside both ceilings', () => {
+  const { shouldEscalate } = loadFixLoopDecisions()
+  const findings = [finding({ dedupe_key: 'fresh-1' })]
+  const overRound = { round: 1, k_rounds: 3, tokens: 200000, task_tokens: 550000, last_round_tokens: 250000, round_tokens: 183333, seen: new Set() }
+  assert.equal(shouldEscalate(overRound, findings), 'budget')
+  const withinRound = { ...overRound, last_round_tokens: 100000 }
+  assert.equal(shouldEscalate(withinRound, findings), null)
+})
+
+test('AC-13: shouldEscalate checks budget before max_rounds, and still reports the existing repeat/no-fresh reasons with no new enum value', () => {
+  const { shouldEscalate } = loadFixLoopDecisions()
+  const VALID_REASONS = ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro']
+
+  const overBudgetAtMaxRounds = { round: 3, k_rounds: 3, tokens: 600000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
+  const r1 = shouldEscalate(overBudgetAtMaxRounds, [finding({ dedupe_key: 'fresh-1' })])
+  assert.equal(r1, 'budget', 'budget must be checked before max_rounds so cost is the reported reason when cost is the cause')
+
+  const atMaxRoundsOnly = { round: 3, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set() }
+  const r2 = shouldEscalate(atMaxRoundsOnly, [finding({ dedupe_key: 'fresh-1' })])
+  assert.equal(r2, 'max_rounds')
+
+  const repeatCtx = { round: 2, k_rounds: 3, tokens: 10, task_tokens: 550000, last_round_tokens: 10, round_tokens: 183333, seen: new Set(['k1']) }
+  const r3 = shouldEscalate(repeatCtx, [finding({ dedupe_key: 'k1' })])
+  assert.equal(r3, 'repeat_finding')
+
+  // Same context, now seen also contains k2 (in addition to k1), and this round's
+  // only finding is k2 — everything already known, nothing fresh to act on.
+  const staleCtx = { ...repeatCtx, seen: new Set(['k1', 'k2']) }
+  const r4 = shouldEscalate(staleCtx, [finding({ dedupe_key: 'k2' })])
+  assert.equal(r4, 'no_fresh_findings')
+
+  for (const r of [r1, r2, r3, r4]) assert.ok(VALID_REASONS.includes(r), `"${r}" must be one of the existing Escalation reasons`)
+})
