@@ -1,0 +1,345 @@
+{
+  "entry": {
+    "id": "t6-build-spec",
+    "run_id": "t6",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T16:35:49.783Z",
+    "finished_at": "2026-09-11T16:41:35.475Z",
+    "wall_clock_sec": 346,
+    "result_ref": "ledger/runs/t6-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 219675,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 122496,
+      "claude-opus-5": 97179
+    },
+    "cost_est_usd": 0.85,
+    "agents": 4,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t6",
+      "created_at": "2026-09-11T16:34:47Z"
+    },
+    "trace_ref": ".artifacts/traces/t6-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-unactionable-findings",
+          "work_item_id": "wi-unactionable-findings",
+          "goal": "Make the build-implement fix loop recognise the three families of unactionable finding before it spends a round on them. (a) Bind every lens to the criteria_ids the decomposer assigned to the task under review, name the sibling that owns the rest, and drop in code any finding whose only cited acceptance criteria belong to a sibling task — so a lens cannot fail a task for a criterion no fixer on that task may close. (b) Decide diff emptiness from the ChangeSet before the panel runs: a dependent task whose branch equals its dependency's head is re-diffed against the run base, and a measured-empty diff refuses the task honestly in code, instead of letting lenses read the repository root while fixer and test runner read the worktree. (c) Give a Finding an explicit target the lens sets, and give the code Fixer a \"only a test change can close this\" outcome the script re-routes to the test-repair path in the same round, so a test-assertion finding whose location points at the covered code stops being handed to the one agent forbidden to act on it. The Escalation contract and its reason enum are unchanged; Finding and ChangeSet gain optional additive fields only; the happy path for a task that passes round one makes no additional agent call.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "build-implement.js carries the pure decision block delimited by the exact sentinel lines '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----', which substrate/test/extract-fixloop.js evaluates with new Function",
+              "when": "the block is extracted and evaluated",
+              "then": "it exposes the seven existing functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, shouldEscalate) plus six new ones named exactly criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, emptyDiffAction, findingTarget and rerouteTarget; the block still contains no 'args', 'agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.' and no 'await'",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "a spec whose acceptance ids are AC-1..AC-17 and a TaskGraph whose task t1 has criteria_ids ['AC-1','AC-2'] and sibling t2 has criteria_ids ['AC-12']",
+              "when": "criteriaScope({ task: t1, tasks: [t1, t2], acceptance_ids }) is called",
+              "then": "it returns owned = ['AC-1','AC-2'], siblings mapping 'AC-12' -> 't2' for every criterion another task in the same graph owns, and unassigned listing acceptance ids no task in the graph owns",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "a Finding whose claim is 'AC-12 is not satisfied by this change' and evidence quoting 'AC-121' and 'xAC-1'",
+              "when": "citedCriteria(finding, ['AC-1','AC-12','AC-121']) is called",
+              "then": "it returns the acceptance ids that appear as whole tokens in the finding's claim, evidence and location — ['AC-12','AC-121'] here — and never reports 'AC-1' from a match inside 'AC-121' or 'xAC-1'",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "the run t5i shape: task t1 owns AC-1 and AC-2, sibling t2 owns AC-12 and has not run, and a spec_conformance Finding claims t1 fails to satisfy AC-12",
+              "when": "isForeignCriterionFinding(finding, scope) is called with the scope from AC-2",
+              "then": "it returns true; it returns false for a finding citing an owned criterion, false for a finding citing no criterion id at all, false for a finding citing a mix of owned and sibling ids, and false for a finding citing only an unassigned criterion (nobody owns it, so it is kept and today's behaviour is preserved)",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "a round's verdict list in which spec_conformance returned verdict 'fail' with exactly one finding citing only sibling-owned AC-12, and correctness returned 'fail' with one finding citing sibling-owned AC-12 and one citing owned AC-2",
+              "when": "stripForeignFindings(verdicts, scope) is called",
+              "then": "it returns verdicts with the foreign findings removed, spec_conformance recorded as 'pass' (no defects remain), correctness still 'fail' with only the AC-2 finding, and a dropped list whose entries name the finding's dedupe_key, the criterion cited and the sibling task id that owns it",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the run t2i mirror: a README task owning only AC-11, whose panel returned a single spec_conformance fail whose one finding cites only AC-9, owned by a sibling task",
+              "when": "the workflow applies stripForeignFindings to the round's verdicts before normalizeVerdict and adjudicate, then adjudicates",
+              "then": "adjudicate returns result 'pass' for that round, the dropped finding never enters the deduped findings list, never enters ctx.seen, no fixer, scope slicer or test-repair agent is invoked for it, and ctx.history gains one line naming the dropped criterion and its owning sibling",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the workflow builds the shared lens prompt for a task",
+              "when": "the prompt text is inspected",
+              "then": "it states the task's own criteria_ids verbatim, lists for each remaining acceptance criterion the sibling task id that owns it, and says in words that a criterion this task does not own is never a finding and that the task is judged only against its own criteria — and it still strips the implementer's notes, so no lens prompt contains ChangeSet.notes",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": ".claude/agents/lens-spec-conformance.md and .claude/agents/lens-correctness.md",
+              "when": "each file is read",
+              "then": "both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding, and both keep every pre-existing rule intact (reject-by-default, at least three attempts, path:line location, dedupe_key format, and for spec-conformance the touched_surfaces permission-envelope rule and the tests-written-elsewhere rule)",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "emptyDiffAction({ diff_bytes, touched_surfaces_count, has_deps, recaptured })",
+              "when": "it is called across the truth table",
+              "then": "diff_bytes > 0 returns 'proceed'; diff_bytes null with touched_surfaces_count > 0 returns 'proceed' (no new call on the legacy path); diff_bytes null with touched_surfaces_count 0 returns 'measure'; diff_bytes 0 with has_deps true and recaptured false returns 'recapture'; diff_bytes 0 with has_deps false, or with recaptured true, returns 'refuse'",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "the run t5i shape: task t2 declares depends_on ['t1'], its branch task/t2 is the same ref as task/t1, and the captured diff base...head is 0 bytes",
+              "when": "the workflow runs that task",
+              "then": "the emptiness decision is taken from the ChangeSet before any lens, test-runner or fixer agent is called for that task; on 'recapture' exactly one cheap mechanical agent re-captures the diff against the run base and re-reports diff_bytes; on a non-empty re-capture the panel proceeds against that diff; on 'refuse' the task returns passed:false with zero lens, tiebreak, test-runner, scope-slicer and fixer calls and consumes no fix round",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "a task refused under AC-10",
+              "then": "an Escalation for that task is present in the returned EvidenceBundle with reason 'cannot_repro', history containing a line that states the diff was empty and names both the branch and the base ref it was diffed against, repeats [], and options drawn from guide/direct_drive/kill_to_spec",
+              "when": "the run finishes",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the Escalation reason enum in contracts.schema.json",
+              "when": "contracts.schema.json is compared before and after the change",
+              "then": "#/$defs/Escalation is byte-identical, and the inlined Escalation schema in build-implement.js lists exactly the contract's five reasons (max_rounds, repeat_finding, budget, no_fresh_findings, cannot_repro) so the inlined copy is in parity with the unchanged contract",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "contracts.schema.json #/$defs/Finding and #/$defs/ChangeSet",
+              "when": "each is validated and compared against its pre-change version",
+              "then": "Finding gains an optional 'target' with enum ['code','test'] and ChangeSet gains an optional 'diff_bytes' integer with minimum 0; neither 'required' array changes; no existing property is altered or removed; both inlined copies in build-implement.js carry the same additions; and an existing Finding or ChangeSet artifact without the new field still validates",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "the run t4i shape: a finding about a test assertion whose location points at the source file the assertion covers",
+              "when": "findingTarget(finding, { tests_ref, artifact_tests_dir }) is called",
+              "then": "a finding carrying target 'test' routes to 'test' and one carrying target 'code' routes to 'code' regardless of location; a finding with no target falls back to exactly today's location heuristic (a location under the artifact tests dir or under tests_ref is 'test', anything else is 'code'), so a lens definition that has not yet registered changes nothing",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "a code Fixer that returns notes beginning 'TEST-SCOPE:' for a finding it judges real but closable only by changing a test",
+              "when": "rerouteTarget({ notes, already_rerouted }) is called",
+              "then": "it returns 'test' when already_rerouted is false, and null when already_rerouted is true (a second TEST-SCOPE on the same finding in the same round falls through to the existing dispute path rather than ping-ponging); notes beginning 'DISPUTE:' return null in both cases",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "the fix loop handling a round in which one code fixer returned 'TEST-SCOPE:'",
+              "when": "the round completes",
+              "then": "that finding is handed to the Test Author repair path within the same round, its entry in the round's resolution map is 'fixed' rather than 'unresolved', no extra panel round is started for it, and .claude/agents/fixer.md documents TEST-SCOPE as an outcome distinct from DISPUTE (DISPUTE = the finding is wrong; TEST-SCOPE = the finding is right but only a test change can close it) while keeping its existing rules (fix one finding, stay inside owned_surfaces, read-slice-first, write the incremental diff, never edit tests)",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "a task whose ChangeSet reports diff_bytes > 0 and whose round-1 panel returns no findings",
+              "when": "the task is run",
+              "then": "the sequence of agent calls is identical to the pre-change workflow — implementer and test author in parallel, the test runner, the three lenses, and nothing else: no measure, no recapture, no scope slicer, no fixer, no test repair and no escalation packager; and the three new decisions (criteria scope, diff emptiness, finding target) are taken in the script at zero token cost",
+              "testable": true
+            },
+            {
+              "id": "AC-18",
+              "given": "the repository test suite run from the root with `npm test` (node --test \"substrate/test/*.test.js\")",
+              "when": "the suite runs after the change",
+              "then": "every pre-existing test still passes, including the fix-loop decision tests, the fix-loop wiring tests and the lens documentation test, and the new tests land in substrate/test/ resolving paths through substrate/test/fixloop-helpers.js REPO rather than any .artifacts worktree path",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/lens-spec-conformance.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/lens-correctness.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/fixer.md"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json#/$defs/Finding"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json#/$defs/ChangeSet"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/extract-fixloop.js"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/"
+            }
+          ],
+          "out_of_scope": [
+            "Any change to contracts.schema.json #/$defs/Escalation, including its reason enum — the enum already carries cannot_repro and the contract file's Escalation definition must stay byte-identical.",
+            "Any change to #/$defs/PanelResult or #/$defs/EvidenceBundle; dropped-finding bookkeeping lives in ctx.history and log() only, never as a new PanelResult field.",
+            "Making Finding.target or ChangeSet.diff_bytes required, or adding any other contract property.",
+            "Editing .claude/agents/lens-security.md, implementer.md, test-author.md or mechanical.md; the security lens receives the criteria binding through the shared workflow prompt only.",
+            "Any other workflow file (.claude/workflows/build-spec.js, build-reentry.js, maintain-triage.js, memory-roll.js, launch.js, deploy.js, create-project.js) and the decomposer's criteria_ids assignment logic that produces the scope this spec consumes.",
+            "Tuning MAX_FIXERS, K_ROUNDS, the lens-streak cap, the grace round, the budget ceilings or the escalation reason selection for any case other than the empty-diff refusal.",
+            "Changing how task branches and worktrees are created — topological order, branch-from-dependency-head and extraMerges stay exactly as they are; this spec only changes what the loop does when the resulting diff is empty.",
+            "A reverse re-route (a Test Author repair declaring the defect is in the code) — only the code-Fixer to test-repair direction is in scope.",
+            "Retrofitting past runs, ledger entries or gate records; no ledger schema or substrate CLI change.",
+            "Any change to the Spec Gate check, the integration barrier, test landing, or the EvidenceBundle assembly."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: contracts.schema.json#/$defs/Finding",
+            "rule: surface kind schema: contracts.schema.json#/$defs/ChangeSet",
+            "Additive optional fields only — no breaking schema changes to Finding or ChangeSet; existing artifacts lacking target/diff_bytes still validate",
+            "Escalation contract byte-identical per AC-12; reason enum and stored data shape unchanged",
+            "Pure decision block self-contained — new functions don't alter existing signatures; extraction mechanism unchanged",
+            "Happy path identical — tasks with real diffs make same agent calls as pre-change (AC-17)",
+            "Comprehensive test coverage gates implementation — all 60 existing tests must pass including fix-loop decision tests (AC-18)",
+            "No external consumers — self-contained plant machinery change",
+            "Worktree-scoped implementation — production workflow invocation and contract unchanged",
+            "Backward-compatible agent changes — lens and fixer prompts enriched but input/output contracts preserved",
+            "No irreversible operations — decision logic and optional field addition, not data migration"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t6",
+            "created_at": "2026-09-11T16:34:47Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-unactionable-findings",
+          "tasks": [
+            {
+              "id": "t-wi-unactionable-schema",
+              "spec_id": "spec-wi-unactionable-findings",
+              "description": "Add Finding.target and ChangeSet.diff_bytes optional fields to contracts.schema.json to enable downstream decision functions to distinguish test-only findings and measure diff emptiness. Keep Escalation reason enum and required arrays unchanged.",
+              "owned_surfaces": [
+                {
+                  "kind": "schema",
+                  "ref": "contracts.schema.json#/$defs/Finding"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "contracts.schema.json#/$defs/ChangeSet"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-12",
+                "AC-13"
+              ]
+            },
+            {
+              "id": "t-wi-unactionable-fixloop",
+              "spec_id": "spec-wi-unactionable-findings",
+              "description": "Implement decision block (criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, emptyDiffAction, findingTarget, rerouteTarget) in build-implement.js delimited by sentinels. Update inlined schema copies, integrate foreign-criteria filtering before panels, empty-diff detection with recapture logic, and test-finding rerouting. Write all decision block tests and confirm fix-loop wiring tests pass.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/extract-fixloop.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/"
+                }
+              ],
+              "depends_on": [
+                "t-wi-unactionable-schema"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-17",
+                "AC-18"
+              ]
+            },
+            {
+              "id": "t-wi-unactionable-agents",
+              "spec_id": "spec-wi-unactionable-findings",
+              "description": "Update lens-spec-conformance.md and lens-correctness.md to document criteria binding (owned criteria, sibling mappings, unassigned criteria) and state that lens verdicts never cite foreign criteria. Add TEST-SCOPE outcome documentation to fixer.md distinct from DISPUTE, explaining when a finding is real but only a test change closes it. Keep all existing rules (reject-by-default, three attempts, etc.) intact.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/lens-spec-conformance.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/lens-correctness.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/fixer.md"
+                }
+              ],
+              "depends_on": [
+                "t-wi-unactionable-fixloop"
+              ],
+              "criteria_ids": [
+                "AC-7",
+                "AC-8",
+                "AC-16"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t6",
+            "created_at": "2026-09-11T16:34:47Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t6",
+      "created_at": "2026-09-11T16:34:47Z"
+    }
+  }
+}

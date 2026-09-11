@@ -1,0 +1,54 @@
+{
+  "note": "Synthetic usage telemetry for the Phase 5 Improve drill. Raw and un-normalized on purpose: the Usage Analyst is what turns this into insights. Two layers, because the toy's stated users are the plant itself (ProjectBrief.users) and the line's own numbers are therefore its usage: `line` is what the production line did, `http` is what the service underneath served.",
+  "project_id": "toy",
+  "period": { "from": "2026-09-11T01:00:00Z", "to": "2026-09-11T04:00:00Z" },
+  "line": {
+    "launches_attempted": 2,
+    "launches_promoted_to_prod": 1,
+    "launches_rolled_back": 1,
+    "rollbacks_without_a_human": 1,
+    "seeded_regression_reached_prod": 0,
+    "human_actions_by_stretch": [
+      { "stretch": "brief -> workspace", "design_calls_for": 1, "actual": 1, "note": "sign brief" },
+      { "stretch": "spec -> implement", "design_calls_for": 0, "actual": 1, "note": "c1 escalation: a lens read touched_surfaces as a mandate; not a gate the design asks for" },
+      { "stretch": "launch -> prod", "design_calls_for": 1, "actual": 1, "note": "approve launch" },
+      { "stretch": "maintain -> re-entry", "design_calls_for": 1, "actual": 1, "note": "sev1 page" }
+    ],
+    "cost_by_workflow_usd": [
+      { "workflow": "create-project", "runs": 1, "total": 0.51 },
+      { "workflow": "build-spec", "runs": 7, "total": 9.12 },
+      { "workflow": "build-implement", "runs": 8, "total": 24.9 },
+      { "workflow": "launch", "runs": 1, "total": 0.33 },
+      { "workflow": "deploy", "runs": 2, "total": 0.62 },
+      { "workflow": "maintain-triage", "runs": 3, "total": 2.05 },
+      { "workflow": "build-reentry", "runs": 3, "total": 0.68 }
+    ],
+    "spec_gate_firings": { "specs_routed": 9, "routed_high": 0, "routed_low": 9 },
+    "panel": { "tasks_verified": 11, "failed_first_round": 4, "escalations": 2, "findings_upheld": 9, "findings_overruled": 2 },
+    "wall_clock_min_by_workflow": [
+      { "workflow": "build-spec", "median": 3 },
+      { "workflow": "build-implement", "median": 14 },
+      { "workflow": "maintain-triage", "median": 6 }
+    ]
+  },
+  "http": {
+    "window_hours": 3,
+    "requests_by_route": [
+      { "route": "GET /items", "count": 1840, "error_rate": 0.071, "p50_ms": 3, "p95_ms": 11 },
+      { "route": "GET /items/:id", "count": 610, "error_rate": 0.0, "p50_ms": 2, "p95_ms": 7 },
+      { "route": "POST /items", "count": 295, "error_rate": 0.034, "p50_ms": 4, "p95_ms": 14 },
+      { "route": "DELETE /items/:id", "count": 41, "error_rate": 0.610, "p50_ms": 2, "p95_ms": 6 },
+      { "route": "GET /health", "count": 2210, "error_rate": 0.0, "p50_ms": 1, "p95_ms": 4 }
+    ],
+    "query_parameter_usage_on_get_items": [
+      { "params": "(none)", "count": 902 },
+      { "params": "limit", "count": 431 },
+      { "params": "sort", "count": 244 },
+      { "params": "q", "count": 131, "note": "every one of these 500ed during the window" },
+      { "params": "q+limit", "count": 132, "note": "every one of these 500ed during the window" }
+    ],
+    "responses_at_the_limit_cap": { "capped_responses": 388, "share_of_limited_requests": 0.688, "note": "a capped response carries no indication that it was capped; clients cannot tell a full page from a truncated one" },
+    "repeat_requests_within_5s_after_a_capped_response": { "count": 241, "note": "same q and sort, larger limit — clients widening the window by hand" },
+    "delete_401_breakdown": { "no_authorization_header": 24, "wrong_token": 1, "note": "ADMIN_TOKEN unset on this env for most of the window; not a defect" }
+  }
+}

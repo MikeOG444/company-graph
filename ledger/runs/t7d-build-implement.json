@@ -1,0 +1,77 @@
+{
+  "entry": {
+    "id": "t7d-build-implement",
+    "run_id": "t7d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-11T20:32:31.000Z",
+    "finished_at": "2026-09-11T20:38:32.000Z",
+    "wall_clock_sec": 361,
+    "result_ref": "ledger/runs/t7d-build-implement.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "agents": 0,
+    "human_min": 3,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "t7d",
+      "created_at": "2026-09-11T20:32:31Z"
+    }
+  },
+  "result": {
+    "resolves": "t7i escalation: t1-decision-functions-integration, reason repeat_finding",
+    "option_taken": "direct_drive",
+    "decided_by": "human_employee",
+    "landed": {
+      "merges": [
+        "task/t1-decision-functions-integration",
+        "integration/t7i"
+      ],
+      "commits": [
+        "6108e34",
+        "0c377ee",
+        "9d84ba7",
+        "9d521e3"
+      ]
+    },
+    "escalation_findings_verified": {
+      "open_findings": 9,
+      "false_against_change_under_review": 9,
+      "cause": "the lens prompt never named the worktree, so every lens that opened a file read the repository root at the pre-task commit c5e465e"
+    },
+    "test_assertion_defects_corrected": [
+      "AC-12",
+      "AC-15",
+      "AC-16"
+    ],
+    "build_line_defects_fixed": [
+      "lens prompt does not name the worktree, so lens findings describe the pre-task tree",
+      "TestSet lander copies only *.test.js, so an imported helper never lands and the landed test fails at import",
+      "integration resolution gated on passing.length > 1, so a red suite with one passing task is accepted silently"
+    ],
+    "regression_tests_added": 5,
+    "suites": {
+      "root": {
+        "passed": 105,
+        "failed": 0,
+        "was": 62
+      },
+      "toy": {
+        "passed": 60,
+        "failed": 0
+      }
+    },
+    "tokens_note": "Not measurable from here: the work ran in the main Claude Code session, not as workflow agents. Omitted rather than guessed.",
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "t7d",
+      "created_at": "2026-09-11T20:32:31Z"
+    }
+  }
+}

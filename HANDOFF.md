@@ -161,3 +161,90 @@ Leave money movement, signatures, and credentials as Direct Driver checklists in
 - `Date.now()`/`Math.random()` throw → pass `run_id` and `now` in `args`.
 - 16 concurrent agents, 1,000 per run, 4,096 items per `parallel()`/`pipeline()` call.
 - Stopping one agent in a fan-out reruns everything started after it on relaunch — prefer letting a run finish.
+
+## 5. Phase status
+
+| phase | state | evidence |
+|---|---|---|
+| 0 Substrate | passed | `substrate/validator.js` accepts a valid EvidenceBundle and rejects a short one |
+| 1 Build core | passed | runs `r1`–`r8` |
+| 2 Build breadth | passed | run `t1i` onward: implementers and test authors concurrent per task, one Integrate phase |
+| 3 Create + Launch | passed **with a caveat** — see C3 below | `c1` brief → `c1v` launch → `c1d` auto-rollback on a seeded regression |
+| 4 Maintain | **passed** | see below |
+| 5 Improve + Memory | passed | `i1` ranked Opportunity[] + VentureVerdict in `gates/closed/i1-roadmap_gate.json`; `mr1`/`mr2` Method Ledger by `provenance.method` |
+| 6–10 | not started | |
+
+### Phase 4 exit test, both halves
+
+`sev2 yields a verified Patch entering /build-reentry with no human touch`
+: `ledger/runs/m1b-maintain-triage.json` — triage sev2, `patch-sig-p4-1` sev2/routine, `repro.status: "reproduced"`, no gate emitted. `b1` consumed it into 3 WorkItems. `human_min = 0` on both ledger rows.
+
+`sev1 applies mitigation before the page appears in gates/`
+: `ledger/runs/m2-maintain-triage.json` — `mitigation.applied: true`, `strategy: "rollback"`, `applied_at: 03:36:00Z`, prod `243b72a2 → bfb99434`; `incident.status: "mitigated"`; then `gates/closed/m2-sev1_page.json`. Mitigation precedes the page.
+
+Two supporting results, both negative and both correct:
+
+- **`m1` is the honest negative.** No live deploy target, so `strategy: "none"`, `applied: false`, `status: "unmitigated"`. The mitigator refused to report a rollback it could not perform.
+- **`b2r` refused a decision passed in args.** `"1 sev1 patch(es) and no gate_id: the sev1 page decides whether the mitigation is still holding, and it is read from gates/, not from args"` — the same guard as the Spec Gate (`.claude/workflows/build-implement.js:456`), in a second place.
+
+---
+
+## 6. Carried — open items, with references
+
+Each item says where it lives so it can be picked up cold. Nothing here blocks Phase 4; several block Phase 8 or a second venture.
+
+### A. The build line's own defects (venture 0)
+
+**A1 — The lens-worktree fix is prompt-only, and prompt guidance has been measured insufficient here.**
+`.claude/workflows/build-implement.js:685-689`, plus the three `.claude/agents/lens-*.md`. Run `t7i` escalated `repeat_finding` on nine findings that were every one of them true of the base commit and false of the change under review: the lens prompt was the only verify-loop prompt that never named the worktree, so a lens that opened a file greped the repo root at the pre-task commit. The script cannot set a subagent's working directory, so no code-side enforcement exists — unlike the boundary check, which is real code.
+*Proposed:* in script, compare each finding's cited `path:line` against the diff hunks and drop citations that do not intersect. Zero tokens, rule 3 compliant, and it catches the failure rather than asking politely.
+
+**A2 — The venture-0 bootstrap: a build-line fix is always one run late.**
+`/build-implement` executes the committed copy of itself, so `t1`'s AC-16 TEST-ONLY re-route — written for exactly the three findings that deadlocked `t1` — could not engage in the run that produced them.
+*Investigate:* load the fix-loop decision block from the worktree under review rather than from the running script. `substrate/test/extract-fixloop.js` already extracts it between the `// ---- BEGIN/END fix-loop decisions ----` sentinels, so the machinery exists.
+
+**A3 — The owned-surfaces boundary is enforced but has never run.**
+`.claude/workflows/build-implement.js`: `surfaceRef:292`, `withinOwned:305`, `boundaryCheck:326`, `criteriaScope:351`, `stripForeignFindings:400`, `routeFinding:424`, `fixOutcome:436`. Call sites: `:622` (settled ChangeSet, before any lens/test-runner/fixer) and `:921` (each round's merged ChangeSet); scoping at `:714`. Run `t7i` executed the pre-merge copy, so the next build is the first real exercise. Watch it deliberately.
+
+**A4 — Escalation rate and the hitl/hotl question.**
+10 escalations across 31 `hotl` runs, carrying most of the spend. Open design question: should some escalation reasons be `hotl` (proceed, land in the review queue) rather than `hitl` (stop the world)? `repeat_finding` on findings a fixer provably cannot close is the candidate.
+
+### B. Missing edges
+
+**B1 — Memory → Build does not exist.** `grep -n "memory\|pattern\|prompt_refinement" .claude/workflows/build-spec.js` returns nothing. `/memory-roll` produces patterns and canaries (`ledger/runs/mr2-memory-roll.json` → `roll.patterns` ×10, `roll.canaries` ×10) and nothing consumes any of it. This is the edge that would catch a bad decomposition without a human in the loop.
+
+**B2 — The canary library is not wired.** `.claude/workflows/build-implement.js:599` reads `A.canary` from `args` only; a human hand-picks one. Phase 8's exit test needs the runner to pull from `roll.canaries`.
+
+**B3 — Graph lint belongs in code, not in the decomposer prompt.** `.claude/workflows/build-spec.js:87-93` states the rules and validates none of them. `t7`'s decomposition still shipped a false edge *and* assigned AC-12 to a task that did not own the file it names. Two checks, zero tokens: every criterion's required surface ∈ its task's `owned_surfaces`; every `depends_on` justified by a variable actually crossing.
+
+### C. Durability and substrate
+
+**C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
+
+**C2 — `run-output.js --save` collides with `ledger append --from-output`.** Both target `ledger/runs/<id>.json`; `substrate/ledger.js:131` then refuses with `"ledger already has <id>; a re-run needs a new run_id"`. `--from-output` writes the result itself, so `--save` is only for the older `--started/--result` path. Documented order is wrong.
+
+**C3 — Phase 3's promoted commit is unrecoverable.** `git cat-file -t 44df6d7adf44108db3062bc590ee4cc7677a68b7` → *could not get object info*. That sha is `live_sha` and `prod.sha` in both `c1v-deploy` and `c1d-deploy`, and `?offset` — the brief's entire `initial_scope` — is in no commit on `main`. Covered by `opp-p5-1`.
+
+**C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
+
+### D. Measurement gaps
+
+**D1 — The Lens Calibrator has no honest sample.** `ledger/runs/mr2-memory-roll.json` → `roll.lens_catch_rates`: `catch_rate: null`, `unavailable_reason: "no escaped-defect denominator exists"`. 30 panels, 39 findings raised, 39 upheld, 0 attributable escapes. **Phase 4's planted defects are not lens misses and must never be counted as any.** Covered by `opp-p5-7`.
+
+**D2 — The line's own human-action count is wrong.** Escalation gates are dropped, so a path costing three human decisions reports as two. Covered by `opp-p5-6`.
+
+**D3 — The Ratio Gate has never fired.** `.claude/workflows/build-reentry.js:238-255` opens it only on a *second consecutive* breach, and `A.ratio.history` was never supplied. §3's only gate is unexercised.
+
+### E. Approved at the Roadmap Gate, still unbuilt
+
+`gates/closed/i1-roadmap_gate.json` → `decision.selection` carries all 8. Shipped: `opp-p5-5` (`ledger append --from-output`), `opp-p5-3` (`X-Total-Count`), `opp-p5-4` (re-panel scoping, as `wi-imp-1`; effect not re-measured). Remaining, in rank order:
+
+| rank | id | one line |
+|---|---|---|
+| 1 | `opp-p5-2` | the canary watch probes five hard-coded request shapes that exclude `?q`, so a regression confined to it is invisible |
+| 3 | `opp-p5-1` | nothing reconciles what `/deploy` promoted back into `main` (see C3) |
+| 4 | `opp-p5-6` | count every gate as a human action (see D2) |
+| 7 | `opp-p5-7` | a lens/router calibration number that would move if they were wrong (see D1) |
+| 8 | `opp-p5-8` | required env config unchecked in `create-project`/`launch`/`deploy` — a documented route was dead for a window with no `ADMIN_TOKEN` |
+
+All 8 came back `within_budget: false`, and 7 of 8 change the plant rather than the toy.

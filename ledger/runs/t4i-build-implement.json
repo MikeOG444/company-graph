@@ -1,0 +1,387 @@
+{
+  "entry": {
+    "id": "t4i-build-implement",
+    "run_id": "t4i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-11T06:11:47.000Z",
+    "finished_at": "2026-09-11T06:59:02.000Z",
+    "wall_clock_sec": 2835,
+    "result_ref": "ledger/runs/t4i-build-implement.json",
+    "artifact_count": 7,
+    "escalations": 1,
+    "tokens_by_model": {
+      "claude-sonnet-5": 524565,
+      "claude-haiku-4-5": 512619,
+      "claude-opus-5": 76222
+    },
+    "tokens": 1113406,
+    "cost_est_usd": 2.72,
+    "agents": 21,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t4i",
+      "created_at": "2026-09-11T06:11:47Z"
+    },
+    "trace_ref": ".artifacts/traces/t4i-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-t4i",
+    "project_id": "toy",
+    "iteration": 4,
+    "artifact_ref": "integration/t4i",
+    "integration_commit": "15f8a01580b9ee0c41f7e4c00f99c279da5db5e0",
+    "specs": [
+      "spec-wi-opp-p5-4"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "task-wi-opp-p5-4-1-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Verified decision block has exactly one BEGIN/END pair with 7 pure functions, no prohibited tokens or await statements (AC-1 attempt)",
+              "Traced budget comparison logic against AC-11/AC-12 specifications - found uses > instead of >= violating 'at or above' language",
+              "Systematically checked out_of_scope constraints and confirmed only 3 touched_surfaces files were modified"
+            ],
+            "findings": [
+              {
+                "id": "SPEC-BUDGET-GTE",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:202",
+                "claim": "shouldEscalate compares budget with > instead of >= violating spec language 'at or above the task ceiling' (AC-11)",
+                "evidence": "Line 202: `if (ctx.tokens > ctx.task_tokens || ...)` should be `if (ctx.tokens >= ctx.task_tokens || ...)` per AC-11 which states 'cumulative task spend at or above the task ceiling stops the loop'",
+                "dedupe_key": ".claude/workflows/build-implement.js:202|budget comparison uses > not >=",
+                "status": "open"
+              },
+              {
+                "id": "SYNTAX-SCOPEMAP-BRACES",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:407-409",
+                "claim": "ScopeMap schema definition has unmatched braces (7 opening, 6 closing) causing syntax error",
+                "evidence": "Lines 407-409 define ScopeMap with 7 opening braces but only 6 closing braces. Line 407-408 open {type:{properties:{files:{type:items:{ (4 opens), line 409 opens {properties:{file:{scoped_diff_ref:{ (3 more = 7 total) but ends with } } } } } } (6 closes). Proper JSON schema requires balanced braces.",
+                "dedupe_key": ".claude/workflows/build-implement.js:407-409|missing closing brace in ScopeMap",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "task-wi-opp-p5-4-1-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted path traversal via scopeOf filtering: tested whether finding locations like '../../etc/passwd:10' could escape validation; defended by whitespace regex check that rejects any location with internal spaces after trimming and line-number stripping",
+              "Attempted prompt injection via scopedRef in fixer agent call: tested whether malicious file paths in the scoped_diff_ref parameter could break agent prompt structure; defended by natural language embedding and proper JSON escaping of the scopeFiles array passed to the slicer agent",
+              "Attempted budget arithmetic bypass: tested whether integer overflow or underflow in token accounting (roundBudget, taskCeiling, shouldEscalate) could allow exceeding stated ceilings; defended by JavaScript arbitrary-precision integers and straightforward floor/max logic with no edge cases",
+              "Attempted authorization bypass via lens re-paneling logic: tested whether the new nextLenses resolution-based filtering could allow security lens to be skipped on dispute; defended by preserved security veto (line 117: security lens fail is hard stop regardless of other lenses) and the fact that security lens re-runs if any finding is upheld on dispute (AC-5 upheld finding keeps lens in retry)",
+              "Attempted unvalidated agent output path injection: tested whether the slicer agent's scoped_diff_ref output, passed to the fixer without validation, could cause file traversal; determined this is a spec-level design assumption (spec requires fixer read the path; slicer is internal workflow code, not external threat model)"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-opp-p5-4-1-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempted to verify that nextLenses correctly filters lenses by checking the resolution status keyed by finding.id, but the test expects the resolution map to be keyed by dedupe_key values instead - the implementation looks up res[f.id] where f.id is 'f1','f2','f3' but the test provides resolution keyed by 's1','s2','p1' (the dedupe_key values).",
+              "Attempted to verify that exactly one scope: agent label exists in the workflow, but found 2 occurrences of 'scope:' - one in the agent label at line 419 (scope:${task.id}:${tag}) and one in the specText string 'out of scope' at line 250, causing the regex /scope:/g to match both.",
+              "Attempted to verify that the workflow provides fallback wording for findings without a scoped slice, but the regex /fallback|unscoped|no slice|not a file/i does not match the actual text 'No scoped slice is available' because 'scoped' appears between 'No' and 'slice' - the regex expects 'no slice' as two adjacent words."
+            ],
+            "findings": [
+              {
+                "id": "ac-4-key-mismatch",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:92",
+                "claim": "nextLenses function uses f.id to look up resolutions but should use f.dedupe_key",
+                "evidence": "The function checks `res[f.id] === 'overruled'` on line 92, but the spec and test AC-4 expect the resolution map to be keyed by dedupe_key values (s1, s2, p1 in the test), not by id values (f1, f2, f3). This causes all findings to appear unresolved, making lenses with only-overruled findings incorrectly stay in the retry list instead of moving to settled.",
+                "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:92|nextLenses resolution lookup key mismatch",
+                "status": "open"
+              },
+              {
+                "id": "ac-14-duplicate-scope-label",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:250",
+                "claim": "Workflow contains 2 occurrences of 'scope:' substring instead of exactly 1, violating AC-14",
+                "evidence": "Regex search finds: (1) line 250 in specText: 'out of scope' and (2) line 419 in agent label: `scope:${task.id}:${tag}`. The test AC-14 uses regex /scope:/g expecting exactly 1 match for the agent label, but string matching finds both occurrences. The second occurrence in specText's 'out of scope' phrase breaks the test assertion.",
+                "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:250|duplicate scope substring",
+                "status": "open"
+              },
+              {
+                "id": "ac-15-fallback-wording",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435",
+                "claim": "Fallback wording for unscoped findings does not match test regex pattern",
+                "evidence": "Test AC-15 regex `/fallback|unscoped|no slice|not a file/i` expects 'no slice' as two adjacent words. Actual text on line 435-436 is 'No scoped slice is available' which has 'scoped' between 'No' and 'slice'. The pattern 'no slice' (two consecutive words) does not appear anywhere in the fallback text, causing assert.match to fail.",
+                "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435|fallback wording pattern mismatch",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-opp-p5-4-1-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "SPEC-BUDGET-GTE",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:202",
+            "claim": "shouldEscalate compares budget with > instead of >= violating spec language 'at or above the task ceiling' (AC-11)",
+            "evidence": "Line 202: `if (ctx.tokens > ctx.task_tokens || ...)` should be `if (ctx.tokens >= ctx.task_tokens || ...)` per AC-11 which states 'cumulative task spend at or above the task ceiling stops the loop'",
+            "dedupe_key": ".claude/workflows/build-implement.js:202|budget comparison uses > not >=",
+            "status": "open"
+          },
+          {
+            "id": "SYNTAX-SCOPEMAP-BRACES",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:407-409",
+            "claim": "ScopeMap schema definition has unmatched braces (7 opening, 6 closing) causing syntax error",
+            "evidence": "Lines 407-409 define ScopeMap with 7 opening braces but only 6 closing braces. Line 407-408 open {type:{properties:{files:{type:items:{ (4 opens), line 409 opens {properties:{file:{scoped_diff_ref:{ (3 more = 7 total) but ends with } } } } } } (6 closes). Proper JSON schema requires balanced braces.",
+            "dedupe_key": ".claude/workflows/build-implement.js:407-409|missing closing brace in ScopeMap",
+            "status": "open"
+          },
+          {
+            "id": "ac-4-key-mismatch",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:92",
+            "claim": "nextLenses function uses f.id to look up resolutions but should use f.dedupe_key",
+            "evidence": "The function checks `res[f.id] === 'overruled'` on line 92, but the spec and test AC-4 expect the resolution map to be keyed by dedupe_key values (s1, s2, p1 in the test), not by id values (f1, f2, f3). This causes all findings to appear unresolved, making lenses with only-overruled findings incorrectly stay in the retry list instead of moving to settled.",
+            "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:92|nextLenses resolution lookup key mismatch",
+            "status": "open"
+          },
+          {
+            "id": "ac-14-duplicate-scope-label",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:250",
+            "claim": "Workflow contains 2 occurrences of 'scope:' substring instead of exactly 1, violating AC-14",
+            "evidence": "Regex search finds: (1) line 250 in specText: 'out of scope' and (2) line 419 in agent label: `scope:${task.id}:${tag}`. The test AC-14 uses regex /scope:/g expecting exactly 1 match for the agent label, but string matching finds both occurrences. The second occurrence in specText's 'out of scope' phrase breaks the test assertion.",
+            "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:250|duplicate scope substring",
+            "status": "open"
+          },
+          {
+            "id": "ac-15-fallback-wording",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435",
+            "claim": "Fallback wording for unscoped findings does not match test regex pattern",
+            "evidence": "Test AC-15 regex `/fallback|unscoped|no slice|not a file/i` expects 'no slice' as two adjacent words. Actual text on line 435-436 is 'No scoped slice is available' which has 'scoped' between 'No' and 'slice'. The pattern 'no slice' (two consecutive words) does not appear anywhere in the fallback text, causing assert.match to fail.",
+            "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435|fallback wording pattern mismatch",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "task-wi-opp-p5-4-1-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified all 17 acceptance criteria are addressed by the diff: decision block structure correct, all 7 functions present with exact sentinel lines, no forbidden tokens in the decision block",
+              "Traced decision function logic through spec test cases: scopeOf handles path:line format correctly, nextLenses resolution logic correct for all finding states (fixed/overruled/upheld/deferred/unresolved), shouldEscalate checks budget before max_rounds as required",
+              "Validated scope boundaries: changes limited to three touched_surfaces, contracts.schema.json untouched (budget reason already in Escalation enum), work_item_budgets is optional and additive with TASK_TOKENS fallback"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-opp-p5-4-1-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Verified fix-loop decisions block is properly delimited and extractable with all 7 required functions present with correct signatures",
+              "Tested scopeOf and scopeTargets edge case handling for non-file paths and whitespace",
+              "Verified budget ceiling enforcement checks task and round ceilings before max_rounds using existing enum values",
+              "Checked scoped diff fallback wording against test regex patterns /fallback|unscoped|no slice|not a file/i",
+              "Verified lens re-paneling by resolution correctly implements nextLenses and lensesToRun logic",
+              "Confirmed scoped diff slicer is placed after shouldEscalate in fail branch and Test Author prompt has no scoped_diff_ref"
+            ],
+            "findings": [
+              {
+                "id": "AC-15-FALLBACK-WORDING",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435-436",
+                "claim": "Fallback wording for scoped_diff_ref does not match test's required pattern",
+                "evidence": "Test AC-15 expects regex match /fallback|unscoped|no slice|not a file/i but lines 435-436 contain \"No scoped slice is available\" and \"not a clean repository-relative file path\" which don't match any of the four required substrings",
+                "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435-436|fallback-wording-pattern-mismatch",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "task-wi-opp-p5-4-1-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "AC-15-FALLBACK-WORDING",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435-436",
+            "claim": "Fallback wording for scoped_diff_ref does not match test's required pattern",
+            "evidence": "Test AC-15 expects regex match /fallback|unscoped|no slice|not a file/i but lines 435-436 contain \"No scoped slice is available\" and \"not a clean repository-relative file path\" which don't match any of the four required substrings",
+            "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:435-436|fallback-wording-pattern-mismatch",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "task-wi-opp-p5-4-1-r2",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempted to verify test AC-15 passes by checking that scoped_diff_ref does not appear within 500 chars backward and 1000 chars forward of any 'test-author' mention in the workflow. Found scopeNote containing literal 'scoped_diff_ref:' at line 433, which is only 5 lines (~300-400 chars) after testfix agent's AT('test-author') at line 428, placing it within the test's safety window.",
+              "Attempted to trace the testfix agent prompt text itself (lines 424-427) to verify it contains no scoped_diff_ref. Found the prompt is clean. However, the test's defensive proximity check correctly identifies that scoped_diff_ref appears too close to the test-author code path in source structure.",
+              "Attempted to understand AC-15's intent by reading the specification: 'the test-repair prompt handed to the Test Author must carry no scoped_diff_ref'. The test implementation treats this as requiring code-level separation by checking a 1500-char window around test-author mentions, which the implementation violates by placing scopeNote (with literal 'scoped_diff_ref:' string) immediately after testfix agent definition."
+            ],
+            "findings": [
+              {
+                "id": "finding-ac-15-fail",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:428-433",
+                "claim": "Test AC-15 fails: scoped_diff_ref appears within 1000 characters after the test-author agent definition, violating the requirement that test-repair prompts must not carry scoped_diff_ref",
+                "evidence": "Test at line 55 of fix-loop-wiring.test.js asserts that within a 500+1000 char window around 'test-author', scoped_diff_ref must not appear. The scopeNote variable defined at line 432-436 contains the literal string 'scoped_diff_ref:' at line 433, which is approximately 300-400 characters (5-6 lines) after AT('test-author') at line 428, placing it within the forward window that triggers test failure: 'the test-repair prompt handed to the Test Author must carry no scoped_diff_ref'",
+                "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:428-433|test ac-15 violation scoped_diff_ref proximity",
+                "status": "open"
+              }
+            ],
+            "confidence": 1,
+            "change_set_id": "task-wi-opp-p5-4-1-r2",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "t4i",
+              "created_at": "2026-09-11T06:11:47Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-ac-15-fail",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:428-433",
+            "claim": "Test AC-15 fails: scoped_diff_ref appears within 1000 characters after the test-author agent definition, violating the requirement that test-repair prompts must not carry scoped_diff_ref",
+            "evidence": "Test at line 55 of fix-loop-wiring.test.js asserts that within a 500+1000 char window around 'test-author', scoped_diff_ref must not appear. The scopeNote variable defined at line 432-436 contains the literal string 'scoped_diff_ref:' at line 433, which is approximately 300-400 characters (5-6 lines) after AT('test-author') at line 428, placing it within the forward window that triggers test failure: 'the test-repair prompt handed to the Test Author must carry no scoped_diff_ref'",
+            "dedupe_key": ".artifacts/worktrees/task-wi-opp-p5-4-1/.claude/workflows/build-implement.js:428-433|test ac-15 violation scoped_diff_ref proximity",
+            "status": "open"
+          }
+        ],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 13,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/t4i.json"
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "escalations": [
+      {
+        "task_id": "task-wi-opp-p5-4-1",
+        "reason": "max_rounds",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (5 findings)",
+          "r1: deferred 1 findings past the fixer cap: ac-15-fallback-wording",
+          "r1: overruled spec_conformance at .claude/workflows/build-implement.js:407-409: Directly counted braces in the ScopeMap literal at .claude/workflows/build-implement.js:407-409 (worktree task-wi-opp-p5-4-1). Line 407 has 1 open, line 408 has 3 opens (4 total), line 409 has 3 opens and 7 closes (verified programmatically with Python and by eye — the finding undercounted line 409's closing braces as 6 when it is actually 7). Total: 7 opens, 7 closes — balanced. Confirmed by parsing the exact literal via `new Function('return {...}')()` in Node, which succeeds and yields exactly the intended nested JSON Schema (type/additionalProperties/required/properties.files.items with file and scoped_diff_ref). Working tree is clean per git status, so this is the content the finding was evaluated against. The finding names a syntax defect that does not exist; the fixer's dispute is factually correct.",
+          "r2 [spec_conformance,correctness]: fail (1 findings)",
+          "r3 [correctness]: fail (1 findings)",
+          "escalation triage (verified in worktree): 16 of 17 acceptance tests pass; only AC-15 fails. All seven decision functions (AC-1..AC-13), the slicer wiring (AC-14), the lens doc (AC-16) and contract-invariance (AC-17 Escalation.reason enum) are green.",
+          "escalation triage: the open AC-15 finding is FACTUALLY CORRECT, unlike the r1 brace finding. Measured: AT('test-author') at build-implement.js:428, the literal 'scoped_diff_ref:' inside scopeNote at :433 is 347 chars forward, inside the test's +1000 char window. 9 'test author' matches exist in the file; exactly one (line 428) violates.",
+          "escalation triage: the open finding has had ZERO fixer attempts. Only r1 and r2 patches exist in .artifacts/diffs/ (r1.SPEC-BUDGET-GTE, r1.ac-14-duplicate-scope-label, r1.ac-4-key-mismatch, r2.AC-15-FALLBACK-WORDING). Round 3 raised the proximity variant and shouldEscalate returned max_rounds in the same round, so the loop escalated on the round that first surfaced this defect, without ever routing it to a fixer.",
+          "escalation triage: three rounds were consumed by a mutating chain of AC-15 variants (deferred past MAX_FIXERS in r1, wording-fixed in r2, proximity variant in r3). Each carried a different dedupe_key, so the repeat_finding stop never fired and the round cap expired instead.",
+          "escalation triage: the finding's location points at the workflow file, so isTestFinding() is false and it routes to the code Fixer, whose prompt forbids modifying tests under .artifacts/tests/. The assertion it violates is a textual-proximity proxy in the test, not a property of the prompt itself — the test-repair prompt genuinely carries no scoped_diff_ref.",
+          "escalation triage: a fix exists and is small. Forbidden (windowed) line ranges are 1-14, 19-41, 253-272, 276-293, 339-355, 424-439, 446-466, 514-528 of 581; lines 440-445 and 467-513 are legal. Hoisting the scopeNote/code-fixer prompt construction into a helper defined in the 467-513 gap clears the window. Note the windows are char-based and move as text moves, so the edit needs one verification pass, which is plausibly why a fixer reading only the finding text would flail."
+        ],
+        "repeats": [],
+        "hypothesis": "Not stuck on substance — 16/17 ACs pass and the one open finding is a true but purely textual proximity assertion in AC-15's test (scoped_diff_ref sits 347 chars after AT('test-author'), inside the test's ±window) that has never been handed to a fixer: the round cap expired on the very round that first surfaced it, after three rounds were burned on mutating AC-15 variants whose shifting dedupe_keys defeated the repeat_finding stop.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 357310,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t4i",
+      "created_at": "2026-09-11T06:11:47Z"
+    }
+  }
+}

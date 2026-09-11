@@ -1,0 +1,89 @@
+{
+  "id": "t6-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "t6",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-11T16:42:23.316Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "t6",
+    "created_at": "2026-09-11T16:42:23.316Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "t6",
+    "project_id": "toy",
+    "spec_id": "spec-wi-unactionable-findings",
+    "criteria": 18,
+    "risk": "high",
+    "high_by_rule": [
+      "rule: surface kind schema: contracts.schema.json#/$defs/Finding",
+      "rule: surface kind schema: contracts.schema.json#/$defs/ChangeSet"
+    ],
+    "agent_said": [
+      "Additive optional fields only — no breaking schema changes to Finding or ChangeSet; existing artifacts lacking target/diff_bytes still validate",
+      "Escalation contract byte-identical per AC-12; reason enum and stored data shape unchanged",
+      "Pure decision block self-contained — new functions don't alter existing signatures; extraction mechanism unchanged"
+    ],
+    "spec_ref": ".artifacts/build/t6/specs/spec-wi-unactionable-findings.json",
+    "tasks": [
+      {
+        "id": "t-wi-unactionable-schema",
+        "depends_on": [],
+        "criteria": 2,
+        "owns": [
+          "contracts.schema.json#/$defs/Finding",
+          "contracts.schema.json#/$defs/ChangeSet"
+        ]
+      },
+      {
+        "id": "t-wi-unactionable-fixloop",
+        "depends_on": [
+          "t-wi-unactionable-schema"
+        ],
+        "criteria": 14,
+        "owns": [
+          ".claude/workflows/build-implement.js",
+          "substrate/test/extract-fixloop.js",
+          "substrate/test/"
+        ]
+      },
+      {
+        "id": "t-wi-unactionable-agents",
+        "depends_on": [
+          "t-wi-unactionable-fixloop"
+        ],
+        "criteria": 3,
+        "owns": [
+          ".claude/agents/lens-spec-conformance.md",
+          ".claude/agents/lens-correctness.md",
+          ".claude/agents/fixer.md"
+        ]
+      }
+    ],
+    "main_session_concern": {
+      "headline": "The decomposition will trigger the very defect the spec fixes.",
+      "detail": "The graph is a 3-task CHAIN: t-schema -> t-fixloop -> t-agents. Defect (b) in this spec is that a task with depends_on gets its branch created at its dependency head, so base...head is empty, the captured diff is 0 bytes, and the lenses silently read a different tree from the fixer. That is measured, not theoretical: run t5i escalated on exactly this shape 90 minutes ago. Tasks 2 and 3 of this graph are that shape. Running it as written most likely reproduces the bug on two of three tasks, at roughly $6 based on t5i.",
+      "second_finding": "t-agents depends_on t-fixloop looks like a FALSE EDGE (CLAUDE.md rule 1). The three agent .md files are prose; nothing in them consumes t-fixloop output. t-fixloop -> t-schema is real (the code reads the new Finding field). The decomposer added an ordering dependency where no variable crosses.",
+      "options_the_main_session_sees": [
+        "A: fix defect (b) by hand first (it is the smallest of the three and the one blocking the other two), then run this spec through the line with the chain no longer fatal.",
+        "B: re-decompose to ONE task. Surfaces are disjoint but the change is one coherent edit; a single task has no depends_on and so no empty diff.",
+        "C: run as written and let it hit the bug, buying a clean before/after measurement at roughly $6."
+      ]
+    }
+  },
+  "decision": {
+    "option": "revise",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T17:05:00.000Z",
+    "note": "HE decided revise in chat. The spec covers the three symptoms but not the root cause the main session found after it was written: owned_surfaces is unenforced, which is what let t1 write t2's files and produce the empty diff. Also: the decomposition chained three tasks and carried a false edge (t-agents depends_on t-fixloop). Respec with the cause included; the empty-diff deadlock (b) is already fixed by hand at 565c52f and should not be re-implemented."
+  }
+}

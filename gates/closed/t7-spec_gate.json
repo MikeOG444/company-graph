@@ -1,0 +1,90 @@
+{
+  "id": "t7-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "t7",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-11T18:58:28.032Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "t7",
+    "created_at": "2026-09-11T18:58:28.032Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "t7",
+    "project_id": "toy",
+    "spec_id": "spec-wi-owned-surfaces-boundary",
+    "criteria": 18,
+    "risk": "high",
+    "high_by_rule": [
+      "rule: surface kind schema: contracts.schema.json#/$defs/Finding"
+    ],
+    "spec_ref": ".artifacts/build/t7/specs/spec-wi-owned-surfaces-boundary.json",
+    "tasks": [
+      {
+        "id": "t1-decision-functions-integration",
+        "depends_on": [],
+        "criteria": [
+          "AC-1",
+          "AC-2",
+          "AC-3",
+          "AC-4",
+          "AC-5",
+          "AC-6",
+          "AC-7",
+          "AC-8",
+          "AC-9",
+          "AC-10",
+          "AC-11",
+          "AC-14",
+          "AC-15",
+          "AC-16",
+          "AC-18",
+          "AC-12"
+        ],
+        "owns": [
+          ".claude/workflows/build-implement.js",
+          "contracts.schema.json",
+          "substrate/test/extract-fixloop.js",
+          "substrate/test/",
+          ".claude/agents/fixer.md"
+        ]
+      },
+      {
+        "id": "t2-agent-documentation",
+        "depends_on": [],
+        "criteria": [
+          "AC-13",
+          "AC-17"
+        ],
+        "owns": [
+          ".claude/agents/lens-spec-conformance.md",
+          ".claude/agents/lens-correctness.md",
+          ".claude/agents/implementer.md"
+        ]
+      }
+    ],
+    "what_changed_from_t6": "Leads with the CAUSE (d): owned_surfaces enforced in code via surfaceRef/withinOwned/boundaryCheck, called on the settled ChangeSet before any lens and again on each merged ChangeSet. A stray into a SIBLING owned surface ends the task with an Escalation naming the path and the owner; a path nobody owns is a warning that proceeds, so touched_surfaces stays a permission envelope (r5, c1). AC-7 makes the victim task name the straying sibling instead of the generic wording I hand-wrote.",
+    "main_session_corrections": [
+      "AC-12 was assigned to t2 but requires editing .claude/workflows/build-implement.js, which only t1 owns — t2 could not have satisfied it. Moved to t1. This is the unsatisfiable-criterion defect the spec exists to fix, reproduced in its own decomposition.",
+      "Dropped t2 depends_on t1. With only the two prose criteria left, t2 consumes nothing t1 produces (rule 1).",
+      "After both: every one of the 18 criteria is assigned exactly once, and the graph has no edges."
+    ],
+    "decomposition_guidance_result": "Explicit guidance in project_context (prefer ONE task; depends_on only where one task reads another output; ordering is not a dependency) took the graph from 3 chained tasks to 2, but did NOT prevent a false edge or a misassigned criterion. Prompting a cheap model out of this is not reliable; a code-level graph lint would have caught both in zero tokens.",
+    "recommendation": "approve — the spec is sound and the two decomposition defects are corrected in the stored graph."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T19:05:00.000Z",
+    "note": "HE approved in chat. Additive schema change (Finding gains an optional target). The gate fired on the code rule, not an agent vote. Two decomposition defects were corrected in the stored graph before approval: AC-12 moved from t2 to t1, which owns the file it requires, and the t2->t1 false edge dropped. All 18 criteria assigned exactly once; graph has no edges."
+  }
+}

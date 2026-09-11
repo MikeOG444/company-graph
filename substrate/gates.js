@@ -6,7 +6,9 @@
 //              [--payload <file.json> | --payload-ref <ref>] [--project <id>] [--next <workflow>] [--now <iso>]
 //   gates list [--open | --closed | --all] [--stale <hours>] [--json]
 //   gates show <id>
-//   gates decide <id> <option> [--note "..."] [--now <iso>]
+//   gates decide <id> <option> [--note "..."] [--select <id,id,...>] [--now <iso>]
+//     --select records decision.selection: the ids the human picked when the decision is more than one word
+//     (the roadmap_gate's approved Opportunity ids, with the VentureVerdict in <option>).
 import fs from 'node:fs'
 import path from 'node:path'
 import { GATES, ensureDir, parseArgs, die, readJson, writeJson, nowIso } from './lib/paths.js'
@@ -81,7 +83,7 @@ switch (cmd) {
   }
 
   case 'decide': {
-    if (!a || !b) die('usage: gates decide <id> <option> [--note "..."] [--now iso]')
+    if (!a || !b) die('usage: gates decide <id> <option> [--note "..."] [--select id,id,...] [--now iso]')
     const p = locate(a)
     const rec = readJson(p)
     if (rec.status !== 'open') die(`gate ${a} is already ${rec.status} (${rec.decision?.option})`, 1)
@@ -89,6 +91,11 @@ switch (cmd) {
     rec.status = 'decided'
     rec.decision = { option: b, decided_by: 'human_employee', decided_at: nowIso(opts.now) }
     if (opts.note && opts.note !== true) rec.decision.note = String(opts.note)
+    // Some decisions are more than one word: the roadmap_gate carries the VentureVerdict in `option` and the
+    // approved Opportunity ids here. Structured, so the next workflow reads a list instead of parsing the note.
+    if (opts.select && opts.select !== true) {
+      rec.decision.selection = String(opts.select).split(',').map(x => x.trim()).filter(Boolean)
+    }
     assertValid(rec)
     ensureDir(CLOSED)
     writeJson(path.join(CLOSED, `${rec.id}.json`), rec)
@@ -96,6 +103,7 @@ switch (cmd) {
     // What the next workflow needs in args: the decision, keyed by gate and run.
     const argsHint = { gate: rec.gate, gate_id: rec.id, run_id: rec.run_id, decision: b }
     if (rec.decision.note) argsHint.note = rec.decision.note
+    if (rec.decision.selection) argsHint.selection = rec.decision.selection
     console.log(`decided ${rec.id}: ${b}`)
     if (rec.next_workflow) console.log(`next: /${rec.next_workflow} with args including ${JSON.stringify(argsHint)}`)
     else console.log(`args for the next workflow: ${JSON.stringify(argsHint)}`)

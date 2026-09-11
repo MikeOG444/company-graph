@@ -1,0 +1,220 @@
+{
+  "entry": {
+    "id": "t1-build-spec",
+    "run_id": "t1",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T03:52:41.000Z",
+    "finished_at": "2026-09-11T03:55:36.000Z",
+    "wall_clock_sec": 175,
+    "result_ref": "ledger/runs/t1-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 120747,
+      "claude-opus-5": 68963
+    },
+    "tokens": 189710,
+    "cost_est_usd": 0.65,
+    "agents": 4,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t1",
+      "created_at": "2026-09-11T03:52:41Z"
+    },
+    "trace_ref": ".artifacts/traces/t1-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-patch-sig-p4-merged",
+          "work_item_id": "wi-patch-sig-p4-merged",
+          "goal": "Restore the documented ?q behavior of GET /items in toy/src/app.js by fixing two defects in the same q-filter block, and pin the restored contract with regression tests. (1) Define the search needle: the `if (q)` block calls `normalizeNeedle(q)`, an identifier never defined, imported or declared anywhere in the app, so every request carrying a non-empty ?q throws a ReferenceError synchronously inside the route handler and is answered by Express's default HTML 500; requests with no ?q or an empty ?q short-circuit past the block and still return 200. The needle must be the lower-cased q (`q.toLowerCase()`), matching the documented rule: case-insensitive, literal, contiguous substring test against `name`, both sides lower-cased with toLowerCase(), no trimming, no regex, no locale or diacritic folding. (2) Restore the pipeline order: the executable code runs sort, then the limit cap (`result = result.slice(0, limit)`), and only then the q filter, so the cap truncates the full insertion-ordered list before q narrows it and any match at or beyond index `limit` is discarded — over items inserted banana, apple, cherry, mango, GET /items?q=an&limit=2 returns ['banana'] instead of ['banana','mango']. The q filter must run first, against the full insertion-ordered list, so the executable order is filter -> sort -> cap, which is exactly what the handler's own comment block and toy/README.md already document; this restores documented behavior and changes no contract. Because the 500 masks the ordering defect, the filter cannot be tested until the needle is defined, so both defects are fixed together. Every existing route, query parameter, error string and test keeps passing unchanged (the suite is 35 green tests today and not one of them passes ?q).",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q=an",
+              "then": "the response is 200 with a JSON array whose names are exactly ['banana','mango'] in insertion order — never a 500 and never an HTML body",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q=an&limit=2",
+              "then": "the response is 200 with names exactly ['banana','mango'], proving the cap is applied to the FILTERED list rather than to the full insertion-ordered list (the defect returned ['banana'] only)",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q=an&sort=name&limit=1",
+              "then": "the response is 200 with names exactly ['banana'] — q narrows to [banana, mango], sort=name orders them banana then mango, and the cap of 1 keeps banana; no cap-before-filter or sort-before-filter implementation can satisfy this together with AC-2",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a fresh app with items named 'Banana' and 'apple'",
+              "when": "a client sends GET /items?q=BAN, GET /items?q=ban and GET /items?q=Ban",
+              "then": "each response is 200 with names exactly ['Banana'], showing both the query and the stored name are lower-cased with toLowerCase() before the substring test",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "a fresh app with items named 'abc' and 'banana'",
+              "when": "a client sends GET /items?q=a.c (regex metacharacter), GET /items?q=%20an (the value ' an', a leading space) and GET /items?q=nan",
+              "then": "?q=a.c returns 200 [] (the needle is a literal, not a regex), ?q=' an' returns 200 [] (no trimming is performed), and ?q=nan returns 200 with ['banana'] (a contiguous substring anywhere in the name matches)",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q=zzz",
+              "then": "the response is 200 with an empty JSON array — not a 404 and not a 500",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q= (empty value), GET /items (no q at all), and GET /items?q=&sort=name&limit=2",
+              "then": "the empty and absent q cases return 200 with all four items in insertion order, and ?q=&sort=name&limit=2 returns 200 with names ['apple','banana'] — an empty q matches everything and still short-circuits past the filter exactly as before the fix",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "a fresh app with one item named 'banana'",
+              "when": "a client sends GET /items?q=a&q=b (repeated key, parsed by Express as an array) and GET /items?q[x]=y (bracketed key, parsed as an object)",
+              "then": "each response is 400 with body exactly {\"error\":\"invalid q\"}, the store is unchanged, and a subsequent GET /items returns the single item — q validation semantics and the error string are untouched by this fix",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a fresh app with one item named 'banana'",
+              "when": "a client sends GET /items?q[x]=y&sort=bogus&limit=0, GET /items?q=an&sort=bogus and GET /items?q=an&sort=name&limit=0",
+              "then": "the responses are 400 {\"error\":\"invalid q\"}, 400 {\"error\":\"invalid sort\"} and 400 {\"error\":\"invalid limit\"} respectively — validation precedence (q, then sort, then limit) is unchanged and every rejection is a JSON body, never a 500",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "a fresh app with items created in the order banana, apple, cherry, mango",
+              "when": "a client sends GET /items?q=an twice and then GET /items with no parameters",
+              "then": "both q responses are identical 200 arrays of ['banana','mango'] and the unfiltered list still contains all four items in insertion order with unchanged ids — the filter never mutates the store or the stored order",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the repository with the fix and its new regression tests applied",
+              "when": "`npm test` is run from toy/",
+              "then": "the suite is green with zero failures and the 35 pre-existing tests in toy/test/items.test.js, toy/test/health.test.js and toy/test/integration-r5.test.js pass unchanged — no existing assertion is edited, weakened or deleted; the q tests are additions on top of them",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the fixed toy/src/app.js",
+              "when": "a reviewer reads the GET /items handler comment block and toy/README.md against the executable code",
+              "then": "the documented pipeline (filter -> sort -> cap, case-insensitive literal substring on name, no trimming, no regex, no locale folding) matches the code exactly and no comment claims behavior the code does not implement",
+              "testable": false
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/items.test.js"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items"
+            }
+          ],
+          "out_of_scope": [
+            "Changing the semantics or error string of q validation (repeated/bracketed q stays 400 {\"error\":\"invalid q\"}; an absent or empty q still matches everything).",
+            "Changing ?sort or ?limit semantics, their validation regexes, their validation precedence, or their error strings.",
+            "Adding trimming, regex or wildcard support, locale-aware or diacritic-folding comparison, tokenization, or fuzzy/prefix matching to q.",
+            "Extending q to match fields other than `name` (tags, id, created_at).",
+            "Adding pagination metadata, offset/cursor parameters, a total-match count, or any truncation indicator to the response.",
+            "Adding to the module's public surface: the fix may inline `q.toLowerCase()` or keep a local helper, but nothing new is exported from toy/src/app.js.",
+            "Any change to GET /health, POST /items, GET /items/:id, DELETE /items/:id, the JSON 404 catch-all, or the request logger.",
+            "Refactoring the /items handler beyond the two defects — no restructuring of the store, the sort comparator, or the validation block.",
+            "Performance work: indexing, caching, or precomputed lower-cased names.",
+            "Persistence, toy/src/server.js, toy/package.json, CI config, and rewriting toy/README.md beyond keeping it factually accurate.",
+            "Backfilling coverage for any other untested behavior noticed while reading the suite."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "No existing client contract is broken—?q currently throws a ReferenceError (500) on every non-empty value, and zero of 35 existing tests use it, so no code relies on the broken behavior",
+            "Restores documented behavior, not new behavior—README, code comments, and acceptance criteria already describe the correct filter→sort→cap pipeline",
+            "All 35 pre-existing tests pass unchanged per AC-11—the fix is isolated to the q-filter block with no edits to existing assertions",
+            "No stored data shape, auth, secrets, payments, or infra are touched—items, ids, order, and other query parameters remain unchanged",
+            "Internal service with no external consumers yet—the plant's own test service with no third-party clients to break",
+            "Documented parameter being restored rather than new parameter added—even if truly additive, the rules classify additive query parameters as low-risk"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t1",
+            "created_at": "2026-09-11T03:52:41Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-patch-sig-p4-merged",
+          "tasks": [
+            {
+              "id": "task-fix-items-filter-defects",
+              "spec_id": "spec-wi-patch-sig-p4-merged",
+              "description": "Fix the two defects in the GET /items q-filter block in toy/src/app.js: (1) Define the search needle by replacing the undefined normalizeNeedle(q) call with q.toLowerCase() to perform case-insensitive substring matching on the name field. (2) Restore the documented pipeline order so the q-filter runs first against the full insertion-ordered list, then sort is applied, then the limit cap is applied — changing the executable order from sort→cap→filter to filter→sort→cap. Ensure all 35 existing tests continue to pass unchanged.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t1",
+            "created_at": "2026-09-11T03:52:41Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t1",
+      "created_at": "2026-09-11T03:52:41Z"
+    }
+  }
+}

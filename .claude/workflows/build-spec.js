@@ -81,10 +81,17 @@ const specced = (await pipeline(selected, async (w) => {
                  route's contract for existing clients (an additive route, field, or query parameter is low). Spec: ${JSON.stringify(spec)}`,
       { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
     () => agent(`Decompose this spec into IMPLEMENTATION tasks with DISJOINT owned surfaces (no two tasks may own the same path).
-                 Never create a task for writing tests or documentation: a separate Test Author writes tests from the spec, and criteria
-                 about existing tests passing or npm test exiting 0 belong to the implementation task that touches the code.
+                 Never create a task whose only job is writing tests or documentation. A separate Test Author writes tests from the
+                 spec, so criteria about existing tests passing or npm test exiting 0 belong to the implementation task that touches
+                 the code. A DOCUMENTATION criterion resolves the same way: it belongs to the implementation task that owns the code
+                 it documents, and that task's owned_surfaces MUST then include the doc file so the implementer can legally write it.
+                 A doc file given a task of its own has no code to verify against, and the lenses end up arguing over which task owes
+                 the criterion: run t2i escalated at max_rounds doing exactly that with a README criterion split off from the handler
+                 it described, at a cost of $4.38.
                  Prefer ONE task; split only when two disjoint code surfaces can be built independently. Add depends_on only where one
-                 task must read another's output. Every criterion must be covered by some task.
+                 task must read another's output. Every criterion must be covered by some task, AND every surface a task's criteria
+                 require it to write must appear in that task's owned_surfaces — a criterion assigned to a task that may not touch the
+                 file it names is unsatisfiable, and the fix loop cannot close it (rulings r5, c1).
                  App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
       { label: `decompose:${w.id}`, model: MODEL.cheap, schema: TaskGraph }),
   ])
