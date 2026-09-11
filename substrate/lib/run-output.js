@@ -8,7 +8,7 @@ if (!file) { console.error('usage: run-output.js <task.output> [--save <path>]')
 const doc = JSON.parse(fs.readFileSync(file, 'utf8'))
 const agents = (doc.workflowProgress ?? []).filter(a => a && a.type === 'workflow_agent')
 const byModel = {}
-for (const a of agents) { const m = String(a.model ?? 'unknown').replace(/-\d{8}$/, ''); byModel[m] = (byModel[m] ?? 0) + (a.tokens ?? 0) }
+for (const a of agents) { const m = String(a.model ?? 'unknown').replace(/-\d{8}$/, '').replace(/\[.*\]$/, ''); byModel[m] = (byModel[m] ?? 0) + (a.tokens ?? 0) }
 const i = rest.indexOf('--save')
 if (i >= 0 && rest[i + 1]) { fs.writeFileSync(rest[i + 1], JSON.stringify(doc.result, null, 2) + '\n') }
 console.log(JSON.stringify({ agents: agents.length, tokens_by_model: byModel, logs: doc.logs ?? [] }))

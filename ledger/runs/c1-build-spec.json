@@ -1,0 +1,273 @@
+{
+  "entry": {
+    "id": "c1-build-spec",
+    "run_id": "c1",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T01:10:00.000Z",
+    "finished_at": "2026-09-11T01:13:00.000Z",
+    "wall_clock_sec": 180,
+    "result_ref": "ledger/runs/c1-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 116077,
+      "claude-opus-5": 74234
+    },
+    "tokens": 190311,
+    "cost_est_usd": 0.68,
+    "agents": 4,
+    "human_min": 0,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "c1",
+      "created_at": "2026-09-11T01:10:00Z"
+    },
+    "trace_ref": ".artifacts/traces/c1-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-c1-1",
+          "work_item_id": "wi-c1-1",
+          "goal": "Add an optional `?offset=N` query parameter to `GET /items` in `toy/src/app.js`. `N` must be a canonical non-negative decimal integer (`/^(0|[1-9][0-9]*)$/`, within `Number.isSafeInteger` range); any other present value returns `400 {\"error\":\"invalid offset\"}`. The offset skips the first `N` results of the existing pipeline after the sort stage and before the `?limit` cap, making the full pipeline `filter (?q) -> sort (?sort) -> skip (?offset) -> cap (?limit)`. An absent `offset` and `offset=0` are both no-ops; an offset at or beyond the number of available results returns `200 []`. Query-parameter validation order is pinned as q -> sort -> offset -> limit so a request with several invalid parameters yields one deterministic error body. All existing routes, error shapes and the `Item` shape are unchanged, and the whole existing suite still passes — including `toy/test/integration-r5.test.js`, whose \"unknown params are ignored\" case at line 125 uses `offset=1` as a *sample unknown parameter* and must be updated to the new semantics.",
+          "acceptance": [
+            {
+              "id": "ac-1",
+              "given": "an app with items named a, b, c created in that order",
+              "when": "GET /items is requested with no offset parameter",
+              "then": "the response is 200 with [a, b, c] — byte-identical to the pre-change behavior for every existing q/sort/limit combination",
+              "testable": true
+            },
+            {
+              "id": "ac-2",
+              "given": "an app with items a, b, c",
+              "when": "GET /items?offset=0 is requested",
+              "then": "the response is 200 with [a, b, c], identical to the response for GET /items with offset absent",
+              "testable": true
+            },
+            {
+              "id": "ac-3",
+              "given": "an app with items a, b, c",
+              "when": "GET /items?offset=1 and GET /items?offset=2 are requested",
+              "then": "the responses are 200 [b, c] and 200 [c] respectively, preserving insertion order and full Item objects (id, name, tags, created_at)",
+              "testable": true
+            },
+            {
+              "id": "ac-4",
+              "given": "an app with 3 items",
+              "when": "GET /items?offset=3, ?offset=4 and ?offset=9007199254740991 are requested",
+              "then": "each response is 200 with an empty array [] and content-type application/json — never a 400 and never a 404",
+              "testable": true
+            },
+            {
+              "id": "ac-5",
+              "given": "items created in insertion order banana, apple, cherry, mango",
+              "when": "GET /items?sort=name&offset=1&limit=2 is requested",
+              "then": "the response is 200 with the names [banana, cherry] — proving the skip runs after the sort stage and before the limit cap (a skip-before-sort implementation would yield [apple, cherry]; a cap-before-skip implementation would yield [banana])",
+              "testable": true
+            },
+            {
+              "id": "ac-6",
+              "given": "items named alpha, beta, alphabet, gamma in that insertion order",
+              "when": "GET /items?q=alpha&offset=1 is requested",
+              "then": "the response is 200 with only [alphabet] — the q filter runs first against the full list, so the skip counts only items that survived the filter",
+              "testable": true
+            },
+            {
+              "id": "ac-7",
+              "given": "an app with at least one item",
+              "when": "GET /items?offset=X is requested for each X in -1, -0, 1.5, 1e1, 0x1, 01, 00, abc, true, '' (bare ?offset= and ?offset with no '='), '%201' and '1%20'",
+              "then": "every response is 400 with content-type application/json and body exactly {\"error\":\"invalid offset\"}",
+              "testable": true
+            },
+            {
+              "id": "ac-8",
+              "given": "an app with at least one item",
+              "when": "GET /items?offset=1&offset=2 (Express parses this as an array) and GET /items?offset[x]=1 (parsed as an object) are requested",
+              "then": "both return 400 with body {\"error\":\"invalid offset\"} — a non-string offset is never coerced",
+              "testable": true
+            },
+            {
+              "id": "ac-9",
+              "given": "an app with at least one item",
+              "when": "GET /items?offset=99999999999999999999 (outside Number.isSafeInteger range) is requested",
+              "then": "the response is 400 with body {\"error\":\"invalid offset\"}, matching the existing limit boundary rule",
+              "testable": true
+            },
+            {
+              "id": "ac-10",
+              "given": "an app with at least one item and validation order pinned as q -> sort -> offset -> limit",
+              "when": "GET /items?sort=bogus&offset=-1&limit=0, GET /items?sort=name&offset=-1&limit=0 and GET /items?sort=name&offset=1&limit=0 are requested",
+              "then": "the bodies are exactly {\"error\":\"invalid sort\"}, {\"error\":\"invalid offset\"} and {\"error\":\"invalid limit\"} respectively — one deterministic 400 per request, never a 500, never a partial list, and the two pre-existing combined-error cases (?sort=bogus&limit=0 -> invalid sort, ?sort=name&limit=0 -> invalid limit) keep their current bodies",
+              "testable": true
+            },
+            {
+              "id": "ac-11",
+              "given": "an app with 3 items",
+              "when": "a request with an invalid offset is rejected and then GET /items and POST /items {name:'d'} are issued",
+              "then": "GET /items still returns the same 3 items in the same order and the new item receives id 4 — a rejected request mutates no stored state and consumes no id",
+              "testable": true
+            },
+            {
+              "id": "ac-12",
+              "given": "an app with one item of id 1",
+              "when": "GET /items/1?offset=abc and GET /items/999?offset=-1 are requested",
+              "then": "the responses are 200 with the item and 404 {\"error\":\"not found\"} — offset is ignored and never validated outside the GET /items collection route, exactly as limit is today",
+              "testable": true
+            },
+            {
+              "id": "ac-13",
+              "given": "the request logger enabled with NODE_ENV != 'test'",
+              "when": "GET /items?offset=1&limit=1 is requested",
+              "then": "the logged line is 'GET /items 200 <ms>' with no query string, and the response body is unaffected — the logger, the JSON 404 catch-all, GET /health, POST /items and DELETE /items/:id are all unchanged",
+              "testable": true
+            },
+            {
+              "id": "ac-14",
+              "given": "toy/test/integration-r5.test.js line 125 currently asserts GET /items?limit=1&offset=1&foo=bar returns [a], using offset as a stand-in for an ignored unknown parameter",
+              "when": "that assertion is updated to the new semantics (offset=1 then limit=1 over [a,b,c] yields [b]) while keeping a genuinely unknown parameter such as foo=bar in the case",
+              "then": "`cd toy && npm test` reports 35/35 existing tests passing plus every new offset test passing, 0 failures",
+              "testable": true
+            },
+            {
+              "id": "ac-15",
+              "given": "toy/README.md documents the filter -> sort -> cap pipeline and the ?sort and ?limit parameters",
+              "when": "the change is complete",
+              "then": "the README describes the pipeline as filter -> sort -> skip -> cap, documents ?offset=N (canonical non-negative integer, 0 allowed, past-the-end returns [], invalid returns 400 {\"error\":\"invalid offset\"}), and the doc comment above the GET /items handler in toy/src/app.js states the same contract including the q -> sort -> offset -> limit validation order",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "toy/src/app.js"
+            },
+            {
+              "kind": "module",
+              "ref": "toy/src/app.js -> createApp() -> app.get('/items') handler: validation block and pipeline stages"
+            },
+            {
+              "kind": "api",
+              "ref": "GET /items?offset=N"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/offset.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/test/integration-r5.test.js"
+            },
+            {
+              "kind": "path",
+              "ref": "toy/README.md"
+            }
+          ],
+          "out_of_scope": [
+            "GET /items/:id, POST /items, DELETE /items/:id, GET /health and the JSON 404 catch-all — no behavior change beyond ignoring an offset query parameter as they ignore limit today",
+            "The Item shape { id, name, tags, created_at } — no new fields, no pagination metadata on items",
+            "Pagination envelopes: no total/count field, no X-Total-Count or Link/next headers, no { data, meta } wrapper; GET /items keeps returning a bare JSON array",
+            "Cursor- or keyset-based pagination, page/per_page aliases, or any parameter other than offset",
+            "Changing the semantics, validation regexes or error strings of ?q, ?sort or ?limit; ?limit keeps rejecting 0 while ?offset accepts 0",
+            "Changing the persistence layer — the in-memory Map, insertion ordering and per-app-instance isolation stay as they are",
+            "The request logger format (wi-9), including whether query parameters appear in the logged path",
+            "toy/package.json: no version bump, no new dependencies, no change to the test script",
+            "toy/src/server.js, ports and hosting config (brief.json hosting.envs), CI, and anything under substrate/ or .claude/",
+            "Performance work: slice-based skipping over the existing array copy is sufficient; no indexing or lazy iteration"
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Purely additive optional query parameter—clients not sending offset see identical behavior (AC-1 byte-identical requirement)",
+            "No breaking changes to existing client contracts—offset absence and offset=0 both no-ops (AC-12 confirms offset ignored outside /items collection route)",
+            "Stored data shape unchanged—affects only retrieval pipeline order, not Item shape {id, name, tags, created_at} or persistence layer",
+            "No auth, secrets, payments, or infrastructure impact—purely a stateless filtering parameter on in-memory collection",
+            "Fully reversible—parameter can be deprecated without breaking existing clients",
+            "All 35 existing tests required to pass (AC-14), with only test semantics updated for the new parameter, not test structure",
+            "Deterministic error handling—invalid offset returns existing 400 error shape, validation order defined without interfering with existing parameters"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "c1",
+            "created_at": "2026-09-11T01:10:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-c1-1",
+          "tasks": [
+            {
+              "id": "impl-offset",
+              "spec_id": "spec-wi-c1-1",
+              "description": "Implement ?offset=N query parameter for GET /items with validation (canonical non-negative integers, safe integer range), pipeline integration (after sort, before limit), validation order (q → sort → offset → limit), update integration test line 125, and document the new parameter",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "toy/src/app.js"
+                },
+                {
+                  "kind": "module",
+                  "ref": "toy/src/app.js -> createApp() -> app.get('/items') handler"
+                },
+                {
+                  "kind": "api",
+                  "ref": "GET /items?offset=N"
+                },
+                {
+                  "kind": "path",
+                  "ref": "toy/test/integration-r5.test.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "toy/README.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "ac-1",
+                "ac-2",
+                "ac-3",
+                "ac-4",
+                "ac-5",
+                "ac-6",
+                "ac-7",
+                "ac-8",
+                "ac-9",
+                "ac-10",
+                "ac-11",
+                "ac-12",
+                "ac-13",
+                "ac-14",
+                "ac-15"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "c1",
+            "created_at": "2026-09-11T01:10:00Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "c1",
+      "created_at": "2026-09-11T01:10:00Z"
+    }
+  }
+}
