@@ -1,0 +1,79 @@
+{
+  "entry": {
+    "id": "c1-create-project",
+    "run_id": "c1",
+    "workflow": "create-project",
+    "status": "ok",
+    "started_at": "2026-09-11T01:02:00.000Z",
+    "finished_at": "2026-09-11T01:03:00.000Z",
+    "wall_clock_sec": 60,
+    "result_ref": "ledger/runs/c1-create-project.json",
+    "artifact_count": 2,
+    "escalations": 0,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 74124
+    },
+    "tokens": 74124,
+    "cost_est_usd": 0.1,
+    "agents": 4,
+    "human_min": 1,
+    "provenance": {
+      "node": "create-project",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "c1",
+      "created_at": "2026-09-11T01:02:00Z"
+    },
+    "trace_ref": ".artifacts/traces/c1-create-project.jsonl"
+  },
+  "result": {
+    "project_id": "toy",
+    "repo": "toy@e68bc1e383c7aa944dfb0a2b5ae97e87b0c8a04e",
+    "envs": {
+      "prod": "http://127.0.0.1:3100",
+      "canary": "http://127.0.0.1:3101"
+    },
+    "ci_ref": "NODE_ENV=test node --test \"test/*.test.js\" in ./toy/ → 35/35 at /home/user/company-graph/.artifacts/ci/toy-c1.json",
+    "observability": {
+      "health": "/health",
+      "prod_request_log": ".artifacts/deploy/toy/prod.log",
+      "canary_request_log": ".artifacts/deploy/toy/canary.log",
+      "watch_dir": ".artifacts/deploy/toy/watch",
+      "deploy_cli": "node substrate/deploy.js"
+    },
+    "comms": {
+      "client_channel": "chat",
+      "review_queue": "gates/open",
+      "status_page": ".artifacts/deploy/toy/status.json"
+    },
+    "artifact_store": ".artifacts",
+    "backlog": [
+      {
+        "id": "wi-c1-1",
+        "project_id": "toy",
+        "source": "brief",
+        "title": "Add offset parameter to GET /items",
+        "intent": "The production line's Express service requires pagination support to complete core item querying before the full Brief-to-prod workflow can be tested. This work adds an optional ?offset=N parameter that skips N items after the sort stage and before the limit cap, with strict validation (non-negative integer only; returns 400 on invalid input; returns empty array if offset exceeds available items), while preserving all existing behavior. Done means the feature is fully implemented with comprehensive tests, all new tests pass, all existing 35 tests still pass, and the service is ready to flow through the Phase 3 workflows (Brief signature → build-spec → build-implement → launch → deploy) to prove the production line works end-to-end.",
+        "priority": 1,
+        "deferred_iterations": 0,
+        "provenance": {
+          "node": "backlog_seeder",
+          "executor": "ai_agent",
+          "method": "dark_factory",
+          "model": "haiku",
+          "run_id": "c1",
+          "created_at": "2026-09-11T01:02:00Z"
+        }
+      }
+    ],
+    "provenance": {
+      "node": "create-project",
+      "executor": "ai_agent",
+      "method": "dark_factory",
+      "model": "n/a",
+      "run_id": "c1",
+      "created_at": "2026-09-11T01:02:00Z"
+    }
+  }
+}
