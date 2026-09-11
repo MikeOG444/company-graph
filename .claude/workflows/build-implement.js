@@ -7,8 +7,13 @@ export const meta = {
 // args: { repo, project_id, iteration, specs: [{spec, graph, spec_ref?}], run_id, now,
 //   spec_ref: path to the full Spec JSON in the artifact store. When present, agents read it there and only a summary
 //             (id, goal, touched_surfaces, out_of_scope) is inlined (CLAUDE.md rule 4: large artifacts cross edges by ref).
-//         budget?: { task_tokens }, k_rounds?, artifact_dir?, base?,
+//         budget?: { task_tokens, round_tokens }, k_rounds?, artifact_dir?, base?,
 //         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string, max_fixers? (default 4) }
+//   work_item_budgets?: { [work_item_id]: { tokens } } — optional, additive. A WorkItem's token budget, split evenly
+//         across that work item's tasks in THIS run to give each task a per-task ceiling; absent, falls back to
+//         budget.task_tokens (default 250000). A per-round ceiling defaults to that ceiling / k_rounds unless
+//         budget.round_tokens overrides it. A round that breaches either ceiling escalates with reason "budget"
+//         between rounds (never mid-round), checked before max_rounds.
 //   test_dir: where landed TestSets go, relative to the worktree root (default "<repo>/test"). The repo's own test
 //         runner must actually pick this glob up — for venture-0 work on the plant, repo is "." and this is
 //         "substrate/test". A test landed where the runner does not look is a green suite that proves nothing.
@@ -122,14 +127,88 @@ function adjudicate(verdicts) {
   return { result: 'fail', split: false }
 }
 
+// ---- BEGIN fix-loop decisions ----
+// Pure decisions for the verify-fix loop. No runtime handle crosses in (everything the loop knows is passed as a
+// plain value) and nothing here waits on anything, so a test can cut this block out and evaluate it standalone.
+
+// A location is "path:line" or "path:line:col"; a non-path (a route, a bare word) is reported as not-a-file.
+function scopeOf(location) {
+  let s = String(location ?? '').trim()
+  s = s.replace(/(:\d+){1,2}\s*$/, '').trim()
+  if (!s || /\s/.test(s)) return ''
+  return s
+}
+
+// Distinct files, first-seen order, non-file locations dropped: exactly the set a slicer needs to cut patches for.
+function scopeTargets(findings) {
+  const files = []
+  const seenFiles = new Set()
+  for (const f of findings ?? []) {
+    const file = scopeOf(f?.location)
+    if (file && !seenFiles.has(file)) { seenFiles.add(file); files.push(file) }
+  }
+  return files
+}
+
+// Re-panel by finding resolution, not by verdict: a lens re-runs only if it raised a finding that was fixed, upheld
+// on dispute, deferred past the fixer cap, or otherwise left unresolved. A lens whose every finding was overruled is
+// settled for this change set — it re-joins the panel only through the existing confirm pass, never a fresh retry.
+function nextLenses({ lenses, findings, resolution, mode, verified }) {
+  if (mode === 'all') return { retry: [...lenses], settled: [] }
+  const byLens = new Map()
+  for (const f of findings ?? []) {
+    if (!byLens.has(f.lens)) byLens.set(f.lens, [])
+    byLens.get(f.lens).push(f)
+  }
+  const res = resolution ?? {}
+  const retry = [], settled = []
+  for (const l of lenses ?? []) {
+    const raised = byLens.get(l)
+    if (!raised || !raised.length) continue
+    const allOverruled = raised.every(f => res[f.id] === 'overruled')
+    if (allOverruled) settled.push(l); else retry.push(l)
+  }
+  return { retry, settled }
+}
+
+// The escape hatch (mode "all") runs the whole panel until green. Otherwise: outstanding failures win; with none
+// outstanding, only lenses not yet verified against the current change set are confirmed. Empty means leave the loop.
+function lensesToRun({ lenses, retry, verified, mode }) {
+  if (mode === 'all') return [...(lenses ?? [])]
+  if (retry && retry.length) return [...retry]
+  const done = new Set(verified ?? [])
+  return (lenses ?? []).filter(l => !done.has(l))
+}
+
+// Per-round ceiling: an explicit override wins; otherwise the task ceiling split evenly across the rounds it gets,
+// never below one token, and a missing or zero round count degrades to the whole task ceiling rather than a divide-by-zero.
+function roundBudget({ task_tokens, k_rounds, round_tokens }) {
+  if (round_tokens != null) return Math.max(1, round_tokens)
+  if (!k_rounds) return Math.max(1, task_tokens)
+  return Math.max(1, Math.floor(task_tokens / k_rounds))
+}
+
+// Per-task ceiling: a WorkItem token allotment supplied by the caller splits evenly across that work item's tasks
+// in this run; an absent or zero allotment falls back to the default, so a caller passing nothing sees today's number.
+function taskCeiling({ work_item_tokens, tasks_for_work_item, default_task_tokens }) {
+  if (work_item_tokens) return Math.floor(work_item_tokens / Math.max(1, tasks_for_work_item || 1))
+  return default_task_tokens
+}
+
+// Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
+// overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
+// count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
 function shouldEscalate(ctx, findings) {
-  if (ctx.round >= K_ROUNDS) return 'max_rounds'
-  if (ctx.tokens > TASK_TOKENS) return 'budget'
-  const keys = findings.map(f => f.dedupe_key)
-  if (ctx.round > 1 && keys.some(k => ctx.seen.has(k))) return 'repeat_finding'
-  if (!keys.some(k => !ctx.seen.has(k))) return 'no_fresh_findings'
+  if (ctx.tokens > ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
+  if (ctx.round >= ctx.k_rounds) return 'max_rounds'
+  const keys = (findings ?? []).map(f => f.dedupe_key)
+  const seenKeys = ctx.seen ?? new Set()
+  const overlap = keys.filter(k => seenKeys.has(k))
+  if (ctx.round > 1 && keys.length && overlap.length === keys.length && overlap.length === seenKeys.size) return 'repeat_finding'
+  if (!keys.length || keys.every(k => seenKeys.has(k))) return 'no_fresh_findings'
   return null
 }
+// ---- END fix-loop decisions ----
 
 // =====================================================================
 phase('Implement+Verify')
@@ -148,6 +227,11 @@ function topo(items) {
 }
 const tasks = topo(A.specs.flatMap(({ spec, graph, spec_ref }) => graph.tasks.map(task => ({ spec, task, spec_ref }))))
 log(`${tasks.length} tasks across ${A.specs.length} specs`)
+
+// Per-task token ceiling (point 3): a WorkItem's budget, when the caller passes one, splits evenly across its
+// tasks in THIS run. Absent work_item_budgets, taskCeiling falls back to TASK_TOKENS untouched — additive only.
+const tasksPerWorkItem = new Map()
+for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerWorkItem.get(spec.work_item_id) ?? 0) + 1)
 
 const panelResults = []
 const escalations = []
@@ -212,8 +296,12 @@ async function runTask({ spec, task, spec_ref }) {
 
   // Lens re-run policy: after a fix, re-run only the lenses that failed until they pass, then confirm the ones that had passed.
   // If a confirm run fails, run all three until green (mode 'all'). Confirm runs do not count toward K_ROUNDS.
-  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, tokens: 0, history: [], overruled: [], upheld: [],
-                mode: 'retry', toRun: LENSES, verified: new Set() }
+  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
+    tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
+  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
+  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
+                tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
+                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set() }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
   // ---- Verify → Fix cycle ----
@@ -222,6 +310,7 @@ async function runTask({ spec, task, spec_ref }) {
     if (!confirming) ctx.round += 1
     const tag = `r${ctx.round}${confirming ? 'c' : ''}`
     const toRun = ctx.toRun
+    const roundStartSpend = budget.spent()   // this round's own delta (point 3); an upper bound under an overlapping pipeline
     const { notes: _hidden, ...diffOnly } = ctx.changeSet   // lenses never see implementer rationale
 
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
@@ -270,6 +359,8 @@ async function runTask({ spec, task, spec_ref }) {
     const findings = dedupe(verdicts.flatMap(v => v.findings))
     panelResults.push({ change_set_id: ctx.changeSet.id, result, veto_by, verdicts, findings, round: ctx.round })
     ctx.history.push(`${tag} [${toRun.join(',')}]: ${result} (${findings.length} findings${veto_by ? `, veto by ${veto_by}` : ''})`)
+    ctx.last_round_tokens = Math.max(0, budget.spent() - roundStartSpend)
+    ctx.tokens += ctx.last_round_tokens
 
     if (result === 'pass') {
       toRun.forEach(l => ctx.verified.add(l))
@@ -281,10 +372,8 @@ async function runTask({ spec, task, spec_ref }) {
       }
       return { ...ctx, passed: true, branch }
     }
-    const failedLenses = verdicts.filter(v => v.verdict === 'fail' && v.lens !== 'tiebreak').map(v => v.lens)
     if (confirming) { ctx.mode = 'all'; ctx.history.push(`${tag}: a previously passing lens failed after a fix; running all lenses until green`) }
     confirming = false
-    ctx.toRun = ctx.mode === 'all' ? LENSES : (failedLenses.length ? failedLenses : toRun)
 
     // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
     const escalate = async (reason, open) => {
@@ -299,6 +388,7 @@ async function runTask({ spec, task, spec_ref }) {
     }
 
     const reason = shouldEscalate(ctx, findings)
+    if (reason === 'budget') ctx.history.push(`${tag}: budget breach — tokens ${ctx.tokens}/${ctx.task_tokens} this task, ${ctx.last_round_tokens}/${ctx.round_tokens} this round`)
     if (reason) return escalate(reason, findings)
 
     // ---- Fix Loop: dedupe against SEEN, fan out fixers, rule on disputes, merge ----
@@ -311,13 +401,41 @@ async function runTask({ spec, task, spec_ref }) {
     const isTestFinding = (f) => String(f.location).includes(`${ART}/tests/`) || String(f.location).includes(ctx.testSet.tests_ref)
     const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
       properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
+
+    // Scope the fixer's input (point 2): one cheap mechanical agent per failing round slices the cumulative diff into
+    // one per-file patch per distinct finding file, so a code fixer reads its own hunk instead of exploring the whole tree.
+    const ScopeMap = { type: 'object', additionalProperties: false, required: ['files'],
+      properties: { files: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'scoped_diff_ref'],
+        properties: { file: { type: 'string' }, scoped_diff_ref: { type: 'string' } } } } } }
+    const codeFresh = fresh.filter(f => !isTestFinding(f))
+    const scopeFiles = scopeTargets(codeFresh)
+    let scopedByFile = new Map()
+    if (scopeFiles.length) {
+      const sliced = await agent(`Slice the cumulative diff at ${ctx.changeSet.diff_ref} into one per-file patch, one per path below, each
+                 containing ONLY that path's hunks. Write each to ${ART}/diffs/${task.id}.r${ctx.round}.scope.<n>.patch where <n> is that
+                 path's 1-based position in this list (in order): ${JSON.stringify(scopeFiles)}. If a path has no hunks in the diff, or it
+                 cannot be sliced, omit it rather than writing an empty file. Return files: an array of { file, scoped_diff_ref } for every
+                 path you successfully sliced.`,
+        { label: `scope:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: ScopeMap })
+      scopedByFile = new Map((sliced?.files ?? []).map(x => [x.file, x.scoped_diff_ref]))
+    }
+
     const fixes = (await parallel(fresh.map(f => () => isTestFinding(f)
       ? agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
              Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref} so it asserts exactly what the spec says; do not read or modify
              the implementation. If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
              Return tests_ref and the criteria the tests now cover.`,
           { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test' })
-      : agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch ${branch}). Location: ${f.location}. Evidence: ${f.evidence}.
+      : (() => {
+          const scopeFile = scopeOf(f.location)
+          const scopedRef = scopeFile ? scopedByFile.get(scopeFile) : undefined
+          const scopeNote = scopedRef
+            ? `A scoped slice of the cumulative diff for just this finding's file is at scoped_diff_ref: ${scopedRef} — READ THAT SLICE FIRST;
+               widen to the rest of the worktree only if the slice is insufficient to understand or fix the finding.`
+            : `No scoped slice is available for this finding (its location is not a clean repository-relative file path, or slicing
+               found nothing there) — read the cumulative diff at ${ctx.changeSet.diff_ref} across the whole worktree as before.`
+          return agent(`Fix ONE finding in worktree ${wt} (app at ${wt}/${APP}/, branch ${branch}). Location: ${f.location}. Evidence: ${f.evidence}.
+             ${scopeNote}
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on branch ${branch}.
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
@@ -325,7 +443,8 @@ async function runTask({ spec, task, spec_ref }) {
              FIRST reproduce the finding empirically (run the code, a request, or the test it cites); lenses are read-only and can
              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
              asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>".`,
-        { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })))).filter(Boolean)
+            { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })
+        })()))).filter(Boolean)
 
     const disputed = fixes.filter(x => x.p.notes?.startsWith('DISPUTE:'))
     const testRepairs = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
@@ -334,9 +453,14 @@ async function runTask({ spec, task, spec_ref }) {
       ctx.history.push(`${tag}: ${testRepairs.length} test finding(s) repaired by the Test Author`)
     }
     const applied = fixes.filter(x => x.kind === 'code' && !x.p.notes?.startsWith('DISPUTE:')).map(x => x.p)
+    // Resolution of every finding raised this round, keyed by finding id: the input nextLenses re-panels from.
+    const resolution = {}
+    deferred.forEach(f => { resolution[f.id] = 'deferred' })
+    fixes.forEach(x => { if (!x.p.notes?.startsWith('DISPUTE:')) resolution[x.f.id] = 'fixed' })
+    let rulings = []
     if (disputed.length) {
       // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
-      const rulings = await parallel(disputed.map(x => () =>
+      rulings = await parallel(disputed.map(x => () =>
         agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
@@ -351,14 +475,25 @@ async function runTask({ spec, task, spec_ref }) {
           if (priorOverruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
           ctx.overruled.push({ ...x.f, status: 'overruled' })
           ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
+          resolution[x.f.id] = 'overruled'
         } else {
           ctx.upheld.push({ ...x.f, status: 'disputed' })
           ctx.history.push(`r${ctx.round}: upheld ${x.f.lens} at ${x.f.location}: ${r?.reason ?? 'no ruling'}`)
+          resolution[x.f.id] = 'upheld'
         }
       })
       // A lens overruled twice at the same file is arguing with the spec, not the change. Stop paying for rounds.
       if (repeatOverrule) return escalate('repeat_finding', findings)
     }
+    // Anything this round's findings list carries that the above did not touch (a finding already in `seen` from an
+    // earlier round, excluded from `freshAll` above) is a still-open repeat: left unresolved, its lens keeps re-panelling.
+    findings.forEach(f => { if (!(f.id in resolution)) resolution[f.id] = 'unresolved' })
+
+    // Re-panel by finding resolution, not by verdict (point 1): a lens whose findings were all overruled settles into
+    // ctx.verified for this change set instead of re-running a fresh retry round on a byte-identical diff.
+    const { retry, settled } = nextLenses({ lenses: LENSES, findings, resolution, mode: ctx.mode, verified: [...ctx.verified] })
+    settled.forEach(l => ctx.verified.add(l))
+    ctx.toRun = lensesToRun({ lenses: LENSES, retry, verified: [...ctx.verified], mode: ctx.mode })
 
     if (!applied.length) continue   // nothing changed: previously passing lenses stay verified; only the failing ones re-run
 
