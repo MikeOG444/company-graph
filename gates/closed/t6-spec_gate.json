@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "t6",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-11T16:42:23.316Z",
   "options": [
     "approve",
@@ -79,5 +79,11 @@
         "C: run as written and let it hit the bug, buying a clean before/after measurement at roughly $6."
       ]
     }
+  },
+  "decision": {
+    "option": "revise",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-11T17:05:00.000Z",
+    "note": "HE decided revise in chat. The spec covers the three symptoms but not the root cause the main session found after it was written: owned_surfaces is unenforced, which is what let t1 write t2's files and produce the empty diff. Also: the decomposition chained three tasks and carried a false edge (t-agents depends_on t-fixloop). Respec with the cause included; the empty-diff deadlock (b) is already fixed by hand at 565c52f and should not be re-implemented."
   }
 }
