@@ -384,6 +384,8 @@
         "project_id":     { "type": "string" },
         "iteration":      { "type": "integer" },
         "artifact_ref":   { "type": "string" },
+        "integration_commit": { "type": "string",
+                            "description": "The sha the Integrator produced. artifact_ref is a branch name, which dies with its container; this is the only durable handle on what a run shipped. Company Memory's Lens Calibrator joins Cause.suspect_commit to this field to find the PanelResult that passed a defect. Optional: nothing stamps it yet." },
         "specs":          { "type": "array", "items": { "type": "string" }, "description": "Spec ids shipped." },
         "panel_results":  { "type": "array", "items": { "$ref": "#/$defs/PanelResult" } },
         "suite":          { "type": "object", "additionalProperties": false,
@@ -525,6 +527,94 @@
       "required": ["project_id", "period", "slo", "signals_by_severity", "patches_shipped", "incidents", "maintain_ratio", "trend", "provenance"]
     },
 
+    "FeedbackItem": {
+      "description": "Improve input. One normalized item off a client channel, review, or support queue. The Feedback Collector is code (OPERATING_MODEL 5.1): it reads and shapes, it does not judge. Persisted, so it is a def rather than an inline schema.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string" },
+        "channel":     { "type": "string", "enum": ["client_channel", "review", "support", "founder_review_queue"] },
+        "received_at": { "type": "string", "format": "date-time" },
+        "from":        { "type": "string" },
+        "subject":     { "type": "string" },
+        "body":        { "type": "string" },
+        "rating":      { "type": "integer", "minimum": 1, "maximum": 5 },
+        "asks_for":    { "type": "string", "description": "What the sender wants, in their terms. The Feedback Analyst themes these; it never invents an ask." }
+      },
+      "required": ["id", "channel", "received_at", "body"]
+    },
+
+    "TelemetrySnapshot": {
+      "description": "Improve input. Usage over one period. Signal is Maintain's alert shape (one fingerprinted fault); this is the aggregate the Usage Analyst reads against ProjectBrief.success_metrics. Deliberately loose under line/http: the Analyst is what turns raw counters into insights, so a schema that pinned every counter would move that judgment into the contract.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "project_id": { "type": "string" },
+        "period":     { "type": "object", "additionalProperties": false,
+                        "properties": { "from": {"type":"string","format":"date-time"}, "to": {"type":"string","format":"date-time"} },
+                        "required": ["from", "to"] },
+        "line":       { "type": "object", "description": "What the production line did: launches, human actions by stretch, cost by workflow. For a venture whose stated users are the plant itself, this IS the usage." },
+        "http":       { "type": "object", "description": "What the service underneath served: requests by route, error rates, parameter usage." },
+        "note":       { "type": "string" }
+      },
+      "required": ["project_id", "period"]
+    },
+
+    "MemoryRoll": {
+      "description": "Company Memory output (OPERATING_MODEL 8), one artifact per roll. Five outputs in one def rather than five defs: they are read together and they are written together. Dark Factory sink; nothing waits on it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": { "type": "string" },
+        "period":     { "type": "object", "additionalProperties": false,
+                        "properties": { "from": {"type":"string","format":"date-time"}, "to": {"type":"string","format":"date-time"} },
+                        "required": ["from", "to"] },
+        "runs_read":  { "type": "array", "items": { "type": "string" }, "description": "run_ids this roll is computed from. A roll that names no runs is asserting nothing." },
+        "patterns":   { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "id": {"type":"string"}, "kind": {"enum": ["pattern", "prompt_refinement", "anti_pattern"]},
+                                        "claim": {"type":"string"}, "evidence_runs": {"type":"array","items":{"type":"string"}},
+                                        "sample_size": {"type":"integer","minimum":1} },
+                        "required": ["id", "kind", "claim", "evidence_runs", "sample_size"] },
+                        "description": "Pattern Extractor. Every claim carries the runs it came from and how many; a pattern with sample_size 1 is a note, not a pattern, and says so." },
+        "calibration": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "work_type": {"type":"string"}, "estimated_tokens": {"type":"integer"}, "actual_tokens": {"type":"integer"},
+                                        "factor": {"type":"number"}, "sample_size": {"type":"integer","minimum":0},
+                                        "basis": {"enum": ["run_level", "node_level"]} },
+                        "required": ["work_type", "factor", "sample_size", "basis"] },
+                        "description": "Estimate Calibrator. basis is run_level until the runtime exposes per-agent tokens and a script stamps Provenance.tokens; node_level calibration is not available today and must not be claimed." },
+        "lens_catch_rates": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "lens": {"type":"string"}, "panels_seen": {"type":"integer","minimum":0},
+                                        "findings_raised": {"type":"integer","minimum":0}, "findings_upheld": {"type":"integer","minimum":0},
+                                        "escaped_defects_attributable": {"type":"integer","minimum":0},
+                                        "catch_rate": {"type":["number","null"]},
+                                        "unavailable_reason": {"type":"string"} },
+                        "required": ["lens", "panels_seen", "findings_raised", "findings_upheld", "escaped_defects_attributable", "catch_rate"] },
+                        "description": "Lens Calibrator. catch_rate is null, with unavailable_reason set, whenever the denominator does not exist: a rate needs defects that PASSED a panel and were later found by Maintain. Defects planted by hand on a branch no panel ever saw are not lens misses and are never counted as any. Null is the honest answer; a fabricated percentage is not." },
+        "canaries":   { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "id": {"type":"string"}, "defect_class": {"type":"string"},
+                                        "mutation": {"type":"string", "description": "Passed verbatim as build-implement's canary.mutation arg."},
+                                        "origin": {"type":"string", "description": "Where this defect was really seen: a run_id, a signal id, or 'synthetic'."},
+                                        "expected_lens": {"type":"string", "description": "Which lens SHOULD catch it. A canary no lens is expected to catch measures nothing."} },
+                        "required": ["id", "defect_class", "mutation", "origin", "expected_lens"] },
+                        "description": "Canary Injector's library. build-implement's existing canary arg consumes mutation directly." },
+        "method_report": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "method": { "$ref": "#/$defs/Method" }, "runs": {"type":"integer","minimum":0},
+                                        "tokens": {"type":"integer","minimum":0},
+                                        "tokens_by_model": {"type":"object","additionalProperties":{"type":"integer","minimum":0}},
+                                        "cost_est_usd": {"type":"number","minimum":0},
+                                        "human_min": {"type":"integer","minimum":0},
+                                        "escalations": {"type":"integer","minimum":0},
+                                        "outcomes": {"type":"object","additionalProperties":{"type":"integer"},
+                                          "description": "Counted outcomes per method. LedgerEntry records status and escalations only, so shipped / vetoed / came-back-as-a-defect are not available until something records them; keys absent means not measured, never zero."} },
+                        "required": ["method", "runs", "tokens", "cost_est_usd", "escalations"] },
+                        "description": "The Method Ledger report: provenance.method x outcome x cost. The question the whole model exists to answer." },
+        "review_queue": { "type": "array", "items": { "type": "string" },
+                        "description": "HOTL, not HITL: prompts flagged for a human to look at (a lens that passed a canary, 2.4.4). Lands in a queue; nothing waits on it. There is no review-queue substrate yet - gates/ is HITL only - so this is carried in the roll." },
+        "provenance": { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["project_id", "period", "runs_read", "patterns", "calibration", "lens_catch_rates", "canaries", "method_report", "provenance"]
+    },
+
     "Opportunity": {
       "description": "Improve internal. Synthesized from usage insights + feedback themes; ranked by code.",
       "type": "object",
@@ -539,6 +629,11 @@
         "estimated_cost":{ "type": "object", "additionalProperties": false,
                            "properties": { "tokens": {"type":"integer"}, "human_min": {"type":"integer"} } },
         "confidence":    { "type": "number", "minimum": 0, "maximum": 1 },
+        "surfaces":      { "type": "array", "items": { "$ref": "#/$defs/Surface" },
+                           "description": "What this opportunity would touch. Build re-entry's Conflict Detector overlaps on WorkItem.surfaces; without this the Backlog Emitter has nothing to carry over and re-entry pays a cheap agent to guess them." },
+        "score":         { "type": "number", "description": "Prioritizer output, DERIVED IN SCRIPT CODE: expected_value x confidence / cost. Never an agent's number." },
+        "rank":          { "type": "integer", "minimum": 1, "description": "1-based position in the ranked list." },
+        "within_budget": { "type": "boolean", "description": "Whether this fell inside the remaining budget when the Prioritizer cut the list. Array order cannot record where the cut fell; this can." },
         "provenance":    { "$ref": "#/$defs/Provenance" }
       },
       "required": ["id", "project_id", "hypothesis", "evidence", "metric_impacted", "expected_value", "estimated_cost", "confidence", "provenance"]
@@ -708,6 +803,8 @@
         "next_workflow": { "type": "string", "description": "The workflow that consumes the decision." },
         "decision":      { "type": "object", "additionalProperties": false,
                            "properties": { "option": {"type":"string"}, "note": {"type":"string"},
+                                           "selection": { "type": "array", "items": {"type":"string"},
+                                             "description": "Ids the human picked when the decision is more than one word - e.g. the approved Opportunity ids at the roadmap_gate, where decision.option carries the VentureVerdict recommendation. Structured, so the next workflow reads a list instead of parsing note." },
                                            "decided_by": { "$ref": "#/$defs/Executor" }, "decided_at": {"type":"string","format":"date-time"} },
                            "required": ["option", "decided_by", "decided_at"] },
         "provenance":    { "$ref": "#/$defs/Provenance" }
