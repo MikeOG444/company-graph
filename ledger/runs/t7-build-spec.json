@@ -1,0 +1,328 @@
+{
+  "entry": {
+    "id": "t7-build-spec",
+    "run_id": "t7",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-11T18:50:47.296Z",
+    "finished_at": "2026-09-11T18:57:21.833Z",
+    "wall_clock_sec": 395,
+    "result_ref": "ledger/runs/t7-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 249858,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 137302,
+      "claude-opus-5": 112556
+    },
+    "cost_est_usd": 0.98,
+    "agents": 4,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t7",
+      "created_at": "2026-09-11T18:50:14Z"
+    },
+    "trace_ref": ".artifacts/traces/t7-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-owned-surfaces-boundary",
+          "work_item_id": "wi-unactionable-findings",
+          "goal": "Enforce the owned-surfaces boundary in code, and stop the fix loop spending rounds on findings no fixer can close. (d) THE CAUSE: `Task.owned_surfaces` is told to the decomposer and told to the implementer and verified by nobody; a ChangeSet's `touched_surfaces` are already reported and already compared to nothing. Add pure-code containment functions to build-implement.js's fix-loop decision block and call them on the implementer's settled ChangeSet BEFORE any lens, test runner or fixer agent runs, and again on each round's merged ChangeSet: a touched surface inside a SIBLING task's owned surfaces is a boundary violation that ends the task with an Escalation naming the straying path and the sibling that owns it (run t5i: task t1 wrote ledger/index.jsonl and ledger/runs/m2-maintain-triage.json, both owned by t2, which then found its work done, committed nothing, and deadlocked on an empty diff); a touched surface no task in the graph owns is a warning that proceeds. touched_surfaces stays a permission ENVELOPE (rulings r5, c1) — only work OUTSIDE it is ever a defect. (a) SCOPE MISMATCH: bind every lens to the `criteria_ids` the decomposer already assigned to the task under review, name in the prompt the sibling task that owns each remaining criterion, and drop in code any finding whose only cited acceptance criteria belong to a sibling — so a task owning one criterion of seventeen is never failed for the other sixteen. (c) ROUTING MISMATCH: `isTestFinding` decides by location, so a finding about a test assertion whose location points at the covered code goes to the code Fixer, which is forbidden to edit tests. Give Finding an optional additive `target` the lens sets, route on target first and location second, and give the code Fixer an explicit `TEST-ONLY:` outcome (distinct from `DISPUTE:`) that the script re-routes once, in the same round, to the Test Author repair path. Every surface below is independently editable — no edit consumes another's output, so the task graph needs no depends_on edge and must not invent one. A task that passes round one must make no additional agent call.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "build-implement.js carries the pure decision block delimited by the exact sentinel lines '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----', and substrate/test/extract-fixloop.js evaluates that block with `new Function` and returns the named decision functions",
+              "when": "the block is extracted and evaluated through loadFixLoopDecisions()",
+              "then": "it exposes the eight existing functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate) plus exactly these nine new ones, named verbatim: surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome; extract-fixloop.js's return list names all seventeen; and the block's text still contains none of 'args', 'agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.', 'await'",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "surfaces of every kind the Surface contract allows",
+              "when": "surfaceRef(surface) and withinOwned(touchedRef, ownedRefs, exemptPrefixes) are called",
+              "then": "surfaceRef strips a '#...' fragment ({kind:'schema', ref:'contracts.schema.json#/$defs/Finding'} -> 'contracts.schema.json'), a leading './' and a trailing '/'; withinOwned returns true for an exact match, true for a path under a directory-shaped owned ref ('substrate/test/new.test.js' within 'substrate/test/'), true for any ref under an exempt prefix such as '.artifacts/', and FALSE for a sibling-prefix near-miss ('substrate/testing/x.js' is not within 'substrate/test')",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "a ChangeSet whose touched_surfaces are [{kind:'path',ref:'substrate/ledger.js'},{kind:'path',ref:'ledger/index.jsonl'},{kind:'path',ref:'README.md'}], a task t1 owning [{kind:'path',ref:'substrate/'}], and a sibling t2 in the SAME spec's TaskGraph owning [{kind:'path',ref:'ledger/'}] (the measured run t5i shape)",
+              "when": "boundaryCheck({ touched_surfaces, owned_surfaces, siblings, exempt_prefixes }) is called",
+              "then": "it returns verdict 'violation' with strays containing exactly one entry { ref:'ledger/index.jsonl', owner:'t2' }, and an unowned list containing exactly 'README.md'; the same call with only README.md straying returns verdict 'unowned' with owner null on that stray; and with every touched surface inside owned_surfaces or an exempt prefix it returns verdict 'clean' with empty strays and empty unowned",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a task whose settled ChangeSet (after the existing empty-diff resolution) strays into a sibling's owned surfaces",
+              "when": "the workflow runs that task",
+              "then": "the boundaryCheck call site appears in build-implement.js after the empty-diff loop and before the first verify-loop agent label (`run:`, `lens:`, `scope:`, `fix:`), the panel is never run for that task, the task is returned passed:false, and exactly one Escalation is pushed whose reason is one of the five values already in the Escalation enum and whose history contains one line per stray naming the straying path and the sibling task id that owns it",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "a task whose ChangeSet touches a path no task in its spec's TaskGraph owns and no sibling's owned surface",
+              "when": "the workflow runs that task",
+              "then": "boundaryCheck returns 'unowned', the task proceeds into the panel exactly as today, ctx.history gains one line naming each unowned path, and no additional agent() call is made on account of the check",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "a fix round whose merged ChangeSet (returned by the `merge:` mechanical agent) reports a touched surface owned by a sibling task",
+              "when": "the round completes and the loop is about to continue",
+              "then": "the same boundaryCheck function is applied to the merged ChangeSet, a 'violation' ends the task with the same Escalation shape as AC-4 instead of starting another round, and a 'clean' or 'unowned' result continues the loop unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "sibling task t1 recorded a boundary violation straying into t2's owned surfaces, and t2's own diff then measures empty so emptyDiffAction returns 'refuse'",
+              "when": "the workflow builds t2's refusal message and Escalation history",
+              "then": "the text names t1 as the task recorded straying into t2's owned surfaces and names at least one straying path, instead of today's generic 'check whether that implementer wrote outside its owned surfaces'; with no violation recorded the existing generic wording is unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "a TaskGraph in which task t1 has criteria_ids ['AC-1','AC-2'], sibling t2 (same spec_id) has criteria_ids ['AC-12'], and a task of a DIFFERENT spec has criteria_ids ['AC-3']",
+              "when": "criteriaScope({ task: t1, tasks, acceptance_ids }) is called",
+              "then": "it returns owned ['AC-1','AC-2'], sibling_owner mapping 'AC-12' -> 't2' and NOT mapping 'AC-3' (another spec is not a sibling), and unassigned listing acceptance_ids no task of the same spec owns — degrading to an empty unassigned list, never throwing, when acceptance_ids is absent",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a Finding whose claim is 'AC-12 is not satisfied by this change' and whose evidence quotes 'AC-121' and 'xAC-1'",
+              "when": "citedCriteria(finding, ['AC-1','AC-12','AC-121']) is called",
+              "then": "it returns the acceptance ids appearing as WHOLE tokens across the finding's claim, evidence and location — ['AC-12','AC-121'] here — and never reports 'AC-1' from the match inside 'AC-121' or 'xAC-1'",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "the scope from AC-8 and five findings: one citing only sibling-owned AC-12, one citing owned AC-2, one citing no criterion id at all, one citing owned AC-1 and sibling AC-12 together, and one citing only an unassigned criterion",
+              "when": "isForeignCriterionFinding(finding, scope) is called on each",
+              "then": "it returns true only for the first; false for the owned, the uncited, the mixed, and the unassigned-only finding (nobody owns it, so today's behaviour is preserved)",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the measured run t2i mirror — a task owning only AC-11 whose panel returned a single spec_conformance fail carrying one finding that cites only sibling-owned AC-9 — and a correctness verdict failing on one sibling-cited and one owned finding",
+              "when": "the workflow applies stripForeignFindings to the round's verdicts before normalizeVerdict and adjudicate",
+              "then": "stripForeignFindings returns verdicts with foreign findings removed (spec_conformance now carries no defect, correctness keeps only its owned finding) plus a dropped list whose entries name the dedupe_key, the cited criterion and the owning sibling task id; adjudicate returns 'pass' for the t2i round; the dropped finding never enters the deduped findings list or ctx.seen; no fixer, `scope:` slicer or `testfix:` agent is invoked for it; and ctx.history gains one line naming the dropped criterion and its owning sibling",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the workflow builds the shared lens prompt for a task",
+              "when": "the prompt text is inspected",
+              "then": "it states the task's own criteria_ids verbatim, lists for each remaining acceptance criterion the sibling task id that owns it, says in words that a criterion this task does not own is never a finding and that the task is judged only against its own criteria, and still destructures ChangeSet.notes away so no lens prompt can contain the implementer's rationale",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": ".claude/agents/lens-spec-conformance.md and .claude/agents/lens-correctness.md",
+              "when": "each file is read",
+              "then": "both state that the lens judges only the acceptance criteria the task owns and that a sibling-owned criterion is never a finding; both state that a finding about a test assertion carries target 'test' even when its location points at the code the assertion covers; and every pre-existing rule survives in substance (reject-by-default, at least three attempts, path:line location, dedupe_key format, touched_surfaces as a permission envelope in lens-spec-conformance.md, and its solo re-panelling paragraph)",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "contracts.schema.json and the Finding schema inlined in build-implement.js",
+              "when": "both are parsed and a Finding WITHOUT a target field plus a Finding WITH target 'test' are validated by `node substrate/validator.js Finding <file>`",
+              "then": "both validate; #/$defs/Finding carries a new optional property `target` whose enum is exactly ['implementation','test'], `target` is absent from Finding.required, the inlined copy in build-implement.js matches it, and #/$defs/Escalation — including its five-value reason enum — is unchanged from its state at HEAD",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "findings with (i) target 'test' and a location pointing at src/app.js, (ii) target 'implementation' and a location under .artifacts/tests/, (iii) no target and a location under the TestSet's tests_ref, (iv) no target and a code location",
+              "when": "routeFinding(finding, { tests_ref, artifact_dir }) is called on each",
+              "then": "it returns 'test', 'code', 'test', 'code' respectively — target decides when present, and the existing location rule (artifact_dir + '/tests/' or tests_ref) decides only when target is absent — and the workflow's fan-out uses routeFinding in place of today's isTestFinding for both the scope-slicer filter and the fixer dispatch",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "a code Fixer that returns a ChangeSet whose notes begin 'TEST-ONLY:'",
+              "when": "the round processes its fixes",
+              "then": "fixOutcome(notes) returns 'test_only' for that prefix, 'dispute' for a 'DISPUTE:' prefix and 'applied' otherwise; the workflow re-routes a 'test_only' finding to the Test Author repair path once within the same round (never twice for the same dedupe_key, never to the dispute judge, and never counted in `applied`); the finding's resolution is 'fixed' when the repair returns and 'unresolved' when it does not; and .claude/agents/fixer.md documents the TEST-ONLY outcome as distinct from DISPUTE and states when to use it",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": ".claude/agents/implementer.md",
+              "when": "the file is read",
+              "then": "it states that touched_surfaces must be reported completely and honestly from the diff, that the owned-surfaces boundary is now CHECKED IN CODE after the ChangeSet is returned, and that writing a sibling task's owned surface ends the task rather than helping it — while keeping its existing rules (worktree only, criteria_ids only, diff by ref, notes hidden from verifiers, no tests)",
+              "testable": true
+            },
+            {
+              "id": "AC-18",
+              "given": "a task whose ChangeSet is boundary-clean and whose panel passes in round one",
+              "when": "the full agent call sequence for that task is compared against the sequence at HEAD",
+              "then": "it is identical — the implementer, test author, test runner, three lenses and nothing else — because every new decision (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome) is pure code; the only agent() call sites this work adds to build-implement.js are inside the boundary-violation branch (label prefix 'escalate:') and the TEST-ONLY re-route (label prefix 'testfix:')",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/lens-spec-conformance.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/lens-correctness.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/fixer.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/implementer.md"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json#/$defs/Finding"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/extract-fixloop.js"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/"
+            }
+          ],
+          "out_of_scope": [
+            "Re-implementing the empty-diff deadlock fix landed by hand at 565c52f — emptyDiffAction, ChangeSet.diff_bytes, the single re-capture against the run base, and the honest cannot_repro refusal all stay exactly as they are; only the refusal's wording gains the recorded straying sibling (AC-7).",
+            "Any change to #/$defs/Escalation, including adding a reason enum value: a boundary violation and an unactionable finding must report through the five reasons that already exist.",
+            "Any change to #/$defs/ChangeSet, #/$defs/Task, #/$defs/Verdict or #/$defs/PanelResult; Finding gains one optional property and nothing else in contracts.schema.json changes.",
+            "Reinstating 'a listed touched surface the diff did not touch' as a finding: touched_surfaces remains a permission envelope, settled by rulings r5 and c1. Only work OUTSIDE the envelope is ever a defect.",
+            "Changing .claude/workflows/build-spec.js, the decomposer prompt, or how owned_surfaces are generated — this work enforces the boundary the decomposer already declares, it does not redesign the declaration.",
+            "Auto-reverting, rewriting or cherry-picking a straying commit out of a task branch. The run reports the violation; a human decides.",
+            "Re-running or retro-fixing the historical runs t2i, t4i, t5i, or amending their ledger entries.",
+            "Changes to .claude/agents/lens-security.md, test-author.md or mechanical.md, and to the security veto, the low-confidence Tiebreak threshold, MAX_FIXERS, K_ROUNDS, the grace round, lens streaks or any budget ceiling.",
+            "Changes to the git worktree and branching strategy (one branch per task, dependents branching from their dependency), to the integration barrier, or to test landing.",
+            "Changes to substrate/validator.js, substrate/ledger.js, substrate/gates.js, substrate/artifacts.js or their existing tests.",
+            "Model tier changes for any node."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: contracts.schema.json#/$defs/Finding",
+            "Additive schema change only: Finding gains one optional `target` field not in the required array, preserving backward compatibility with existing clients",
+            "Code changes surgically constrained to fix-loop decision block between sentinels; nine pure functions with no new agent() calls outside boundary-violation and TEST-ONLY branches",
+            "AC-18 guarantee: tasks that are boundary-clean and pass round one have identical agent sequences to HEAD; non-violating cases unaffected",
+            "All changes are code additions and one optional field; no deletions, no re-indexing, no data migration required; 62 substrate tests and 60 toy app tests remain green",
+            "No impact on auth, secrets, payments, infrastructure, or integration boundaries; build-implement args, return shape, and Escalation contract unchanged"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "t7",
+            "created_at": "2026-09-11T18:50:14Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-owned-surfaces-boundary",
+          "tasks": [
+            {
+              "id": "t1-decision-functions-integration",
+              "spec_id": "spec-wi-owned-surfaces-boundary",
+              "description": "Implement the nine pure decision block functions (surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome), integrate boundary checking into the workflow with call sites after empty-diff resolution and in fix rounds, add Finding.target field to contracts.schema.json, implement TEST-ONLY re-routing in build-implement.js, add extract-fixloop.js test infrastructure, and document the TEST-ONLY outcome in fixer.md",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "contracts.schema.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/extract-fixloop.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/fixer.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-18"
+              ]
+            },
+            {
+              "id": "t2-agent-documentation",
+              "spec_id": "spec-wi-owned-surfaces-boundary",
+              "description": "Update lens-spec-conformance.md and lens-correctness.md to document criteria scoping and target field usage; update implementer.md to explain that the owned-surfaces boundary is now checked in code after ChangeSet is returned and that writing a sibling task's owned surface ends the task; ensure all documents state that sibling-owned criteria are never findings and the task is judged only against its own criteria",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/lens-spec-conformance.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/lens-correctness.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/implementer.md"
+                }
+              ],
+              "depends_on": [
+                "t1-decision-functions-integration"
+              ],
+              "criteria_ids": [
+                "AC-12",
+                "AC-13",
+                "AC-17"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "t7",
+            "created_at": "2026-09-11T18:50:14Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "t7",
+      "created_at": "2026-09-11T18:50:14Z"
+    }
+  }
+}
