@@ -247,7 +247,7 @@ const finished = (await pipeline(tasks, async (item) => {
 async function runTask({ spec, task, spec_ref }) {
   const wt = `${ART}/worktrees/${task.id}`
   const specText = spec_ref
-    ? `Spec: the FULL spec (acceptance criteria, touched surfaces, out of scope) is at ${spec_ref}; read it before acting. Summary: ${JSON.stringify({ id: spec.id, goal: spec.goal, touched_surfaces: spec.touched_surfaces, out_of_scope: spec.out_of_scope })}`
+    ? `Spec: the FULL spec (acceptance criteria, touched surfaces, exclusions) is at ${spec_ref}; read it before acting. Summary: ${JSON.stringify({ id: spec.id, goal: spec.goal, touched_surfaces: spec.touched_surfaces, exclusions: spec.out_of_scope })}`
     : `${specText}`
   const depIds = (task.depends_on ?? []).filter(d => taskDone[d])
   const deps = await Promise.all(depIds.map(d => taskDone[d]))
