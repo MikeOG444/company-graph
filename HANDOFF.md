@@ -225,6 +225,22 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 **C3 — Phase 3's promoted commit is unrecoverable.** `git cat-file -t 44df6d7adf44108db3062bc590ee4cc7677a68b7` → *could not get object info*. That sha is `live_sha` and `prod.sha` in both `c1v-deploy` and `c1d-deploy`, and `?offset` — the brief's entire `initial_scope` — is in no commit on `main`. Covered by `opp-p5-1`.
 
+**C5 — Nothing delivers a gate to a human. A page is written to disk and no one is told.**
+The model already assumes a delivery channel and none exists:
+- `OPERATING_MODEL.md:249` — the Incident Commander's outputs are *"incident record, **page HE**"* with tooling *"comms, status page"*. That tooling was never built.
+- `OPERATING_MODEL.md:326` — `/create-project`'s Comms Setup is supposed to produce *"client channel, status page, review queue"* from *"comms APIs"*. Venture 0 never ran it.
+- `OPERATING_MODEL.md:15` and `CLAUDE.md:24` both define Dark Factory as *"no notification unless budget breached"* — the exception presumes a notifier for the breach case.
+- `OPERATING_MODEL.md:391` — Phase 4's own row reads *"sev1 rolls back before the page **fires**"*. It never fires. `substrate/gates.js` contains no notification code of any kind: `grep -n "notif\|alert\|webhook\|slack\|email" substrate/gates.js` returns nothing. `gates open` writes a JSON file and exits.
+
+**Measured cost of the gap:** run `m1` emitted a **sev1** page at `2026-09-11T03:04:00Z`. It was opened at `2026-09-11T21:57:06Z` — **18h53m later**, and only because a human asked for a Phase 4 audit. Nothing about the intervening silence distinguished "no sev1" from "an unmitigated sev1 nobody has been told about". Every gate in `COMPANY.md:182` has the same property: Spec Gate, Launch approval, Roadmap Gate, Ratio Gate, Machine Release, fix-loop escalations.
+
+*What is and is not wanted:* the current behaviour — the page fires as a durable, adjudicable record — is correct and stays. What is missing is a **delivery method that reaches a human where they actually are**, phone included, so a sev1 does not wait on someone happening to look. Design notes for whoever picks this up:
+- Delivery belongs beside `gates.js open`, not inside a workflow: a workflow cannot pause for a person, and the gate record is already the single place every page passes through.
+- It must be **best-effort and non-blocking**. A failed notification must never fail the gate or the run; the record on disk stays the source of truth and the notification is a pointer to it.
+- Severity should route: a sev1 page and a budget breach reach a phone; a Spec Gate can reach a queue.
+- Configuration belongs in `/create-project`'s Comms Setup (`OPERATING_MODEL.md:326`) so a venture gets a channel at creation rather than by hand.
+- Whatever the transport, the gate record should record that delivery was attempted and whether it succeeded, so an unopened page is distinguishable from an undelivered one — which is exactly what could not be told apart for `m1`.
+
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
 
 ### D. Measurement gaps
