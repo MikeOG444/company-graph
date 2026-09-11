@@ -199,7 +199,7 @@ function taskCeiling({ work_item_tokens, tasks_for_work_item, default_task_token
 // overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
 // count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
 function shouldEscalate(ctx, findings) {
-  if (ctx.tokens > ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
+  if (ctx.tokens >= ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
   if (ctx.round >= ctx.k_rounds) return 'max_rounds'
   const keys = (findings ?? []).map(f => f.dedupe_key)
   const seenKeys = ctx.seen ?? new Set()
