@@ -55,6 +55,11 @@
         "deferred_iterations": { "type": "integer", "minimum": 0 },
         "budget":    { "type": "object", "additionalProperties": false,
                        "properties": { "tokens": {"type":"integer"}, "wall_clock_min": {"type":"integer"} } },
+        "surfaces":  { "type": "array", "items": { "$ref": "#/$defs/Surface" },
+                       "description": "What this item is expected to touch. Build re-entry's Conflict Detector overlaps on these; without them it is guessing." },
+        "signal_ids":{ "type": "array", "items": { "type": "string" }, "description": "Signals this item answers (source=maintain_patch|hotfix)." },
+        "patch_ref": { "type": "string", "description": "The Patch JSON this item carries, by ref." },
+        "branch":    { "type": "string", "description": "An existing change to re-verify rather than re-implement (build-implement verify_only)." },
         "provenance":{ "$ref": "#/$defs/Provenance" }
       },
       "required": ["id", "project_id", "source", "title", "intent", "priority", "provenance"]
@@ -129,12 +134,14 @@
         "worktree":    { "type": "string" },
         "base_commit": { "type": "string" },
         "diff_ref":    { "type": "string", "description": "Pointer to the diff artifact; never inline the diff." },
+        "branch":      { "type": "string", "description": "Branch the change is committed on. Without it a change set cannot be re-verified later (build-implement verify_only)." },
         "touched_surfaces": { "type": "array", "items": { "$ref": "#/$defs/Surface" } },
         "notes":       { "type": "string", "description": "Implementer rationale. Hidden from verifiers." },
         "revision":    { "type": "integer", "minimum": 0 },
         "provenance":  { "$ref": "#/$defs/Provenance" }
       },
-      "required": ["id", "task_id", "spec_id", "worktree", "base_commit", "diff_ref", "touched_surfaces", "revision", "provenance"]
+      "required": ["id", "worktree", "base_commit", "diff_ref", "touched_surfaces", "revision", "provenance"],
+      "comment": "task_id and spec_id are optional: a Patch Drafter's change set (§4) exists before any Task or Spec does, and acquires them when the patch enters Build."
     },
 
     "TestSet": {
@@ -213,6 +220,142 @@
       "required": ["task_id", "reason", "history", "repeats", "hypothesis", "options"]
     },
 
+    "Repro": {
+      "description": "Reproducer → Root Cause Analyst (OPERATING_MODEL §4). A named shape because it crosses an edge; Patch.repro is the same thing at rest.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signal_id":        { "type": "string" },
+        "status":           { "type": "string", "enum": ["reproduced", "cannot_repro"] },
+        "attempts":         { "type": "integer", "minimum": 1, "description": "Reproduction attempts spent. Two failures park the signal (§4)." },
+        "failing_test_ref": { "type": "string", "description": "A test that FAILS on the live behavior. The patch's regression test starts here." },
+        "steps":            { "type": "string" },
+        "observed":         { "type": "string" },
+        "expected":         { "type": "string" },
+        "notes":            { "type": "string", "description": "What was tried. Feeds the next attempt; never a substitute for a failing test." }
+      },
+      "required": ["status"]
+    },
+
+    "Cause": {
+      "description": "Root Cause Analyst → Patch Drafter (OPERATING_MODEL §4).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location":       { "type": "string", "description": "path:line" },
+        "hypothesis":     { "type": "string" },
+        "confidence":     { "type": "number", "minimum": 0, "maximum": 1 },
+        "suspect_commit": { "type": "string" },
+        "surfaces":       { "type": "array", "items": { "$ref": "#/$defs/Surface" } }
+      },
+      "required": ["location", "hypothesis", "confidence"]
+    },
+
+    "PatchVerification": {
+      "description": "Why a Patch may be called verified. Every field is a measurement a mechanical agent took; the verdict is derived from them in script code, never declared by an agent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verified":        { "type": "boolean" },
+        "repro_at_base":   { "type": "object", "additionalProperties": false,
+                             "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"} },
+                             "required": ["passed", "failed"],
+                             "description": "The regression test run at base_commit. It MUST fail here, or the patch proves nothing." },
+        "repro_on_patch":  { "type": "object", "additionalProperties": false,
+                             "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"} },
+                             "required": ["passed", "failed"] },
+        "suite_on_patch":  { "type": "object", "additionalProperties": false,
+                             "properties": { "passed": {"type":"integer"}, "failed": {"type":"integer"}, "results_ref": {"type":"string"} },
+                             "required": ["passed", "failed"] },
+        "checks":          { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                             "properties": { "name": {"type":"string"}, "status": {"type":"string","enum":["pass","fail"]}, "detail": {"type":"string"} },
+                             "required": ["name", "status", "detail"] } }
+      },
+      "required": ["verified", "checks"]
+    },
+
+    "Mitigation": {
+      "description": "Mitigator (OPERATING_MODEL §4). The fast reversible action taken on a sev1 BEFORE any human is paged and in parallel with diagnosis. applied=false is a real outcome, never an absent field.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string" },
+        "project_id":  { "type": "string" },
+        "signal_ids":  { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "strategy":    { "type": "string", "enum": ["rollback", "flag_flip", "scale", "none"] },
+        "applied":     { "type": "boolean" },
+        "applied_at":  { "type": "string", "format": "date-time" },
+        "env":         { "type": "string" },
+        "from_sha":    { "type": "string", "description": "What the env was serving before." },
+        "to_ref":      { "type": "string", "description": "The target as given. Resolved, never substituted." },
+        "to_sha":      { "type": "string" },
+        "reversible":  { "type": "boolean" },
+        "lift_means":  { "type": "string", "description": "What the human is deciding when they choose lift_mitigation." },
+        "reason":      { "type": "string", "description": "Why this strategy, or why nothing was applied." },
+        "evidence_ref":{ "type": "string" },
+        "deployment":  { "$ref": "#/$defs/Deployment" },
+        "provenance":  { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "project_id", "signal_ids", "strategy", "applied", "reversible", "reason", "provenance"]
+    },
+
+    "IncidentRecord": {
+      "description": "Incident Commander (OPERATING_MODEL §4). The sev1 page's payload. Its options depend on whether the mitigation landed: a failed mitigation never offers keep/lift.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id":           { "type": "string" },
+        "project_id":   { "type": "string" },
+        "severity":     { "type": "string", "enum": ["sev1"] },
+        "signal_ids":   { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "opened_at":    { "type": "string", "format": "date-time" },
+        "status":       { "type": "string", "enum": ["mitigated", "unmitigated", "closed"] },
+        "summary":      { "type": "string" },
+        "impact":       { "type": "string" },
+        "mitigation":   { "$ref": "#/$defs/Mitigation" },
+        "timeline":     { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                          "properties": { "at": {"type":"string"}, "event": {"type":"string"} },
+                          "required": ["at", "event"] } },
+        "page_options": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "patch_ids":    { "type": "array", "items": { "type": "string" } },
+        "provenance":   { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["id", "project_id", "severity", "signal_ids", "opened_at", "status", "summary", "impact", "page_options", "provenance"]
+    },
+
+    "ReentryPlan": {
+      "description": "Build re-entry (OPERATING_MODEL §3). The ordered WorkItem[] is the product; this is the why, and it is what the Ratio Gate decides on.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": { "type": "string" },
+        "iteration":  { "type": "integer" },
+        "ratio":      { "type": "object", "additionalProperties": false,
+                        "properties": { "maintain": {"type":"number"}, "improve": {"type":"number"},
+                          "rule": {"type":"string"}, "trend": {"type":"string"},
+                          "actual_maintain": {"type":"number"}, "guardrail": {"type":"number"},
+                          "breach": {"type":"boolean"}, "breach_streak": {"type":"integer"},
+                          "history_known": {"type":"boolean"} },
+                        "required": ["maintain", "improve", "rule", "actual_maintain", "guardrail", "breach", "breach_streak"] },
+        "order":      { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "work_item_id": {"type":"string"},
+                          "lane": {"type":"string","enum":["hotfix","maintain","improve"]},
+                          "reason": {"type":"string"} },
+                        "required": ["work_item_id", "lane", "reason"] } },
+        "overlaps":   { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                        "properties": { "surface": {"type":"string"}, "work_item_ids": {"type":"array","items":{"type":"string"}} },
+                        "required": ["surface", "work_item_ids"] } },
+        "deferred":   { "type": "array", "items": { "type": "string" } },
+        "starved_items": { "type": "array", "items": { "type": "string" },
+                        "description": "deferred_iterations >= threshold. Belongs in EvidenceBundle.starved_items downstream." },
+        "capacity":   { "type": "object", "additionalProperties": false,
+                        "properties": { "tokens": {"type":"integer"}, "maintain_tokens": {"type":"integer"}, "improve_tokens": {"type":"integer"} } },
+        "gate_required": { "type": "boolean", "description": "Ratio Gate. True only on a breach streak >= 2; the plan is provisional until the human answers." },
+        "provenance": { "$ref": "#/$defs/Provenance" }
+      },
+      "required": ["project_id", "iteration", "ratio", "order", "overlaps", "starved_items", "gate_required", "provenance"]
+    },
+
     "Patch": {
       "description": "Maintain → Build re-entry. A ChangeSet plus the why. Never drafted without repro or explicit cannot_repro.",
       "type": "object",
@@ -222,15 +365,11 @@
         "signal_ids":  { "type": "array", "minItems": 1, "items": { "type": "string" } },
         "severity":    { "type": "string", "enum": ["sev1", "sev2", "sev3"] },
         "urgency":     { "type": "string", "enum": ["hotfix", "routine"] },
-        "repro":       { "type": "object", "additionalProperties": false,
-                         "properties": { "status": {"type":"string","enum":["reproduced","cannot_repro"]},
-                                         "failing_test_ref": {"type":"string"}, "steps": {"type":"string"} },
-                         "required": ["status"] },
-        "cause":       { "type": "object", "additionalProperties": false,
-                         "properties": { "location": {"type":"string"}, "hypothesis": {"type":"string"},
-                                         "confidence": {"type":"number","minimum":0,"maximum":1} },
-                         "required": ["location", "hypothesis", "confidence"] },
+        "repro":       { "$ref": "#/$defs/Repro" },
+        "cause":       { "$ref": "#/$defs/Cause" },
         "change_set":  { "$ref": "#/$defs/ChangeSet" },
+        "verification":{ "$ref": "#/$defs/PatchVerification" },
+        "mitigation_id": { "type": "string", "description": "The sev1 mitigation this patch is the real fix for; shipping it is what lets the mitigation be lifted." },
         "provenance":  { "$ref": "#/$defs/Provenance" }
       },
       "required": ["id", "signal_ids", "severity", "urgency", "repro", "cause", "change_set", "provenance"]
@@ -360,8 +499,15 @@
         "patches_shipped":     { "type": "integer" },
         "incidents":           { "type": "integer" },
         "noise_ratio":         { "type": "number" },
+        "patches_drafted":     { "type": "integer", "description": "Drafted by Maintain this period. patches_shipped is Build's number, not Maintain's." },
+        "mitigations":          { "type": "integer" },
+        "parked_signals":      { "type": "array", "items": { "type": "string" },
+                                 "description": "cannot_repro after the attempt cap: the holding set (§4)." },
         "maintain_ratio":      { "type": "number", "description": "Share of Build capacity consumed by maintain work." },
-        "trend":               { "type": "string", "enum": ["improving", "stable", "degrading"] }
+        "maintain_ratio_source": { "type": "string", "enum": ["measured", "provisional"],
+                                 "description": "Maintain never sees Build capacity or the improve backlog, so this number is provisional unless Build re-entry supplied it." },
+        "trend":               { "type": "string", "enum": ["improving", "stable", "degrading"] },
+        "trend_basis":         { "type": "string", "description": "What the trend was derived from. A trend with no prior period is not a trend." }
       },
       "required": ["project_id", "period", "slo", "signals_by_severity", "patches_shipped", "incidents", "maintain_ratio", "trend"]
     },
