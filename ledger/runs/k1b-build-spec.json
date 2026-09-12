@@ -1,0 +1,251 @@
+{
+  "entry": {
+    "id": "k1b-build-spec",
+    "run_id": "k1b",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-12T01:24:08.724Z",
+    "finished_at": "2026-09-12T01:28:09.615Z",
+    "wall_clock_sec": 241,
+    "result_ref": "ledger/runs/k1b-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 158615,
+    "tokens_by_model": {
+      "claude-opus-5": 75099,
+      "claude-haiku-4-5": 83516
+    },
+    "cost_est_usd": 0.64,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1b",
+      "created_at": "2026-09-12T01:23:27Z"
+    },
+    "trace_ref": ".artifacts/traces/k1b-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-c4-ci",
+          "work_item_id": "wi-c4-ci",
+          "goal": "Add the repository's only CI workflow, .github/workflows/ci.yml, so that every push to any branch and every pull_request runs both committed test suites unattended on a fresh checkout. One GitHub Actions job on ubuntu-latest checks out the repo (actions/checkout pinned to a major version tag), sets up Node 20 (actions/setup-node pinned to a major version tag, matching the root package.json engines field \">=20\"), installs dependencies with `npm ci` in the repository root and again in toy/ (both have a committed lockfileVersion-3 package-lock.json and neither node_modules directory is tracked — .gitignore line 1 is `node_modules/`), then runs the root suite (`npm test` → `node --test \"substrate/test/*.test.js\"`) and the toy suite (`npm test` in toy/ → `NODE_ENV=test node --test \"test/*.test.js\"`) as two separately named steps, so a reader of the Actions log can tell from the step name alone which suite failed. Either failing suite fails the job. This closes HANDOFF.md C4: today every green number in HANDOFF.md §5 came from a human running the suites by hand. Verification lands as a new node:test file under substrate/test/ that reads the workflow file as text and asserts its structure; the repository has no YAML parser among its dependencies (root deps are ajv and ajv-formats only) and adding one is out of scope, so assertions are regex/line-shape assertions in the style of substrate/test/AC-17-implementer-boundary-doc.test.js.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "a clone of the repository at the merge commit for this work item",
+              "when": "a reader lists .github/workflows/",
+              "then": "exactly one workflow file exists, at .github/workflows/ci.yml, it is non-empty, it contains no tab characters, and it has the three top-level keys `name:`, the trigger key (`on:`, `\"on\":` or `'on':`), and `jobs:` each at column 0",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the trigger block is read",
+              "then": "it declares both `push` and `pull_request`, and the `push` trigger carries no branch allowlist that would exclude a branch (either no `branches:` key under push, or `branches:` whose only entry is the `'**'` wildcard), so a push to a branch such as claude/company-graph-carry-list-e2z510 triggers a run",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "every `uses:` line is read",
+              "then": "the only actions referenced are actions/checkout and actions/setup-node, and each is pinned to a major version tag matching `@v[0-9]+` exactly (no `@main`, `@master`, no branch or floating ref, no bare action name)",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "the actions/setup-node step in .github/workflows/ci.yml",
+              "when": "its `with:` block is read",
+              "then": "it sets `node-version` to 20 (as `20`, `'20'` or `\"20\"`, not a range, not a `node-version-file`), matching the `engines.node` value \">=20\" in ./package.json",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the `run:` commands are read in file order",
+              "then": "a step runs `npm ci` against the repository root (a `run: npm ci` with no `working-directory:` other than `.`), and it appears before the step that runs the root suite",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the `run:` commands are read in file order",
+              "then": "a step runs `npm ci` against toy/ — either `run: cd toy && npm ci` or `run: npm ci` with `working-directory: toy` — and it appears before the step that runs the toy suite",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the step that runs the root suite is read",
+              "then": "it is its own step with its own `name:` that identifies it as the root/substrate suite, and its `run:` invokes the package script unmodified (`npm test`, optionally `npm test --`, with no `working-directory:` other than `.`) rather than re-spelling `node --test` or any path glob",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the step that runs the toy suite is read",
+              "then": "it is a separate step from AC-7 with its own distinct `name:` that identifies it as the toy suite, and its `run:` invokes the toy package script unmodified — `cd toy && npm test`, or `npm test` with `working-directory: toy` — rather than re-spelling `node --test`, `NODE_ENV=test` or any path glob",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the steps are counted",
+              "then": "the root-suite command and the toy-suite command appear in two different steps (they are not two lines of one multi-line `run:` block), so an Actions log attributes a failure to a named step",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the two suite steps and the two install steps are read",
+              "then": "none of them carries `continue-on-error: true`, and none of their `run:` bodies contains a failure-swallowing construct (`|| true`, `|| :`, `|| exit 0`, `set +e`), so a non-zero exit from either suite fails the job",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the job definition is read",
+              "then": "there is exactly one job, it declares `runs-on: ubuntu-latest`, and the file contains no `strategy:` or `matrix:` key",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "the whole file is searched for out-of-scope machinery",
+              "then": "it contains no `cache:` or `cache-dependency-path:` key, no lint/coverage invocation (`npm run lint`, `eslint`, `--coverage`, `c8`, `nyc`), no deploy/publish/release step (`npm publish`, `actions/upload-artifact`, `softprops/action-gh-release`, `gh release`), and no `secrets.` reference",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "the contents of .github/workflows/ci.yml",
+              "when": "it is searched for hardcoded expectations about suite size",
+              "then": "it asserts no specific passing-test count anywhere — the counts quoted in the work item intent are already stale (the root suite is 114 passing today, not 105; the toy suite is 60), and a CI file that greps for a number would go red the next time a test is added",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "the repository as committed",
+              "when": "the paths the workflow installs against are checked",
+              "then": "./package-lock.json and ./toy/package-lock.json are both tracked by git (so `npm ci` can succeed in both locations) and neither ./node_modules nor ./toy/node_modules is tracked, confirming the install steps are load-bearing rather than decorative",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "a fresh checkout with no node_modules in either location",
+              "when": "the workflow's `run:` commands are executed in file order in their declared working directories",
+              "then": "both installs succeed and both suites exit 0 — the root suite reporting `# fail 0` and the toy suite reporting `# fail 0` — which is the behavior this workflow exists to automate",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "./.github/workflows/ci.yml"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/ci-workflow.test.js"
+            }
+          ],
+          "out_of_scope": [
+            "Linting of any kind — no eslint, prettier, markdownlint, or actionlint step, and no lint config file.",
+            "Coverage reporting or thresholds (c8, nyc, --experimental-test-coverage) and any coverage upload.",
+            "Matrix builds: no `strategy:`/`matrix:` key, no second Node version, no second OS, no non-ubuntu-latest or self-hosted runner.",
+            "Dependency caching: no `cache: npm` on setup-node, no `cache-dependency-path:`, no actions/cache step.",
+            "Deployment, publishing, and release automation of every kind, including artifact upload and GitHub Releases.",
+            "Any second workflow file — this item adds .github/workflows/ci.yml and nothing else under .github/ (no dependabot.yml, no CODEOWNERS, no PR or issue templates).",
+            "Modifying ./package.json or ./toy/package.json — the `test` scripts and the `engines` field are consumed as they are, not edited.",
+            "Adding, removing, or upgrading any npm dependency, including a YAML parser for the verification test; the verification test asserts on the file as text, in the style of substrate/test/AC-17-implementer-boundary-doc.test.js.",
+            "Regenerating or editing either ./package-lock.json or ./toy/package-lock.json.",
+            "Changing any existing test, fixture, or helper under ./substrate/test/ or ./toy/test/, and changing any source under ./substrate/ or ./toy/src/.",
+            "Making the two suites pass — both are green today (root 114 passing, toy 60 passing); this item automates running them, and fixing a red suite is a separate work item.",
+            "Asserting or updating specific passing-test counts anywhere, in the workflow or in the docs.",
+            "Repository settings that live outside the tree: branch protection, required status checks, Actions permissions, environments, and secrets.",
+            "Updating HANDOFF.md (§5 phase status, or C4 in §6) or any other markdown to record that CI now exists.",
+            "Running or wiring any workflow under .claude/workflows/ into CI — those are Claude Code workflow scripts, not CI jobs, and CI never invokes an agent.",
+            "Anything about wi-c5-gate-delivery, gate notification, or /create-project §6's CI-standup step, even though C4 names that as the reason venture 0 never got CI."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Purely additive: creates two new files (.github/workflows/ci.yml and substrate/test/ci-workflow.test.js) without modifying any existing code",
+            "No stored data shape changes: workflow configuration and test code do not alter contracts or schemas",
+            "No auth, secrets, payments, or infrastructure impact: uses only pinned public GitHub Actions without credential injection",
+            "No runtime code changes: substrate CLIs, workflow scripts, and application logic remain untouched",
+            "Fully reversible: files can be deleted without side effects or deployed state consequences",
+            "No external client impact: venture 0 is self-contained with no downstream consumers",
+            "No contract breakage: all existing agents, workflows, and service contracts remain valid",
+            "Explicit out-of-scope boundary prevents scope creep and unintended changes"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k1b",
+            "created_at": "2026-09-12T01:23:27Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-c4-ci",
+          "tasks": [
+            {
+              "id": "t1-ci-workflow",
+              "spec_id": "spec-wi-c4-ci",
+              "description": "Implement the GitHub Actions CI workflow at .github/workflows/ci.yml that runs both test suites on every push and pull request, and create the verification test file at substrate/test/ci-workflow.test.js to validate the workflow structure and execution behavior against all acceptance criteria.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".github/workflows/ci.yml"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/ci-workflow.test.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k1b",
+            "created_at": "2026-09-12T01:23:27Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1b",
+      "created_at": "2026-09-12T01:23:27Z"
+    }
+  }
+}
