@@ -193,6 +193,45 @@ Two supporting results, both negative and both correct:
 
 Each item says where it lives so it can be picked up cold. Nothing here blocks Phase 4; several block Phase 8 or a second venture.
 
+### Current order of work
+
+`C8 → A7 → A5 → B3 (absorbing A6) → C5 → A1 → B1+B2`. `backlog/venture0.json` carries all of them as WorkItems.
+
+C8 leads because CI is red until it lands, and a red baseline makes "did my change break CI?" unanswerable for every
+item after it. A7, A5 and A6 then come before the originally-planned work because **they are defects in the machine
+that builds the rest**, and every run made with them open produces evidence contaminated by known wiring bugs — A7
+most of all, since a green panel currently is not evidence that `target: "test"` findings were addressed.
+
+**Tier vs wiring, decided from one session's measured evidence.** The question was raised as "maybe haiku is not the
+right model for some tasks". The run data says otherwise, and the distinction matters because tier is the expensive
+lever:
+
+| node | model | what it actually did on `k1`–`k1v` |
+|---|---|---|
+| planner | haiku | implemented and committed the work item instead of returning ids |
+| risk router | haiku | correct — routed low with sound reasons |
+| decomposer | haiku | correct — clean single-task graph, no false edge |
+| lenses ×3 | haiku | found **every** real defect: three in `k1i`, plus the AC-9 instance a human missed in `k1v` |
+| correctness lens | haiku | returned `verdict: "pass"` while reporting two findings |
+| lenses, `k1v` r2 | haiku | did not re-raise a still-present defect → the false pass in A7 |
+| implementer | sonnet | good artifact, but seeded three instances of one regex defect |
+| test author / testfix | sonnet | disputed instead of fixing — **correctly**; it was pointed at the wrong file |
+| spec writer | opus | strong; caught that the work item's own test count was stale |
+| escalation packager | opus | strong; verified the suite, spotted the duplicated finding, scoped the fix to two lines |
+
+The planner failure was a **tools** failure, not a judgment failure: that call site named no `agentType`, so it
+inherited `Bash`/`Write`/`Edit`. Any tier handed an instruction-shaped `intent` and a `Write` tool could have done
+it. The cheap lenses were the best-performing part of the line — they found a defect class a human missed while
+deliberately fixing that very class. Of the six failures observed, five are structural (A5, A6, A7) and survive any
+tier change; the sixth, `pass` alongside findings, is already contained by the script deriving verdicts from
+findings rather than trusting the agent's own word, which is the rule working as designed.
+
+So: **fix the wiring, then re-read the ledger.** A7's fix in particular removes the dependency on a cheap lens
+re-raising anything, which is the one weakness tier would plausibly have addressed. Revisit tier with ledger
+evidence after A5/A6/A7 land, not before — and note the largest single token line available to cut is the lenses
+(394k haiku tokens on `k1v` alone), so raising *them* is the most expensive move on the board and wants evidence
+first.
+
 ### A. The build line's own defects (venture 0)
 
 **A1 — The lens-worktree fix is prompt-only, and prompt guidance has been measured insufficient here.**
