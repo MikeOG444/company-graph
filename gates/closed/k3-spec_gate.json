@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k3",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-12T04:53:21.000Z",
   "options": [
     "approve",
@@ -60,5 +60,11 @@
       "run_id": "k3",
       "created_at": "2026-09-12T04:43:22Z"
     }
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-12T15:24:50.000Z",
+    "note": "Approved. The five-function design targets the actual mechanism rather than the symptom: disputesToJudge removes the kind==='code' filter that is the defect, resolveRound guarantees every dedupe_key gets a resolution, and roundOutcome makes a carried finding block a green panel outright. AC-6 reproduces the k1v regression as a unit test and AC-2/4/5 assert path-independence, so a future refactor cannot quietly reintroduce a code/test asymmetry. A6 is avoided rather than repeated: the task owns only build-implement.js, so the Test Author owns the TestSet. Known live exposure accepted, not closed: AC-17 is change-scoped and labelled so only in prose, and A1 records prose guidance as measured insufficient here; mitigated at implement time with a test_hint as on k2i, and fixed properly when B3 lands the check in code."
   }
 }
