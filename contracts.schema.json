@@ -48,7 +48,7 @@
       "properties": {
         "id":        { "type": "string" },
         "project_id":{ "type": "string" },
-        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix", "launch_veto"] },
+        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix", "launch_veto", "tooling"] },
         "title":     { "type": "string" },
         "intent":    { "type": "string", "description": "One paragraph. Why this exists." },
         "priority":  { "type": "integer", "minimum": 1 },
