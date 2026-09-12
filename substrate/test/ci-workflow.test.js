@@ -187,7 +187,7 @@ test('AC-9: the root suite and toy suite commands are two separate steps', () =>
   const text = readWorkflow()
   const lines = text.split('\n')
   const rootSuiteIdx = lines.findIndex((l) => /^\s*run:\s*npm test(\s+--)?\s*$/.test(l) && !/cd toy/.test(l))
-  const toySuiteIdx = lines.findIndex((l) => /^\s*run:\s*cd toy(?:\/)? && npm test\s*$/.test(l))
+  const toySuiteIdx = findToyStep(lines, 'npm test(\\s+--)?')
   assert.ok(rootSuiteIdx !== -1 && toySuiteIdx !== -1, 'both suite steps must exist')
   assert.notEqual(rootSuiteIdx, toySuiteIdx, 'root suite and toy suite commands must be on different run: lines')
 
@@ -341,4 +341,22 @@ test('findToyStep does not match a non-command line that merely sits beside work
   // And the primary form must still win when both are present, so the index is stable.
   const both = ['        run: cd toy && npm ci', '        run: npm ci', '        working-directory: toy']
   assert.equal(findToyStep(both, 'npm ci'), 0, 'the primary `cd toy &&` form takes precedence')
+})
+
+test('no test in this file hard-codes the primary toy form outside findToyStep', () => {
+  // Three separate assertions in this file searched for `cd toy && <cmd>` with their own inline regex while their
+  // messages promised AC-6/AC-8's "either...or". The k1i panel found two (AC-6, AC-8); the k1v panel found the
+  // third (AC-9) after the first two were fixed. Each was invisible to the suite, because the shipped ci.yml uses
+  // the primary form and the alternative branch never executes. Rather than wait for a panel to find a fourth,
+  // assert the invariant directly: findToyStep is the ONLY place that knows what a toy step looks like.
+  const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const lines = self.split('\n')
+  const offenders = lines
+    .map((l, i) => ({ line: i + 1, text: l }))
+    .filter(({ text }) => /cd toy\(\?:/.test(text))     // a regex literal spelling out the primary form
+    .filter(({ line }) => line > 60)                    // findToyStep itself lives in the header, above every test
+
+  assert.deepEqual(offenders, [],
+    `these lines spell out the toy-step pattern themselves instead of calling findToyStep, so they accept only the `
+    + `primary form while AC-6/AC-8 allow two: ${offenders.map(o => `${o.line}: ${o.text.trim()}`).join(' | ')}`)
 })
