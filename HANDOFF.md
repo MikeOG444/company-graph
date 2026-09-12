@@ -326,6 +326,47 @@ The model already assumes a delivery channel and none exists:
 
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
 
+*Built through the line as `wi-c4-ci` (`k1b` spec → `k1i` implement → `k1v` re-panel). `.github/workflows/ci.yml`
+plus a 17-test `substrate/test/ci-workflow.test.js`. **Landing knowingly red** — see C8, which CI found on its own
+first run.*
+
+**C8 — `npm test` is broken on Node 20 in both packages, and `engines.node` has been claiming `">=20"` regardless.**
+Found by CI four minutes after C4 gave the repository a CI, on Actions run `34667094594` (commit `8f77338`).
+
+Both test scripts quote their glob — root `node --test "substrate/test/*.test.js"`, toy
+`NODE_ENV=test node --test "test/*.test.js"`. Quoted, the shell never expands it, so Node is handed a literal
+pattern. Node 22 accepts glob patterns for `--test`; **Node 20 does not**, and exits 1 with
+`Could not find '.../substrate/test/*.test.js'`. CI pins Node 20 *because it was told to match `engines.node`*, so
+CI is red on every push.
+
+The measured facts, none of them assumed:
+- This container is Node **22.22.2**, which is why every green number in §5 was green.
+- Unquoting works: `node --test substrate/test/*.test.js` gives **114/114** here, and is the portable form on 20.
+- `node --test substrate/test/` is **not** a substitute — Node resolves a bare directory as a module path and throws
+  `MODULE_NOT_FOUND`.
+
+So `engines.node: ">=20"` is false and has always been false. Nobody could have known, because nothing had ever run
+these suites anywhere but a developer's machine — which is the precise gap C4 exists to close, closed on run 1.
+**This is the single best piece of evidence in the ledger that CI earns its keep**, and it cost one push to obtain.
+
+*Resolution is a real choice and `wi-c8-node20-test-glob` must make it explicitly:* (a) unquote both globs, keeping
+the `">=20"` promise and making it true for the first time; or (b) admit the floor is Node 22 — `engines.node` to
+`">=22"`, CI `node-version` to 22, and amend `spec-wi-c4-ci`'s AC-4, which asserts 20 and is enforced by the landed
+test. (a) is smaller and keeps the stated promise; (b) is defensible only if something actually needs 22, which
+should be checked rather than assumed. Either way the deliverable must include **CI going green on a push** — a
+claim of "fixed" is worth nothing unless the thing that caught it agrees — plus a test pinning `engines.node` and
+the workflow's `node-version` to each other so they cannot drift apart silently again.
+
+**C9 — A closed `escalation` gate is never verified by anything; only `spec_gate` is.**
+`.claude/workflows/build-implement.js:454-469` reads the gate record from `gates/` and refuses unless it is
+`decided` / `spec_gate` / `approve` — but the whole block is guarded by `pendingSpecs.length > 0`, so it fires only
+for a spec carrying `gate:"pending"`. An **escalation** gate authorises exactly as much real work (on `k1i` it
+authorised a `direct_driver` edit to the change under review and a re-panel) and passes through no check at all: the
+next run simply proceeds, and a decision that exists only in `args`, or nowhere, is indistinguishable from a decided
+one. This is the same hole commit `74aabe1` closed for the Spec Gate — *"the Spec Gate was openable but
+unverifiable"* — still open one gate over. Fold into whichever item touches the gate-verification path; it is a few
+lines beside the existing check, and it wants the same mechanical-agent read of the closed record by id.
+
 ### D. Measurement gaps
 
 **D1 — The Lens Calibrator has no honest sample.** `ledger/runs/mr2-memory-roll.json` → `roll.lens_catch_rates`: `catch_rate: null`, `unavailable_reason: "no escaped-defect denominator exists"`. 30 panels, 39 findings raised, 39 upheld, 0 attributable escapes. **Phase 4's planted defects are not lens misses and must never be counted as any.** Covered by `opp-p5-7`.

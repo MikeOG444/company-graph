@@ -190,5 +190,43 @@
       "run_id": "carry-seed",
       "created_at": "2026-09-12T01:04:23Z"
     }
+  },
+  {
+    "id": "wi-c8-node20-test-glob",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "`npm test` is broken on Node 20 in both packages, while engines.node claims \">=20\"",
+    "intent": "Found by CI on its very first run, minutes after C4 landed it (GitHub Actions run 34667094594, commit 8f77338, branch task/t1-ci-workflow). Both test scripts QUOTE their glob: the root is `node --test \"substrate/test/*.test.js\"` and toy/ is `NODE_ENV=test node --test \"test/*.test.js\"`. Quoted, the shell does not expand the glob, so Node receives a literal pattern string. Node 22 accepts glob patterns for --test; Node 20 does not, and fails immediately with `Could not find '/home/runner/work/company-graph/company-graph/substrate/test/*.test.js'`, exit 1. Every development container this repository has run in uses Node 22, so both suites have always passed by hand and the incompatibility was invisible until something ran them on the version the repository claims to support. That is the exact class of gap C4 exists to close, and C4 closed it on run 1. The consequence is that `engines.node: \">=20\"` in ./package.json is FALSE: these suites have only ever run on Node 22 or newer. CI currently pins node-version 20 precisely because it was told to match that engines field, so CI is red on every push until this is fixed. Two honest resolutions exist and the item must PICK ONE EXPLICITLY rather than drift into whichever is easier. (a) Make Node 20 genuinely work: unquote the glob in both package.json files so the shell expands it — verified to give 114/114 in the root suite on Node 22 in this container, and it is the portable form on Node 20 too. engines stays \">=20\" and becomes true for the first time. Note that `node --test substrate/test/` is NOT a substitute: Node resolves a bare directory as a module path and throws MODULE_NOT_FOUND — measured, not assumed. (b) Admit the floor is Node 22: set engines.node to \">=22\", set CI node-version to 22, and amend spec-wi-c4-ci's AC-4, which currently asserts node-version 20 and is enforced by substrate/test/ci-workflow.test.js. (a) is the smaller change and keeps the stated support promise; (b) is defensible only if something in the repository actually needs Node 22, which should be checked rather than assumed. Whichever is chosen, the deliverable must include CI going green on a push, because a claim that this is fixed is worth nothing unless the thing that caught it agrees. Also add a test asserting that the support floor named in engines.node and the node-version pinned in .github/workflows/ci.yml agree with each other, so the two cannot drift apart again silently.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 140000,
+      "wall_clock_min": 30
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": "package.json"
+      },
+      {
+        "kind": "path",
+        "ref": "toy/package.json"
+      },
+      {
+        "kind": "path",
+        "ref": ".github/workflows/ci.yml"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "carry-seed",
+      "created_at": "2026-09-12T02:21:43Z"
+    }
   }
 ]

@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "k1i",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-12T02:04:31.000Z",
   "options": [
     "direct_drive",
@@ -57,5 +57,11 @@
       "run_id": "k1i",
       "created_at": "2026-09-12T01:32:01Z"
     }
+  },
+  "decision": {
+    "option": "direct_drive",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-12T02:14:23.000Z",
+    "note": "Two lines in unreachable test-file fallbacks, already scoped by the escalation and verified by hand: the :124 OR needs parentheses, and AC-8's search at :155 needs a toyInstallAlt-style fallback so its own assertion message stays true. Fixed by hand as direct_driver, then re-panelled through /build-implement verify_only on task/t1-ci-workflow so the merged artifact still carries a panel verdict rather than an assurance — the same pattern run c1v used. Not guide: the round cap is what stopped round 1, so a fresh full panel would likely escalate again for two lines of dead code."
   }
 }
