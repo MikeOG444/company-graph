@@ -13,7 +13,7 @@
     "deploy": "substrate/deploy.js"
   },
   "scripts": {
-    "test": "node --test \"substrate/test/*.test.js\"",
+    "test": "node --test substrate/test/*.test.js",
     "validator": "node substrate/validator.js",
     "artifacts": "node substrate/artifacts.js",
     "gates": "node substrate/gates.js",

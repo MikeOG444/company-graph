@@ -193,6 +193,45 @@ Two supporting results, both negative and both correct:
 
 Each item says where it lives so it can be picked up cold. Nothing here blocks Phase 4; several block Phase 8 or a second venture.
 
+### Current order of work
+
+`C8 → A7 → A5 → B3 (absorbing A6) → C5 → A1 → B1+B2`. `backlog/venture0.json` carries all of them as WorkItems.
+
+C8 leads because CI is red until it lands, and a red baseline makes "did my change break CI?" unanswerable for every
+item after it. A7, A5 and A6 then come before the originally-planned work because **they are defects in the machine
+that builds the rest**, and every run made with them open produces evidence contaminated by known wiring bugs — A7
+most of all, since a green panel currently is not evidence that `target: "test"` findings were addressed.
+
+**Tier vs wiring, decided from one session's measured evidence.** The question was raised as "maybe haiku is not the
+right model for some tasks". The run data says otherwise, and the distinction matters because tier is the expensive
+lever:
+
+| node | model | what it actually did on `k1`–`k1v` |
+|---|---|---|
+| planner | haiku | implemented and committed the work item instead of returning ids |
+| risk router | haiku | correct — routed low with sound reasons |
+| decomposer | haiku | correct — clean single-task graph, no false edge |
+| lenses ×3 | haiku | found **every** real defect: three in `k1i`, plus the AC-9 instance a human missed in `k1v` |
+| correctness lens | haiku | returned `verdict: "pass"` while reporting two findings |
+| lenses, `k1v` r2 | haiku | did not re-raise a still-present defect → the false pass in A7 |
+| implementer | sonnet | good artifact, but seeded three instances of one regex defect |
+| test author / testfix | sonnet | disputed instead of fixing — **correctly**; it was pointed at the wrong file |
+| spec writer | opus | strong; caught that the work item's own test count was stale |
+| escalation packager | opus | strong; verified the suite, spotted the duplicated finding, scoped the fix to two lines |
+
+The planner failure was a **tools** failure, not a judgment failure: that call site named no `agentType`, so it
+inherited `Bash`/`Write`/`Edit`. Any tier handed an instruction-shaped `intent` and a `Write` tool could have done
+it. The cheap lenses were the best-performing part of the line — they found a defect class a human missed while
+deliberately fixing that very class. Of the six failures observed, five are structural (A5, A6, A7) and survive any
+tier change; the sixth, `pass` alongside findings, is already contained by the script deriving verdicts from
+findings rather than trusting the agent's own word, which is the rule working as designed.
+
+So: **fix the wiring, then re-read the ledger.** A7's fix in particular removes the dependency on a cheap lens
+re-raising anything, which is the one weakness tier would plausibly have addressed. Revisit tier with ledger
+evidence after A5/A6/A7 land, not before — and note the largest single token line available to cut is the lenses
+(394k haiku tokens on `k1v` alone), so raising *them* is the most expensive move on the board and wants evidence
+first.
+
 ### A. The build line's own defects (venture 0)
 
 **A1 — The lens-worktree fix is prompt-only, and prompt guidance has been measured insufficient here.**
@@ -206,8 +245,143 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 **A3 — The owned-surfaces boundary is enforced but has never run.**
 `.claude/workflows/build-implement.js`: `surfaceRef:292`, `withinOwned:305`, `boundaryCheck:326`, `criteriaScope:351`, `stripForeignFindings:400`, `routeFinding:424`, `fixOutcome:436`. Call sites: `:622` (settled ChangeSet, before any lens/test-runner/fixer) and `:921` (each round's merged ChangeSet); scoping at `:714`. Run `t7i` executed the pre-merge copy, so the next build is the first real exercise. Watch it deliberately.
 
+*Executed at last on run `k1i`, and stayed silent — correctly, but this does not close A3.* `spec-wi-c4-ci`
+decomposed to a **single** task owning both its surfaces, so `boundaryCheck` had no sibling to compare against:
+`strays` and `unowned` were both empty and the interesting branches never ran. What `k1i` proves is only that the
+check executes without throwing on the merged copy. `criteriaScope` is equally untested here — one task owned all
+fifteen criteria, so `sibling_owner` was empty and `stripForeignFindings` dropped nothing. **The real exercise needs
+a spec that decomposes to two or more tasks**, which none of the remaining carry items is guaranteed to produce.
+Keep A3 open until a multi-task spec runs, and prefer one deliberately.
+
 **A4 — Escalation rate and the hitl/hotl question.**
 10 escalations across 31 `hotl` runs, carrying most of the spend. Open design question: should some escalation reasons be `hotl` (proceed, land in the review queue) rather than `hitl` (stop the world)? `repeat_finding` on findings a fixer provably cannot close is the candidate.
+
+*Run `k1i` is the first evidence that a `budget` escalation earns its keep, and a second candidate for `hotl`.*
+Round 1 spent 71,345 tokens against a 40,000 round cap and escalated **before** `max_rounds`, exactly as designed.
+The escalation it wrote was not a shrug: it re-ran the landed suite (15/15), read the shipped artifact, established
+that the shipped `ci.yml` carries no `working-directory:` key so every line the findings touch is an unreachable
+fallback, noticed that two of the three findings were **one defect reported by two lenses under different
+`dedupe_keys`**, and scoped the remaining work to two lines. A human then verified all four claims and found them
+correct. That is the machinery working — but the whole run cost $1.30 and a human decision to resolve two lines in
+dead code, in a change whose suite was already green. The `hotl` case here is stronger than for `repeat_finding`:
+when every open finding is `target: test`, the suite passes, and the escalation itself can show the findings are
+unreachable against the artifact, proceeding into the review queue loses nothing a human gate is buying.
+**Counter-evidence to weigh first:** the findings were real defects, and merging on a green suite is how latent
+bugs in fallback branches ship. The question is whether the review queue actually gets read — which is C5.
+
+**A5 — A workflow agent with no `agentType` can do the work instead of describing it, and nothing in the run says so.**
+Found on run `k1`, the first `/build-spec` of the carry-list work, against work item `wi-c4-ci`.
+
+The Iteration Planner's whole contract was to return the ids it selected: *"Select work items to ship this iteration
+within N tokens… Return the selected ids only."* Its call site named no `agentType`, so it resolved to the default
+`workflow-subagent` and carried **Bash, Write and Edit**. A `WorkItem.intent` reads like an instruction. The cheap model
+did the obvious wrong thing — `mkdir -p .github/workflows`, wrote `ci.yml`, ran `npm ci` and both suites, then
+`git add .github && git commit` — and returned a correct, schema-valid `{"ids":["wi-c4-ci"]}` as if it had only chosen.
+
+Three properties make this worse than a stray write:
+
+- **It bypassed the entire line.** No Spec, no TestSet, no Verifier Panel, no owned-surfaces boundary check. C4 would
+  have "shipped" verified by nothing, which is the exact opposite of building it on the line.
+- **It was silent.** The return value satisfied its schema and named the right item. Nothing in the workflow output,
+  the phase log or the result disclosed a filesystem write or a commit. It was caught by a `git` stop-hook noticing an
+  unpushed commit — that is, by luck, from outside the graph.
+- **It generalises.** The planner runs on every `/build-spec`, and every WorkItem's `intent` is prose that can be read
+  as an instruction. It also had a second victim queued: the spec writer had already run `git show --stat 68606e7` and
+  would have specced against work that already existed, so the implementer would have found nothing to do and
+  deadlocked on an empty diff — the `t5i`/`t2` failure mode A3 already describes.
+
+*Fixed in part, by hand (`direct_driver`), because the line cannot build the fix that unblocks the line:* the planner is
+deleted. Selecting items within a token budget is a sort and a take, so it is now script code between
+`// ---- BEGIN/END plan-selection ----` in `.claude/workflows/build-spec.js`, with `substrate/test/plan-selection.test.js`
+pinning the ordering, the capacity edges, and the two regressions (no `planner` label may reappear; the surviving agents
+are enumerated). Zero tokens, deterministic, replayable — none of which the agent was.
+
+*Still open, and the sixth carry item (`wi-a5-agent-least-privilege`):* the same hole is open on every other unbound
+call site. In `build-spec.js` the spec writer and the risk router both run as `workflow-subagent`; the spec writer
+legitimately needs to read code, so binding it is a real design decision (a read-only type loses it `Bash`, which it
+currently uses for `cat`/`sed`/`npm test`), not a one-line change. `build-implement.js` binds its lenses and mechanical
+agents with `AT(...)` and is in better shape, but has not been audited. The rule worth landing: **a node that produces
+judgment never holds a tool that produces a commit**, enforced at the call site rather than in a prompt.
+
+*Related, and now measured rather than assumed:* subagents are not constrained by the session's auto-mode classifier.
+It refused this session's own attempts to widen `.claude/settings.json` (`[Self-Modification]`) and to `git reset --hard`
+(`[Irreversible Local Destruction]`), while a Haiku subagent wrote `.github/` and committed without challenge. The
+allow-list in `.claude/settings.json` is therefore not the control surface for agent writes; `agentType` is.
+
+**A6 — A spec can hand the Test Author's job to the implementer, and the TestSet then dies in `.artifacts/`.**
+Found on run `k1i`. `spec-wi-c4-ci` listed `substrate/test/ci-workflow.test.js` in `touched_surfaces`, the decomposer
+duly put it in the single task's `owned_surfaces`, and the **implementer** wrote it — 289 lines, 15/15 passing, on
+`task/t1-ci-workflow`. The **Test Author** ran in parallel as designed and produced its own TestSet at
+`.artifacts/tests/t1-ci-workflow/` covering AC-1…AC-13. The bundle came back `tests_landed: []`. Two agents were
+pointed at one job; the one the design intends produced the artifact that does not survive the container, and the
+one that shipped was never meant to write tests at all.
+
+The decomposer prompt (`build-spec.js:87-93`) forbids *a task whose only job is writing tests* and says a separate
+Test Author writes them from the spec. It does not forbid a spec from naming a test file as a touched surface, and
+`t1-ci-workflow` was not a test-only task, so nothing in the graph objected. The gap is upstream of the decomposer:
+the **spec writer** chose the verification strategy and named the file.
+
+*Consequence beyond the duplication:* the implementer writes tests **against its own implementation**, which is
+precisely the independence the Test Author exists to preserve. `.claude/agents/test-author.md` says tests come from
+the Spec alone, never from the implementation. On `k1i` that guarantee was quietly void — and the tests it produced
+are the ones that would have shipped.
+
+*Proposed:* in `build-spec`, treat a surface under the repo's `test_dir` appearing in `Spec.touched_surfaces` as a
+decomposition error, the same class of check as B3 — zero tokens, script code. Either the spec must not name test
+files, or the Test Author must own them; the two cannot both be true. Fold into B3's graph lint rather than
+carrying separately.
+
+*Second half, from `k1v`:* **the TestSet's landed files are never boundary-checked at all.** `boundaryCheck` is
+called on the implementer's `ChangeSet.touched_surfaces` only (`:622`, `:921`). On `k1v` the Test Author produced
+`substrate/test/repo-root.js` — a third file, outside `Spec.touched_surfaces` and outside the task's
+`owned_surfaces` — and integration landed it without a murmur. It happens to be a good helper (it walks up to find
+the repository root instead of hardcoding `'..', '..'`, which is the C1 fragility), and it was dropped from the C4
+merge only because a human read the integration diff. Nothing in the graph would have objected to anything it
+contained. A6's check must therefore cover both directions: what the spec may name, and what the TestSet may land.
+
+**A7 — A `target: "test"` finding can be disputed away with no ruling, and the panel then passes the unfixed change.**
+Found on run `k1v`, and it is the most serious defect this session produced, because it is a **pass-by-default path**
+in the one component whose entire job is to refuse.
+
+What happened, in order:
+1. Round 1 raised `AC-9 test uses form-specific regex` at `substrate/test/ci-workflow.test.js:190` — **severity high**,
+   independently reported by two lenses (`spec_conformance` and `correctness`), both `target: "test"`.
+2. Two `testfix` agents ran. **Both disputed.** One: *"DISPUTE: the finding's evidence (line 190…)"*. The other:
+   *"DISPUTE: The finding is real but does not apply to the file I'm responsible for."*
+3. **No judge ruled.** Round 2 re-panelled, both lenses returned `pass`, the change was integrated, and
+   `escalations: 0`.
+4. Line 190 was **never touched**. The task branch's test file was byte-identical before and after. The defect
+   shipped in a change the panel had just called clean.
+
+The mechanism is two lines of filtering. At `.claude/workflows/build-implement.js:832-834`:
+```js
+const disputed     = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')
+const testRepairs  = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
+```
+A disputing **test** repair matches neither. It never reaches the dispute judge at `:872` (which requires
+`kind === 'code'`), and it never sets `resolution[dedupe_key]`, so the catch-all marks it `unresolved` — and an
+unresolved finding survives only as long as a lens keeps re-raising it. When the lens does not, it is gone. A code
+Fixer's dispute is always ruled on by a judge; a Test Author's dispute is ruled on by nobody. `Escalation.disputes_lost`
+is fed from `ctx.upheld`, which only the judge writes, so a test dispute cannot even appear in an escalation.
+
+*Contributing cause, and a defect in its own right:* the test-repair agent is pointed at `ctx.testSet.tests_ref` —
+`.artifacts/tests/t1-ci-workflow/`, a **copy** — while the finding cites the file on the branch. That is why one
+agent said the finding "does not apply to the file I'm responsible for": it was correct, and the routing was wrong.
+Worse, integration then reported `tests_skipped: ["ci-workflow.test.js"]` because the branch already carried that
+filename, so **even a successful repair would have been discarded**. The test-repair path currently cannot fix a
+test file the implementer landed — the exact situation A6 describes, which makes A6 and A7 compounding rather than
+independent.
+
+*Required, and none of it is optional:* a disputing test repair must reach the same judge a code dispute does;
+`resolution` must be set for every finding raised in a round, with "nobody resolved it" treated as unresolved and
+carried, never dropped; and a finding must never leave a round in a state where the only thing standing between it
+and a green panel is whether a cheap lens bothers to re-raise it. Until that lands, **a green panel is not evidence
+that `target: "test"` findings were addressed** — which also means D1's rubber-stamping question now has one
+confirmed instance to calibrate against, and Phase 4's planted defects still are not lens misses.
+
+*Fixed in C4 by hand, not by the line:* the AC-9 defect was real, was the third instance of the same class after the
+two `k1i` found, and is fixed in `3593bd3` along with an invariant test that fails on the pre-fix file and passes on
+the current one, so a fourth instance cannot hide the way the first three did.
 
 ### B. Missing edges
 
@@ -216,6 +390,31 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 **B2 — The canary library is not wired.** `.claude/workflows/build-implement.js:599` reads `A.canary` from `args` only; a human hand-picks one. Phase 8's exit test needs the runner to pull from `roll.canaries`.
 
 **B3 — Graph lint belongs in code, not in the decomposer prompt.** `.claude/workflows/build-spec.js:87-93` states the rules and validates none of them. `t7`'s decomposition still shipped a false edge *and* assigned AC-12 to a task that did not own the file it names. Two checks, zero tokens: every criterion's required surface ∈ its task's `owned_surfaces`; every `depends_on` justified by a variable actually crossing.
+
+*Third check, from run `k2i`, and it is the one that cost the most so far.* **A spec may write criteria no landed
+test can ever assert, and the correctness lens will then demand tests for them forever.** `spec-wi-c8-node20-test-glob`
+mixed two kinds of criterion and assigned both to one task and one test file:
+
+- **product-scoped** — *"the `test` script is exactly `node --test substrate/test/*.test.js`"*, *"the engines floor
+  equals ci.yml's node-version"*. A landed test asserts these on every run, forever. AC-4, AC-5, AC-6.
+- **change-scoped** — *"every other field byte-identical **to before**"*, *"the changed paths are exactly these
+  three"*, *"no dependency **is added**"*. These are assertions about a **diff**. The verifier panel can check them
+  and `spec_conformance` did, and passed. A landed test cannot: after the merge there is no "before" and no "this
+  change", and a test pinning `git diff` to a base sha asserts nothing once that sha is history. AC-1, AC-2, AC-3, AC-9.
+
+The correctness lens saw AC-1/AC-3/AC-9 listed in `criteria_coverage` with no assertion covering them and, correctly
+by its own contract, failed the change. The fix loop then sent three Sonnet test-repair agents to write tests that
+cannot exist. Cost: 25+ minutes, ~$0.93, **one fork bomb** — a generated test ran `npm test`, which re-ran that same
+test — one dispute that was right on its own terms (the finding misattributed an AC-1/AC-2 requirement to the AC-5
+test), and a run that died without returning. None of the three agents was wrong; the task was impossible.
+
+*Proposed, same shape as the other two checks and equally free:* classify every criterion in script code before the
+graph is stamped. A criterion whose text is change-scoped — matching *"to before"*, *"byte-identical"*, *"changed
+paths"*, *"is added/removed/upgraded"*, *"unmodified"* and their kin — is **panel-verified**, must not be counted as
+a coverage gap by the correctness lens, and must never be assigned to a test file's `criteria_ids`. Carry the
+classification on the criterion so the lens prompt can be told which criteria it may demand tests for. Getting this
+wrong is not a cosmetic scoping error: it manufactures an unsatisfiable fix loop out of a change that was already
+correct and green.
 
 ### C. Durability and substrate
 
@@ -242,6 +441,47 @@ The model already assumes a delivery channel and none exists:
 - Whatever the transport, the gate record should record that delivery was attempted and whether it succeeded, so an unopened page is distinguishable from an undelivered one — which is exactly what could not be told apart for `m1`.
 
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
+
+*Built through the line as `wi-c4-ci` (`k1b` spec → `k1i` implement → `k1v` re-panel). `.github/workflows/ci.yml`
+plus a 17-test `substrate/test/ci-workflow.test.js`. **Landing knowingly red** — see C8, which CI found on its own
+first run.*
+
+**C8 — `npm test` is broken on Node 20 in both packages, and `engines.node` has been claiming `">=20"` regardless.**
+Found by CI four minutes after C4 gave the repository a CI, on Actions run `34667094594` (commit `8f77338`).
+
+Both test scripts quote their glob — root `node --test "substrate/test/*.test.js"`, toy
+`NODE_ENV=test node --test "test/*.test.js"`. Quoted, the shell never expands it, so Node is handed a literal
+pattern. Node 22 accepts glob patterns for `--test`; **Node 20 does not**, and exits 1 with
+`Could not find '.../substrate/test/*.test.js'`. CI pins Node 20 *because it was told to match `engines.node`*, so
+CI is red on every push.
+
+The measured facts, none of them assumed:
+- This container is Node **22.22.2**, which is why every green number in §5 was green.
+- Unquoting works: `node --test substrate/test/*.test.js` gives **114/114** here, and is the portable form on 20.
+- `node --test substrate/test/` is **not** a substitute — Node resolves a bare directory as a module path and throws
+  `MODULE_NOT_FOUND`.
+
+So `engines.node: ">=20"` is false and has always been false. Nobody could have known, because nothing had ever run
+these suites anywhere but a developer's machine — which is the precise gap C4 exists to close, closed on run 1.
+**This is the single best piece of evidence in the ledger that CI earns its keep**, and it cost one push to obtain.
+
+*Resolution is a real choice and `wi-c8-node20-test-glob` must make it explicitly:* (a) unquote both globs, keeping
+the `">=20"` promise and making it true for the first time; or (b) admit the floor is Node 22 — `engines.node` to
+`">=22"`, CI `node-version` to 22, and amend `spec-wi-c4-ci`'s AC-4, which asserts 20 and is enforced by the landed
+test. (a) is smaller and keeps the stated promise; (b) is defensible only if something actually needs 22, which
+should be checked rather than assumed. Either way the deliverable must include **CI going green on a push** — a
+claim of "fixed" is worth nothing unless the thing that caught it agrees — plus a test pinning `engines.node` and
+the workflow's `node-version` to each other so they cannot drift apart silently again.
+
+**C9 — A closed `escalation` gate is never verified by anything; only `spec_gate` is.**
+`.claude/workflows/build-implement.js:454-469` reads the gate record from `gates/` and refuses unless it is
+`decided` / `spec_gate` / `approve` — but the whole block is guarded by `pendingSpecs.length > 0`, so it fires only
+for a spec carrying `gate:"pending"`. An **escalation** gate authorises exactly as much real work (on `k1i` it
+authorised a `direct_driver` edit to the change under review and a re-panel) and passes through no check at all: the
+next run simply proceeds, and a decision that exists only in `args`, or nowhere, is indistinguishable from a decided
+one. This is the same hole commit `74aabe1` closed for the Spec Gate — *"the Spec Gate was openable but
+unverifiable"* — still open one gate over. Fold into whichever item touches the gate-verification path; it is a few
+lines beside the existing check, and it wants the same mechanical-agent read of the closed record by id.
 
 ### D. Measurement gaps
 

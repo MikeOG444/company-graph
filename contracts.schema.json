@@ -48,7 +48,7 @@
       "properties": {
         "id":        { "type": "string" },
         "project_id":{ "type": "string" },
-        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix", "launch_veto"] },
+        "source":    { "type": "string", "enum": ["brief", "improve", "maintain_patch", "hotfix", "launch_veto", "tooling"] },
         "title":     { "type": "string" },
         "intent":    { "type": "string", "description": "One paragraph. Why this exists." },
         "priority":  { "type": "integer", "minimum": 1 },
@@ -840,6 +840,7 @@
         "result_ref":     { "type": "string" },
         "trace_ref":      { "type": "string", "description": "Copy of the runtime journal, by ref." },
         "wall_clock_unknown": { "type": "boolean", "description": "The recorded wall clock is known to be wrong and is excluded from aggregates; tokens and cost remain valid." },
+        "tokens_estimated": { "type": "boolean", "description": "tokens/tokens_by_model are an estimate, not the runtime's own per-agent count. Set by hand only on a run that died before returning a task output file, so `ledger append --from-output` could never read workflowProgress. The estimate must be converted onto the SAME basis as every other row (the runtime's per-agent count) before it is written, or the row is not comparable and corrupts every aggregate it enters." },
         "provenance":     { "$ref": "#/$defs/Provenance" }
       },
       "required": ["id", "run_id", "workflow", "status", "started_at", "finished_at", "wall_clock_sec", "artifact_count", "escalations", "result_ref", "provenance"]
