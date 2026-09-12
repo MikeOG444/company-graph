@@ -27,6 +27,20 @@ function readWorkflow() {
   return fs.readFileSync(WORKFLOW_PATH, 'utf8')
 }
 
+// AC-6 and AC-8 each accept two shapes for a toy-scoped step: `cd toy && <cmd>` on one line, or a bare `<cmd>`
+// with a neighbouring `working-directory: toy`. Every assertion about them says so in its own message, so every
+// one must search for both. The k1i verifier panel found this going wrong twice in two different ways — one site
+// whose message promised the alternative while its search only ever looked for the primary form, and one whose
+// `A && B || C` precedence let the alternative match any line at all, `npm ci` or not. Searching in one place
+// makes the two forms impossible to disagree about. `bareCmd` is a regex source fragment, not a literal.
+function findToyStep(lines, bareCmd) {
+  const primary = lines.findIndex((l) => new RegExp(`^\\s*run:\\s*cd toy(?:/)? && ${bareCmd}\\s*$`).test(l))
+  if (primary !== -1) return primary
+  const adjacentToyDir = (line) => /working-directory:\s*toy\/?\s*$/.test(line || '')
+  return lines.findIndex((l, i) => new RegExp(`^\\s*run:\\s*${bareCmd}\\s*$`).test(l)
+    && (adjacentToyDir(lines[i - 1]) || adjacentToyDir(lines[i + 1])))
+}
+
 function indentOf(line) {
   return line.match(/^(\s*)/)[1].length
 }
@@ -120,12 +134,10 @@ test('AC-5: npm ci runs against the repository root before the root suite step',
 test('AC-6: npm ci runs against toy/ before the toy suite step', () => {
   const text = readWorkflow()
   const lines = text.split('\n')
-  const toyInstall = lines.findIndex((l) => /^\s*run:\s*cd toy(?:\/)? && npm ci\s*$/.test(l))
-  const toyInstallAlt = lines.findIndex((l, i) => /^\s*run:\s*npm ci\s*$/.test(l) && /working-directory:\s*toy\/?\s*$/.test(lines[i - 1] || '') || /working-directory:\s*toy\/?\s*$/.test(lines[i + 1] || ''))
-  const toyInstallIdx = toyInstall !== -1 ? toyInstall : toyInstallAlt
-  assert.ok(toyInstallIdx !== -1 && toyInstallIdx !== undefined, 'a step must run `npm ci` against toy/')
+  const toyInstallIdx = findToyStep(lines, 'npm ci')
+  assert.ok(toyInstallIdx !== -1, 'a step must run `npm ci` against toy/ (as `cd toy && npm ci`, or `npm ci` with working-directory: toy)')
 
-  const toySuite = lines.findIndex((l) => /^\s*run:\s*cd toy(?:\/)? && npm test\s*$/.test(l))
+  const toySuite = findToyStep(lines, 'npm test(\\s+--)?')
   assert.ok(toySuite !== -1, 'a step must run the toy suite as `cd toy && npm test` (or npm test with working-directory: toy)')
   assert.ok(toyInstallIdx < toySuite, 'the toy `npm ci` step must appear before the toy suite step')
 })
@@ -152,8 +164,8 @@ test('AC-7: the root suite step is its own named step invoking `npm test` unmodi
 test('AC-8: the toy suite step is separate, its own name, invoking the toy `npm test` script unmodified', () => {
   const text = readWorkflow()
   const lines = text.split('\n')
-  const toySuiteIdx = lines.findIndex((l) => /^\s*run:\s*cd toy(?:\/)? && npm test\s*$/.test(l))
-  assert.ok(toySuiteIdx !== -1, 'toy suite step must exist')
+  const toySuiteIdx = findToyStep(lines, 'npm test(\\s+--)?')
+  assert.ok(toySuiteIdx !== -1, 'toy suite step must exist as `cd toy && npm test`, or `npm test` with working-directory: toy')
 
   let stepStart = toySuiteIdx
   while (stepStart > 0 && !/^\s*-\s*name:/.test(lines[stepStart])) stepStart--
@@ -286,4 +298,47 @@ test('AC-15: on a fresh checkout, the declared install and suite commands succee
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
+})
+
+// ---- Regression: the toy-step matcher itself ----
+//
+// AC-6 and AC-8 accept two shapes for a toy-scoped step, but the workflow this file ships beside uses only the
+// primary one (`cd toy && ...`) and carries no `working-directory:` key at all. That made the alternative-form
+// branch unreachable, and unreachable code is where the k1i verifier panel found two real defects sitting: an
+// `A && B || C` precedence bug that matched lines which were not `npm ci`, and an assertion whose message
+// promised the alternative form while its search never looked for it. A green suite proved nothing about either,
+// because neither line ever ran.
+//
+// These two tests drive findToyStep directly against synthetic input, so the branch is exercised on every run
+// rather than only on the day someone rewrites ci.yml in the other style.
+
+test('findToyStep matches the alternative `working-directory: toy` form for both commands', () => {
+  const alt = [
+    '      - name: Install toy dependencies',
+    '        working-directory: toy',
+    '        run: npm ci',
+    '',
+    '      - name: Run toy test suite',
+    '        working-directory: toy',
+    '        run: npm test',
+  ]
+  assert.equal(alt[findToyStep(alt, 'npm ci')], '        run: npm ci',
+    'must find the bare `npm ci` line itself, not its name: or working-directory: neighbour')
+  assert.equal(alt[findToyStep(alt, 'npm test(\\s+--)?')], '        run: npm test',
+    'must find the bare `npm test` line itself')
+
+  // working-directory may also follow the run: line rather than precede it.
+  const after = ['        run: npm ci', '        working-directory: toy']
+  assert.equal(findToyStep(after, 'npm ci'), 0, 'a working-directory: on the NEXT line must also match')
+})
+
+test('findToyStep does not match a non-command line that merely sits beside working-directory: toy', () => {
+  // The precedence bug: `A && B || C` made C alone sufficient, so any line whose neighbour was
+  // `working-directory: toy` matched — here, `run: echo hi`, and before it the step's `- name:` line.
+  const decoy = ['      - name: Something else', '        run: echo hi', '        working-directory: toy']
+  assert.equal(findToyStep(decoy, 'npm ci'), -1, 'only a line that IS the command may match')
+
+  // And the primary form must still win when both are present, so the index is stable.
+  const both = ['        run: cd toy && npm ci', '        run: npm ci', '        working-directory: toy']
+  assert.equal(findToyStep(both, 'npm ci'), 0, 'the primary `cd toy &&` form takes precedence')
 })
