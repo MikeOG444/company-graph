@@ -228,5 +228,35 @@
       "run_id": "carry-seed",
       "created_at": "2026-09-12T02:21:43Z"
     }
+  },
+  {
+    "id": "wi-a7-test-dispute-unruled",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "A target=test finding disputed by the Test Author reaches no judge, and the panel then passes the unfixed change",
+    "intent": "Measured on run k1v. This is a pass-by-default path in the component whose entire job is to refuse, so it outranks every other open build-line item. Sequence: round 1 raised a HIGH-severity finding at substrate/test/ci-workflow.test.js:190, independently reported by two lenses, both target=test. Two testfix agents ran and BOTH disputed. No judge ruled. Round 2 re-panelled, both lenses returned pass, the change integrated with escalations: 0 — and line 190 was never touched. The task branch's test file was byte-identical before and after. A real defect shipped inside a change the panel had just called clean. Mechanism, at .claude/workflows/build-implement.js:832-834: `disputed` filters on x.kind === 'code', and `testRepairs` filters to test repairs that did NOT dispute. A disputing test repair matches neither, so it never reaches the dispute judge at :872 (guarded on kind === 'code') and never sets resolution[dedupe_key]; the catch-all marks it unresolved, and an unresolved finding survives only while some lens keeps re-raising it. When the lens does not, it is silently gone. A code Fixer's dispute is always ruled on; a Test Author's is ruled on by nobody. Escalation.disputes_lost is fed from ctx.upheld, which only the judge writes, so a test dispute cannot even surface in an escalation. CONTRIBUTING CAUSE, and a defect in its own right: the test-repair agent is pointed at ctx.testSet.tests_ref (.artifacts/tests/<task>/, a COPY) while the finding cites the file on the branch — which is why one agent correctly replied that the finding 'does not apply to the file I am responsible for'. Worse, integration then reported tests_skipped: ['ci-workflow.test.js'] because the branch already carried that filename, so even a SUCCESSFUL repair would have been discarded. The test-repair path currently cannot fix a test file the implementer landed. This compounds with A6 rather than being independent of it. REQUIRED, none of it optional: (1) a disputing test repair must reach the same judge a code dispute does, and its outcome must land in ctx.upheld / ctx.overruled so escalations can see it; (2) resolution must be set for EVERY finding raised in a round, with 'nobody resolved it' treated as unresolved and CARRIED, never dropped; (3) a finding must never leave a round in a state where the only thing between it and a green panel is whether a cheap lens bothers to re-raise it; (4) the test-repair agent must be pointed at the file the finding cites, and integration must not silently skip landing a TestSet file that the repair path just edited. Add a regression test using the substrate/test/extract-fixloop.js sentinel idiom that drives the round-resolution decision directly: a test-target finding whose repair disputes must come out ruled or carried, never absent. Until this lands, a green panel is NOT evidence that target=test findings were addressed, and D1's rubber-stamping question has exactly one confirmed instance (this one) to calibrate against.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 220000,
+      "wall_clock_min": 50
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "carry-seed",
+      "created_at": "2026-09-12T02:21:43Z"
+    }
   }
 ]

@@ -292,6 +292,58 @@ decomposition error, the same class of check as B3 — zero tokens, script code.
 files, or the Test Author must own them; the two cannot both be true. Fold into B3's graph lint rather than
 carrying separately.
 
+*Second half, from `k1v`:* **the TestSet's landed files are never boundary-checked at all.** `boundaryCheck` is
+called on the implementer's `ChangeSet.touched_surfaces` only (`:622`, `:921`). On `k1v` the Test Author produced
+`substrate/test/repo-root.js` — a third file, outside `Spec.touched_surfaces` and outside the task's
+`owned_surfaces` — and integration landed it without a murmur. It happens to be a good helper (it walks up to find
+the repository root instead of hardcoding `'..', '..'`, which is the C1 fragility), and it was dropped from the C4
+merge only because a human read the integration diff. Nothing in the graph would have objected to anything it
+contained. A6's check must therefore cover both directions: what the spec may name, and what the TestSet may land.
+
+**A7 — A `target: "test"` finding can be disputed away with no ruling, and the panel then passes the unfixed change.**
+Found on run `k1v`, and it is the most serious defect this session produced, because it is a **pass-by-default path**
+in the one component whose entire job is to refuse.
+
+What happened, in order:
+1. Round 1 raised `AC-9 test uses form-specific regex` at `substrate/test/ci-workflow.test.js:190` — **severity high**,
+   independently reported by two lenses (`spec_conformance` and `correctness`), both `target: "test"`.
+2. Two `testfix` agents ran. **Both disputed.** One: *"DISPUTE: the finding's evidence (line 190…)"*. The other:
+   *"DISPUTE: The finding is real but does not apply to the file I'm responsible for."*
+3. **No judge ruled.** Round 2 re-panelled, both lenses returned `pass`, the change was integrated, and
+   `escalations: 0`.
+4. Line 190 was **never touched**. The task branch's test file was byte-identical before and after. The defect
+   shipped in a change the panel had just called clean.
+
+The mechanism is two lines of filtering. At `.claude/workflows/build-implement.js:832-834`:
+```js
+const disputed     = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')
+const testRepairs  = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
+```
+A disputing **test** repair matches neither. It never reaches the dispute judge at `:872` (which requires
+`kind === 'code'`), and it never sets `resolution[dedupe_key]`, so the catch-all marks it `unresolved` — and an
+unresolved finding survives only as long as a lens keeps re-raising it. When the lens does not, it is gone. A code
+Fixer's dispute is always ruled on by a judge; a Test Author's dispute is ruled on by nobody. `Escalation.disputes_lost`
+is fed from `ctx.upheld`, which only the judge writes, so a test dispute cannot even appear in an escalation.
+
+*Contributing cause, and a defect in its own right:* the test-repair agent is pointed at `ctx.testSet.tests_ref` —
+`.artifacts/tests/t1-ci-workflow/`, a **copy** — while the finding cites the file on the branch. That is why one
+agent said the finding "does not apply to the file I'm responsible for": it was correct, and the routing was wrong.
+Worse, integration then reported `tests_skipped: ["ci-workflow.test.js"]` because the branch already carried that
+filename, so **even a successful repair would have been discarded**. The test-repair path currently cannot fix a
+test file the implementer landed — the exact situation A6 describes, which makes A6 and A7 compounding rather than
+independent.
+
+*Required, and none of it is optional:* a disputing test repair must reach the same judge a code dispute does;
+`resolution` must be set for every finding raised in a round, with "nobody resolved it" treated as unresolved and
+carried, never dropped; and a finding must never leave a round in a state where the only thing standing between it
+and a green panel is whether a cheap lens bothers to re-raise it. Until that lands, **a green panel is not evidence
+that `target: "test"` findings were addressed** — which also means D1's rubber-stamping question now has one
+confirmed instance to calibrate against, and Phase 4's planted defects still are not lens misses.
+
+*Fixed in C4 by hand, not by the line:* the AC-9 defect was real, was the third instance of the same class after the
+two `k1i` found, and is fixed in `3593bd3` along with an invariant test that fails on the pre-fix file and passes on
+the current one, so a fourth instance cannot hide the way the first three did.
+
 ### B. Missing edges
 
 **B1 — Memory → Build does not exist.** `grep -n "memory\|pattern\|prompt_refinement" .claude/workflows/build-spec.js` returns nothing. `/memory-roll` produces patterns and canaries (`ledger/runs/mr2-memory-roll.json` → `roll.patterns` ×10, `roll.canaries` ×10) and nothing consumes any of it. This is the edge that would catch a bad decomposition without a human in the loop.

@@ -1,0 +1,264 @@
+{
+  "entry": {
+    "id": "k1v-build-implement",
+    "run_id": "k1v",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-12T02:22:24.926Z",
+    "finished_at": "2026-09-12T02:51:00.605Z",
+    "wall_clock_sec": 1716,
+    "result_ref": "ledger/runs/k1v-build-implement.json",
+    "artifact_count": 7,
+    "escalations": 0,
+    "tokens": 547218,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 394723,
+      "claude-sonnet-5": 152495
+    },
+    "cost_est_usd": 0.98,
+    "agents": 13,
+    "human_min": 8,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1v",
+      "created_at": "2026-09-12T02:21:43Z"
+    },
+    "trace_ref": ".artifacts/traces/k1v-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k1v",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "integration/k1v",
+    "integration_commit": "534f9f4aca48bd51c0776bb842512bdd7d8d4ebf",
+    "specs": [
+      "spec-wi-c4-ci"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "t1-ci-workflow",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Verify that form-flexible testing (findToyStep) is used consistently across AC-6, AC-8, and AC-9, given that the spec allows both primary and alternative forms of toy suite commands",
+              "Check that all 15 acceptance criteria (AC-1 through AC-15) have corresponding tests in the test file",
+              "Verify the workflow file structure respects the spec's requirements for file location, top-level keys, triggers (push and pull_request), actions (only checkout and setup-node at major versions), job configuration (one job on ubuntu-latest), and absence of out-of-scope machinery"
+            ],
+            "findings": [
+              {
+                "id": "F-ac9-toy-form-specific",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/ci-workflow.test.js:190",
+                "claim": "AC-9 test uses form-specific regex search for toy suite command instead of form-agnostic findToyStep helper, preventing acceptance of alternative form allowed by spec",
+                "evidence": "Line 190: `const toySuiteIdx = lines.findIndex((l) => /^\\s*run:\\s*cd toy(?:\\/)? && npm test\\s*$/.test(l))` only matches primary form `cd toy && npm test`, whereas AC-8 at line 167 correctly uses `findToyStep(lines, 'npm test(\\s+--)?')` which accepts both primary and alternative (`working-directory: toy`) forms",
+                "dedupe_key": "substrate/test/ci-workflow.test.js:190|AC-9 test form-specific toy suite search",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to find hardcoded secrets, credentials, tokens, or API keys in .github/workflows/ci.yml and substrate/test/ci-workflow.test.js: no references to secrets.*, hardcoded credentials, or private data found. AC-12 explicitly validates against secrets. references.",
+              "Attempted to identify command injection, shell interpolation, or path traversal vulnerabilities: all spawnSync calls use safe array argument form (not string form), workflow uses YAML syntax without interpolation, findToyStep regex construction uses only hardcoded test values ('npm ci', 'npm test'), path operations use safe utilities (path.join, path.relative, path.sep) with proper filtering.",
+              "Attempted to find information disclosure or data exposure: no sensitive environment variables logged, NODE_TEST_* properly filtered in childEnv, no credentials in error messages or assertions, temporary directories properly created and cleaned, no secrets appear in test output assertions."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Change actions/checkout@v4 to actions/checkout@v4.1.0 — AC-3 test would fail on /^actions\\/(checkout|setup-node)@v[0-9]+$/ regex requiring major-version-only tag",
+              "Change node-version from 20 to 18 — AC-4 test would fail on /node-version:\\s*['\\\"]?20['\\\"]?\\s*$/m regex matching only exactly 20",
+              "Merge root and toy test suites into single step (npm test && cd toy && npm test) — AC-9 test would fail checking for separate run: lines and step boundary between them"
+            ],
+            "confidence": 0.85,
+            "findings": [
+              {
+                "id": "f1-ac9-form-specific",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/test/ci-workflow.test.js:190",
+                "claim": "AC-9 test uses form-specific hard-coded regex; would incorrectly reject valid alternative toy suite form that spec and AC-6/AC-8 tests allow",
+                "evidence": "Line 190 uses `/^\\s*run:\\s*cd toy(?:\\/)? && npm test\\s*$/` matching only primary form. AC-6 (line 137) and AC-8 (line 167) both use `findToyStep` helper (lines 36-42) that accepts both `cd toy && npm test` and `npm test` with `working-directory: toy` per spec AC-6 wording 'either...or'. If workflow refactored to alternative form, AC-9 would fail assertion 'both suite steps must exist' despite spec-compliant implementation.",
+                "status": "open",
+                "target": "test",
+                "dedupe_key": "substrate/test/ci-workflow.test.js:190|AC-9 form-specific regex"
+              }
+            ],
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F-ac9-toy-form-specific",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/ci-workflow.test.js:190",
+            "claim": "AC-9 test uses form-specific regex search for toy suite command instead of form-agnostic findToyStep helper, preventing acceptance of alternative form allowed by spec",
+            "evidence": "Line 190: `const toySuiteIdx = lines.findIndex((l) => /^\\s*run:\\s*cd toy(?:\\/)? && npm test\\s*$/.test(l))` only matches primary form `cd toy && npm test`, whereas AC-8 at line 167 correctly uses `findToyStep(lines, 'npm test(\\s+--)?')` which accepts both primary and alternative (`working-directory: toy`) forms",
+            "dedupe_key": "substrate/test/ci-workflow.test.js:190|AC-9 test form-specific toy suite search",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f1-ac9-form-specific",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/ci-workflow.test.js:190",
+            "claim": "AC-9 test uses form-specific hard-coded regex; would incorrectly reject valid alternative toy suite form that spec and AC-6/AC-8 tests allow",
+            "evidence": "Line 190 uses `/^\\s*run:\\s*cd toy(?:\\/)? && npm test\\s*$/` matching only primary form. AC-6 (line 137) and AC-8 (line 167) both use `findToyStep` helper (lines 36-42) that accepts both `cd toy && npm test` and `npm test` with `working-directory: toy` per spec AC-6 wording 'either...or'. If workflow refactored to alternative form, AC-9 would fail assertion 'both suite steps must exist' despite spec-compliant implementation.",
+            "status": "open",
+            "target": "test",
+            "dedupe_key": "substrate/test/ci-workflow.test.js:190|AC-9 form-specific regex"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t1-ci-workflow",
+        "result": "pass",
+        "verdicts": [
+          {
+            "verdict": "pass",
+            "lens": "spec_conformance",
+            "confidence": 0.98,
+            "attempts": [
+              "Structural Compliance: Verified workflow file structure (three top-level keys at column 0, no tabs), triggers (push and pull_request with '**' filter), and pinned actions (checkout@v4, setup-node@v4). All checks passed.",
+              "Step Isolation and Failure Handling: Verified separate steps with distinct names (root vs toy), correct ordering (install before test), and proper failure propagation (no continue-on-error or swallowing constructs). All checks passed.",
+              "Scope Boundaries and Test Coverage: Verified single job on ubuntu-latest with no strategy/matrix, exclusion of all prohibited machinery (cache/lint/coverage/deploy/secrets), comprehensive test coverage for all 15 criteria, and proper regression testing. All checks passed."
+            ],
+            "findings": [],
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Remove the pull_request: trigger from the on: block — AC-2 test searches for /^\\s*pull_request:/m and would fail",
+              "Change node-version from 20 to 18 — AC-4 test checks for node-version: 20 explicitly and would fail the regex match",
+              "Remove the root npm ci step entirely — AC-5 test searches for the root npm ci command and would not find it, assertion would fail",
+              "Merge root and toy test steps into one run: command — AC-9 test checks assert.notEqual(rootSuiteIdx, toySuiteIdx) and both would point to the same line",
+              "Use node --test instead of npm test — AC-7 test asserts !/node --test/ and would fail on this pattern match",
+              "Add cache: npm to the workflow — AC-12 test checks for /cache:/ pattern and would match",
+              "Change runs-on from ubuntu-latest to ubuntu-20.04 — AC-11 test asserts the value equals 'ubuntu-latest' exactly and would fail"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "t1-ci-workflow",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Search for hardcoded secrets or credentials (API keys, tokens, passwords): grep for secrets., AWS, PASSWORD, KEY, TOKEN, CREDENTIAL patterns across both changed files; found none",
+              "Attempt shell injection through command execution: examined all command invocations in workflow (hardcoded npm ci, npm test, cd toy && commands) and test file (all spawnSync calls use safe array form, no shell interpolation); found no injection vectors",
+              "Attempt path traversal or directory escape: examined fs.cpSync (safe REPO root origin), path.relative usage (safe component checks), and fs.rmSync (only removes safe mkdtempSync directory); found no traversal vulnerabilities"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-ci-workflow",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k1v",
+              "created_at": "2026-09-12T02:21:43Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      }
+    ],
+    "suite": {
+      "passed": 131,
+      "failed": 0,
+      "results_ref": "/home/user/company-graph/.artifacts/integration/k1v.json"
+    },
+    "tests_landed": [
+      "repo-root.js"
+    ],
+    "tests_skipped": [
+      "ci-workflow.test.js"
+    ],
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 169985,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1v",
+      "created_at": "2026-09-12T02:21:43Z"
+    }
+  }
+}
