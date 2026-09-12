@@ -96,7 +96,7 @@ const Ruling = { type: 'object', additionalProperties: false, required: ['ruling
 const Escalation = { type: 'object', additionalProperties: false,
   required: ['task_id', 'reason', 'history', 'repeats', 'hypothesis', 'options'],
   properties: { task_id: { type: 'string' },
-    reason: { enum: ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings'] },
+    reason: { enum: ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'] },
     history: { type: 'array', items: { type: 'string' } },
     repeats: { type: 'array', items: Finding },
     hypothesis: { type: 'string' },
@@ -439,6 +439,109 @@ function fixOutcome(notes) {
   if (n.startsWith('DISPUTE:')) return 'dispute'
   return 'applied'
 }
+
+// ---- k1v fix: a test-path dispute reaching no judge ----
+// The pre-fix hole filtered disputes down to the code repair path alone, so a repair on the TEST path that
+// disputed matched neither that filter nor the applied-test-repair list (which excludes a repair whose notes
+// begin "DISPUTE:") and simply vanished. These five functions are deliberately blind to which repair path
+// produced a dispute, and make "nobody resolved it" a resolution in its own right instead of a silent absence.
+
+// Every disputing repair, first occurrence per dedupe_key, in insertion order — read ONLY via fixOutcome(notes),
+// never via a repair's path/kind, so a code Fixer's dispute and a Test Author's dispute are selected identically.
+function disputesToJudge(repairs) {
+  const seen = new Set()
+  const out = []
+  for (const r of repairs ?? []) {
+    if (!r || r.dedupe_key == null) continue
+    if (fixOutcome(r.notes) !== 'dispute') continue
+    if (seen.has(r.dedupe_key)) continue
+    seen.add(r.dedupe_key)
+    out.push(r)
+  }
+  return out
+}
+
+// The single source of a round's resolution map and of what survives into the next round. Every dedupe_key that
+// appears ANYWHERE in the inputs gets an entry — 'nobody resolved it' is the explicit value 'unresolved', never an
+// absent key a caller could mistake for settled. `carried` is what a round-outcome guard must treat as still open:
+// everything except a finding this round actually fixed or a judge actually overruled.
+function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref }) {
+  const resolution = {}
+  const rulingByKey = new Map((rulings ?? []).filter(r => r && r.dedupe_key != null).map(r => [r.dedupe_key, r.ruling]))
+  const deferredKeys = new Set((deferred ?? []).map(f => f.dedupe_key))
+  deferredKeys.forEach(k => { resolution[k] = 'deferred' })
+
+  for (const r of repairs ?? []) {
+    if (!r || r.dedupe_key == null || deferredKeys.has(r.dedupe_key)) continue
+    const outcome = fixOutcome(r.notes)
+    if (outcome === 'applied') { resolution[r.dedupe_key] = 'fixed'; continue }
+    if (outcome === 'dispute') {
+      const ruling = rulingByKey.get(r.dedupe_key)
+      if (ruling === 'overrule') resolution[r.dedupe_key] = 'overruled'
+      else if (ruling === 'uphold') resolution[r.dedupe_key] = 'upheld'
+      else if (!(r.dedupe_key in resolution)) resolution[r.dedupe_key] = 'unresolved'
+      continue
+    }
+    if (!(r.dedupe_key in resolution)) resolution[r.dedupe_key] = 'unresolved'
+  }
+
+  const allKeys = new Set([
+    ...(findings ?? []).map(f => f.dedupe_key),
+    ...(carried_in ?? []).map(f => f.dedupe_key),
+    ...(deferred ?? []).map(f => f.dedupe_key),
+    ...(repairs ?? []).map(r => r?.dedupe_key),
+  ])
+  allKeys.forEach(k => { if (k != null && !(k in resolution)) resolution[k] = 'unresolved' })
+
+  const byKey = new Map()
+  for (const f of [...(carried_in ?? []), ...(findings ?? []), ...(deferred ?? [])]) {
+    if (f && f.dedupe_key != null && !byKey.has(f.dedupe_key)) byKey.set(f.dedupe_key, f)
+  }
+  const carried = [...byKey.values()].filter(f => resolution[f.dedupe_key] !== 'fixed' && resolution[f.dedupe_key] !== 'overruled')
+
+  let nextTestsRef = tests_ref
+  for (const r of repairs ?? []) {
+    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref) nextTestsRef = r.tests_ref
+  }
+
+  const needs_rediff = (repairs ?? []).some(r => {
+    if (!r || fixOutcome(r.notes) === 'dispute') return false
+    if (r.path === 'code') return true
+    return r.path === 'test' && r.target_source === 'finding_location'
+  })
+
+  return { resolution, carried, tests_ref: nextTestsRef, needs_rediff }
+}
+
+// A green panel (nothing failed this round) is only actually green when nothing survives from resolveRound's
+// carried list — an earlier round's test dispute that nobody ruled on, or an upheld finding, does not clear itself
+// just because a cheap lens stopped re-raising it. 'pass' is the ONLY route the loop below takes to a passing task.
+function roundOutcome({ panel_result, carried }) {
+  if (panel_result !== 'pass') return 'continue'
+  return (carried && carried.length) ? 'escalate' : 'pass'
+}
+
+// Where a test repair belongs: the file the finding actually cites (inside the task worktree, when one is given),
+// UNLESS that file is already the artifact TestSet itself, in which case the repair targets tests_ref directly and
+// no cumulative rediff is owed for it. Falls back to the whole tests_ref when the location is not a file at all.
+function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
+  const file = scopeOf(finding?.location)
+  if (!file) return { ref: tests_ref, source: 'tests_ref' }
+  const testsDirPrefix = artifact_dir ? `${artifact_dir}/tests/` : null
+  const underArtifactTests = (testsDirPrefix && file.startsWith(testsDirPrefix)) || (tests_ref && file.startsWith(tests_ref))
+  if (underArtifactTests) return { ref: file, source: 'tests_ref' }
+  return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
+}
+
+// A basename integration reported as tests_skipped (already exists in the repo test dir, never overwritten) that a
+// repair path actually edited in the artifact TestSet is not a stale duplicate — it is a lost fix. Matched by
+// basename only against repairs whose target was the artifact TestSet (tests_ref); a repair that edited a file on
+// the task branch (finding_location) is excluded because the branch merge already carries it.
+function unlandedRepairs({ tests_skipped, repaired_tests }) {
+  const basename = (p) => String(p ?? '').split('/').pop()
+  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
+  return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
+}
 // ---- END fix-loop decisions ----
 
 // =====================================================================
@@ -616,7 +719,13 @@ async function runTask({ spec, task, spec_ref }) {
   const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
                 tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
                 lens_streaks: {}, grace_used: false,
-                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set() }
+                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
+                // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
+                // independent of whether a lens re-raises them — the k1v guard reads this, not the panel verdict alone.
+                carried: [],
+                // repairedTests: { ref, source } for every non-disputing test repair this task's Test Author made,
+                // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
+                repairedTests: [] }
   const fileOf = (loc) => String(loc).split(':')[0].trim()
 
   const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
@@ -728,20 +837,8 @@ async function runTask({ spec, task, spec_ref }) {
     ctx.tokens += ctx.last_round_tokens
     ctx.lens_streaks = lensStreaks(ctx.lens_streaks, toRun, result === 'pass' ? [] : findings)
 
-    if (result === 'pass') {
-      toRun.forEach(l => ctx.verified.add(l))
-      const remaining = LENSES.filter(l => !ctx.verified.has(l))
-      if (remaining.length) {   // failures cleared; now confirm the lenses that had passed before the fix
-        ctx.toRun = remaining; confirming = true
-        ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
-        continue
-      }
-      return { ...ctx, passed: true, branch }
-    }
-    if (confirming) { ctx.mode = 'all'; ctx.history.push(`${tag}: a previously passing lens failed after a fix; running all lenses until green`) }
-    confirming = false
-
     // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
+    // Defined before the pass/fail branch below so the pass branch's roundOutcome guard can call it too.
     const escalate = async (reason, open) => {
       const repeats = open.filter(f => ctx.overruled.some(o => o.lens === f.lens && fileOf(o.location) === fileOf(f.location)))
       const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
@@ -752,6 +849,29 @@ async function runTask({ spec, task, spec_ref }) {
       if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
       return { ...ctx, passed: false }
     }
+
+    if (result === 'pass') {
+      toRun.forEach(l => ctx.verified.add(l))
+      const remaining = LENSES.filter(l => !ctx.verified.has(l))
+      if (remaining.length) {   // failures cleared; now confirm the lenses that had passed before the fix
+        ctx.toRun = remaining; confirming = true
+        ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
+        continue
+      }
+      // Every lens is green — that alone is not proof (k1v): a test dispute nobody ruled on, or any other finding
+      // left upheld/unresolved in an earlier round, does not clear itself just because a cheap lens stopped
+      // re-raising it. Nothing new happened this round (no repairs, no rulings, no deferrals), so this call only
+      // carries ctx.carried forward through resolveRound's uniform resolution logic; roundOutcome is the one gate
+      // a task may pass through to completion.
+      const passRound = resolveRound({ findings, carried_in: ctx.carried, deferred: [], repairs: [], rulings: [], tests_ref: ctx.testSet.tests_ref })
+      ctx.carried = passRound.carried
+      const outcome = roundOutcome({ panel_result: 'pass', carried: ctx.carried })
+      if (outcome === 'pass') return { ...ctx, passed: true, branch }
+      ctx.history.push(`${tag}: panel is green but ${ctx.carried.length} earlier finding(s) were never fixed or overruled (${ctx.carried.map(f => f.dedupe_key).join(',')}) — escalating instead of passing on a lens's silence`)
+      return escalate('no_fresh_findings', ctx.carried)
+    }
+    if (confirming) { ctx.mode = 'all'; ctx.history.push(`${tag}: a previously passing lens failed after a fix; running all lenses until green`) }
+    confirming = false
 
     const reason = shouldEscalate(ctx, findings)
     if (reason === 'budget') ctx.history.push(`${tag}: budget breach — tokens ${ctx.tokens}/${ctx.task_tokens} this task, ${ctx.last_round_tokens}/${ctx.round_tokens} this round`)
@@ -799,11 +919,20 @@ async function runTask({ spec, task, spec_ref }) {
     }
 
     const fixes = (await parallel(fresh.map(f => () => findingRoute(f) === 'test'
-      ? agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
-             Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref} so it asserts exactly what the spec says; do not read or modify
-             the implementation. If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
-             Return tests_ref and the criteria the tests now cover.`,
-          { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test' })
+      ? (() => {
+          // testRepairTarget (not the artifact tests_ref blindly): the file the finding actually cites, inside
+          // THIS task's worktree, unless that file already IS the artifact TestSet — in which case editing it
+          // there needs no cumulative rediff.
+          const target = testRepairTarget({ finding: f, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+          const targetNote = target.source === 'finding_location'
+            ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
+            : `Write it under the TestSet directory (create the file there if it does not exist yet).`
+          return agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
+             Re-read the spec (${specText}). Repair the test at ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation.
+             ${targetNote} If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
+             Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+            { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test', target })
+        })()
       : (() => {
           const scopeFile = scopeOf(f.location)
           const scopedRef = scopeFile ? scopedByFile.get(scopeFile) : undefined
@@ -826,53 +955,53 @@ async function runTask({ spec, task, spec_ref }) {
             { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })
         })()))).filter(Boolean)
 
-    // fixOutcome reads a code Fixer's notes: 'dispute' goes to the dispute judge as before; 'test_only' is a
+    // fixOutcome reads a code Fixer's notes: 'dispute' goes to the dispute judge, whichever repair path raised
+    // it (disputesToJudge below is blind to x.kind on purpose — that blindness is the k1v fix); 'test_only' is a
     // DIFFERENT outcome — the Fixer is forbidden to edit tests, so it is re-routed to the Test Author repair path
-    // once, in this same round, instead of the dispute judge; anything else is a normal applied fix.
-    const disputed = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')
+    // once, in this same round; anything else is a normal applied fix.
     const testOnly = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'test_only')
-    const testRepairs = fixes.filter(x => x.kind === 'test' && !x.p.notes?.startsWith('DISPUTE:'))
-    if (testRepairs.length) {
-      ctx.testSet = { ...ctx.testSet, tests_ref: testRepairs[testRepairs.length - 1].p.tests_ref }
-      ctx.history.push(`${tag}: ${testRepairs.length} test finding(s) repaired by the Test Author`)
-    }
 
     // TEST-ONLY re-route (ROUTING fix, c): one repair attempt per finding, in this round, never twice for the
-    // same dedupe_key and never to the dispute judge. Not counted in `applied` either way.
+    // same dedupe_key. Not counted in `applied` either way; its own dispute (if any) still reaches the judge below,
+    // exactly as a first-attempt test-path dispute does — no repair path gets less rigor than another.
     let testOnlyRepairs = []
     if (testOnly.length) {
-      testOnlyRepairs = (await parallel(testOnly.map(x => () =>
-        agent(`A code Fixer determined this finding is really a defect in the TESTS, not the implementation (its own reasoning: ${x.p.notes}).
-               Location: ${x.f.location}. Evidence: ${x.f.evidence}. Re-read the spec (${specText}). Repair the test under ${ctx.testSet.tests_ref}
-               so it asserts exactly what the spec says; do not read or modify the implementation. If the test is right and the finding is
-               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Return tests_ref and the criteria the tests now cover.`,
-          { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p })))).filter(Boolean)
-      const resolvedTestOnly = testOnlyRepairs.filter(x => !x.p.notes?.startsWith('DISPUTE:'))
-      if (resolvedTestOnly.length) {
-        ctx.testSet = { ...ctx.testSet, tests_ref: resolvedTestOnly[resolvedTestOnly.length - 1].p.tests_ref }
-        ctx.history.push(`${tag}: ${resolvedTestOnly.length} TEST-ONLY finding(s) re-routed from the code Fixer and repaired by the Test Author`)
-      }
+      testOnlyRepairs = (await parallel(testOnly.map(x => () => {
+        const target = testRepairTarget({ finding: x.f, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+        const targetNote = target.source === 'finding_location'
+          ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
+          : `Write it under the TestSet directory (create the file there if it does not exist yet).`
+        return agent(`A code Fixer determined this finding is really a defect in the TESTS, not the implementation (its own reasoning: ${x.p.notes}).
+               Location: ${x.f.location}. Evidence: ${x.f.evidence}. Re-read the spec (${specText}). Repair the test at ${target.ref}
+               so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test is right and the finding is
+               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+          { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
+      }))).filter(Boolean)
     }
 
     const applied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied').map(x => x.p)
-    // Resolution of every finding raised this round, keyed by dedupe_key (the stable identity nextLenses and `seen`
-    // both use — a finding's id is regenerated per round, dedupe_key is not): the input nextLenses re-panels from.
-    const resolution = {}
-    deferred.forEach(f => { resolution[f.dedupe_key] = 'deferred' })
-    fixes.forEach(x => { if (fixOutcome(x.p.notes) === 'applied') resolution[x.f.dedupe_key] = 'fixed' })
-    // A TEST-ONLY finding's resolution follows its ONE repair attempt: fixed when the Test Author's repair
-    // returns and is not itself a dispute, unresolved when the repair fails to run or disputes back (the
-    // catch-all below marks anything left unset "unresolved" — the same treatment every other unresolved
-    // finding gets).
-    testOnly.forEach(x => {
-      const repaired = testOnlyRepairs.find(r => r.f.dedupe_key === x.f.dedupe_key && !r.p.notes?.startsWith('DISPUTE:'))
-      if (repaired) resolution[x.f.dedupe_key] = 'fixed'
-    })
+
+    // One flat repair record per outcome this round, path-tagged but never path-FILTERED for dispute purposes —
+    // the record shape resolveRound/disputesToJudge share (AC-2 through AC-9): dedupe_key, path, notes, plus
+    // target_source/tests_ref for a test-path repair, plus f/p so the judge loop and the history lines below can
+    // still read the original finding and repair.
+    const repairRecords = [
+      ...fixes.map(x => ({ dedupe_key: x.f.dedupe_key, path: x.kind, notes: x.p.notes, f: x.f, p: x.p,
+        target_source: x.kind === 'test' ? x.target?.source : undefined,
+        tests_ref: x.kind === 'test' ? x.p.tests_ref : undefined })),
+      ...testOnlyRepairs.map(x => ({ dedupe_key: x.f.dedupe_key, path: 'test', notes: x.p.notes, f: x.f, p: x.p,
+        target_source: x.target?.source, tests_ref: x.p.tests_ref })),
+    ]
+
+    // Dispute Checker: strong model, never the same lens. disputesToJudge selects EVERY disputing repair — code
+    // or test — so a Test Author's dispute is ruled on exactly as a code Fixer's is; the pre-fix filter
+    // (`x.kind === 'code' && ...`) is gone, and with it the hole a disputing test repair fell through.
+    const disputed = disputesToJudge(repairRecords)
     let rulings = []
     if (disputed.length) {
-      // Dispute Checker: strong model, never the same lens. Its ruling crosses two edges: the next round's lens prompt and the Escalation.
+      // Its ruling crosses two edges: the next round's lens prompt and the Escalation.
       rulings = await parallel(disputed.map(x => () =>
-        agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.p.notes}.
+        agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.notes}.
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
           { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
@@ -886,30 +1015,44 @@ async function runTask({ spec, task, spec_ref }) {
           if (priorOverruled.some(o => o.lens === x.f.lens && fileOf(o.location) === fileOf(x.f.location))) repeatOverrule = true
           ctx.overruled.push({ ...x.f, status: 'overruled' })
           ctx.history.push(`r${ctx.round}: overruled ${x.f.lens} at ${x.f.location}: ${r.reason}`)
-          resolution[x.f.dedupe_key] = 'overruled'
         } else {
           ctx.upheld.push({ ...x.f, status: 'disputed' })
           ctx.history.push(`r${ctx.round}: upheld ${x.f.lens} at ${x.f.location}: ${r?.reason ?? 'no ruling'}`)
-          resolution[x.f.dedupe_key] = 'upheld'
         }
       })
       // A lens overruled twice at the same file is arguing with the spec, not the change. Stop paying for rounds.
       if (repeatOverrule) return escalate('repeat_finding', findings)
     }
-    // Anything this round's findings list carries that the above did not touch (a finding already in `seen` from an
-    // earlier round, excluded from `freshAll` above) is a still-open repeat: left unresolved, its lens keeps re-panelling.
-    findings.forEach(f => { if (!(f.dedupe_key in resolution)) resolution[f.dedupe_key] = 'unresolved' })
+    const rulingsForResolve = disputed.map((x, i) => ({ dedupe_key: x.dedupe_key, ruling: rulings[i]?.ruling }))
+
+    // resolveRound is the single source of this round's resolution map AND of what carries into the next round
+    // (AC-3 through AC-9): every dedupe_key here gets an entry, 'nobody resolved it' included, so a test dispute
+    // the judge never ruled on reads 'unresolved' rather than silently vanishing the moment the lens stops
+    // re-raising it (k1v).
+    const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref })
+    ctx.carried = round.carried
+    ctx.testSet = { ...ctx.testSet, tests_ref: round.tests_ref }
+    const repairedCount = repairRecords.filter(r => r.path === 'test' && fixOutcome(r.notes) !== 'dispute').length
+    if (repairedCount) ctx.history.push(`${tag}: ${repairedCount} test finding(s) repaired by the Test Author`)
+    // Track every non-disputing test repair's target for the Integrate barrier's unlandedRepairs check — a skipped
+    // basename a repair actually edited must never be dropped silently.
+    ;[...fixes.filter(x => x.kind === 'test'), ...testOnlyRepairs].forEach(x => {
+      if (x.target && fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target)
+    })
 
     // Re-panel by finding resolution, not by verdict (point 1): a lens whose findings were all overruled settles into
     // ctx.verified for this change set instead of re-running a fresh retry round on a byte-identical diff.
-    const { retry, settled } = nextLenses({ lenses: LENSES, findings, resolution, mode: ctx.mode, verified: [...ctx.verified] })
+    const { retry, settled } = nextLenses({ lenses: LENSES, findings, resolution: round.resolution, mode: ctx.mode, verified: [...ctx.verified] })
     settled.forEach(l => ctx.verified.add(l))
     ctx.toRun = lensesToRun({ lenses: LENSES, retry, verified: [...ctx.verified], mode: ctx.mode })
 
-    if (!applied.length) continue   // nothing changed: previously passing lenses stay verified; only the failing ones re-run
+    // Nothing to recapture: no code fix applied, and no test repair edited a file already on the branch either
+    // (needs_rediff, AC-9). Previously passing lenses stay verified; only the failing ones re-run.
+    if (!applied.length && !round.needs_rediff) continue
 
-    const merged = await agent(`In worktree ${wt} (branch ${branch}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed.
-                                Verify each is present (git log); if one is missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
+    const merged = await agent(`In worktree ${wt} (branch ${branch}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed
+                                (this list may be empty when only a test repair changed the branch). Verify each listed fix is present (git log); if one is
+                                missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
                                 (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
       { label: `merge:${task.id}:r${ctx.round}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
@@ -971,15 +1114,25 @@ const landedSet = new Set([...(suite?.tests_landed ?? []), ...(suite?.tests_skip
 const unaccounted = (suite?.tests_found ?? []).filter(f => !landedSet.has(f))
 if (unaccounted.length) log(`integration: ${unaccounted.length} TestSet file(s) neither landed nor skipped: ${unaccounted.join(', ')}`)
 
+// unlandedRepairs: a tests_skipped basename a passing task's fix loop actually repaired (in the artifact TestSet,
+// not one it edited directly on its own branch) is not a stale duplicate the never-overwrite rule was built for —
+// it is a lost fix. Named to the resolver below rather than dropped silently.
+const repairedTests = finished.filter(f => f.passed).flatMap(f => f.repairedTests ?? [])
+const unlanded = unlandedRepairs({ tests_skipped: suite?.tests_skipped ?? [], repaired_tests: repairedTests })
+if (unlanded.length) log(`integration: ${unlanded.length} skipped TestSet file(s) were actually edited by a repair: ${unlanded.join(', ')}`)
+
 // A conflict needs two branches to have one, so the >1 guard belongs to the conflicts case ALONE. A FAILING suite
 // or an unaccounted TestSet file is just as wrong with one passing task, and t7i proved it: one task passed, the
 // suite came back 62/63 red, and this step was skipped because passing.length was 1.
-if (suite && (suite.failed > 0 || unaccounted.length || (suite.conflicts?.length && passing.length > 1))) {
-  log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s), ${unaccounted.length} unaccounted TestSet file(s); strong-model resolution`)
+if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || (suite.conflicts?.length && passing.length > 1))) {
+  log(`integration: ${suite.conflicts?.length ?? 0} conflicted file(s), ${suite.failed} failing test(s), ${unaccounted.length} unaccounted TestSet file(s), ${unlanded.length} unlanded repair(s); strong-model resolution`)
   const resolved = await agent(`Integration branch integration/${A.run_id} in worktree ${ART}/worktrees/integration-${A.run_id} merged ${JSON.stringify(passingBranches)}.
                                 A mechanical merge reported conflicts in ${JSON.stringify(suite.conflicts ?? [])} and ${suite.failed} failing test(s) (results at ${suite.results_ref}).
                                 It also failed to account for these TestSet files, which it neither landed nor skipped: ${JSON.stringify(unaccounted)} — land any that are
                                 missing from <worktree>/${TEST_DIR}/ (helper modules included, never overwriting a file already there) before re-running.
+                                These skipped files were reported as already existing, but a task's fix loop actually repaired them during verification:
+                                ${JSON.stringify(unlanded)} — they are NOT stale duplicates; land the repaired version of each (never blindly overwrite; compare
+                                and carry forward whichever content is correct) before re-running.
                                 Re-examine each conflicted file against the task branches' intents and make the integration branch carry ALL merged behaviors
                                 correctly. Commit. Re-run the full suite of the app at <worktree>/${APP}/, write results to ${ART}/integration/${A.run_id}.json
                                 and return the summary with artifact_ref = "integration/${A.run_id}" and conflicts = the files you changed.
