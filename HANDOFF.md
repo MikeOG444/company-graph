@@ -391,6 +391,31 @@ the current one, so a fourth instance cannot hide the way the first three did.
 
 **B3 — Graph lint belongs in code, not in the decomposer prompt.** `.claude/workflows/build-spec.js:87-93` states the rules and validates none of them. `t7`'s decomposition still shipped a false edge *and* assigned AC-12 to a task that did not own the file it names. Two checks, zero tokens: every criterion's required surface ∈ its task's `owned_surfaces`; every `depends_on` justified by a variable actually crossing.
 
+*Third check, from run `k2i`, and it is the one that cost the most so far.* **A spec may write criteria no landed
+test can ever assert, and the correctness lens will then demand tests for them forever.** `spec-wi-c8-node20-test-glob`
+mixed two kinds of criterion and assigned both to one task and one test file:
+
+- **product-scoped** — *"the `test` script is exactly `node --test substrate/test/*.test.js`"*, *"the engines floor
+  equals ci.yml's node-version"*. A landed test asserts these on every run, forever. AC-4, AC-5, AC-6.
+- **change-scoped** — *"every other field byte-identical **to before**"*, *"the changed paths are exactly these
+  three"*, *"no dependency **is added**"*. These are assertions about a **diff**. The verifier panel can check them
+  and `spec_conformance` did, and passed. A landed test cannot: after the merge there is no "before" and no "this
+  change", and a test pinning `git diff` to a base sha asserts nothing once that sha is history. AC-1, AC-2, AC-3, AC-9.
+
+The correctness lens saw AC-1/AC-3/AC-9 listed in `criteria_coverage` with no assertion covering them and, correctly
+by its own contract, failed the change. The fix loop then sent three Sonnet test-repair agents to write tests that
+cannot exist. Cost: 25+ minutes, ~$0.93, **one fork bomb** — a generated test ran `npm test`, which re-ran that same
+test — one dispute that was right on its own terms (the finding misattributed an AC-1/AC-2 requirement to the AC-5
+test), and a run that died without returning. None of the three agents was wrong; the task was impossible.
+
+*Proposed, same shape as the other two checks and equally free:* classify every criterion in script code before the
+graph is stamped. A criterion whose text is change-scoped — matching *"to before"*, *"byte-identical"*, *"changed
+paths"*, *"is added/removed/upgraded"*, *"unmodified"* and their kin — is **panel-verified**, must not be counted as
+a coverage gap by the correctness lens, and must never be assigned to a test file's `criteria_ids`. Carry the
+classification on the criterion so the lens prompt can be told which criteria it may demand tests for. Getting this
+wrong is not a cosmetic scoping error: it manufactures an unsatisfiable fix loop out of a change that was already
+correct and green.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.

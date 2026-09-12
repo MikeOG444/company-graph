@@ -1,0 +1,81 @@
+{
+  "id": "k2i-escalation",
+  "gate": "escalation",
+  "run_id": "k2i",
+  "workflow": "build-implement",
+  "status": "decided",
+  "opened_at": "2026-09-12T03:55:03.000Z",
+  "options": [
+    "direct_drive",
+    "guide",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k2i",
+    "created_at": "2026-09-12T03:55:03.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "k2i",
+    "workflow": "build-implement",
+    "status": "died_without_returning",
+    "detail": "Output file is 0 bytes; the transcript of testfix:task-1:2-ac3-no-test ends at 03:50Z on '[Request interrupted by user]' after 89 tool calls and 353 turns. No EvidenceBundle, no integration, no escalation was produced by the run itself. This record is written by hand so the run is adjudicated rather than dropped.",
+    "deliverable": {
+      "branch": "task/task-1",
+      "commit": "3c1b8b8",
+      "root_script": "node --test substrate/test/*.test.js",
+      "toy_script": "NODE_ENV=test node --test test/*.test.js",
+      "root_suite": "136/136",
+      "toy_suite": "60/60",
+      "guard_covers": [
+        "AC-4",
+        "AC-5",
+        "AC-6 (both negative cases)"
+      ]
+    },
+    "panel": {
+      "spec_conformance": "pass",
+      "security": "pass",
+      "correctness": "fail"
+    },
+    "findings_adjudicated": [
+      {
+        "id": "1-ac1-partial-test",
+        "claim": "AC-1's 'every other field of package.json byte-identical to before' is not verified by the AC-5 test",
+        "ruling": "overruled",
+        "reason": "Change-scoped, not product-scoped. 'Byte-identical to before' is a property of the diff, verifiable by the panel and not by a landed test: after merge there is no 'before'. The disputing test-repair agent was additionally correct that the finding misattributes an AC-1/AC-2 requirement to the AC-5 test, whose then-clause covers only the glob."
+      },
+      {
+        "id": "2-ac3-no-test",
+        "claim": "AC-3's 'changed paths are exactly package.json, toy/package.json and the guard test' has no assertion",
+        "ruling": "overruled",
+        "reason": "Change-scoped. A landed test pinning git diff --name-only to a base sha asserts nothing once the change is merged and the sha is history. spec_conformance verified it against the actual diff and passed."
+      },
+      {
+        "id": "3-ac9-no-test",
+        "claim": "AC-9's 'no dependency is added, removed, or upgraded' has no assertion",
+        "ruling": "overruled",
+        "reason": "Change-scoped. 'Was a dependency added in this change' is unanswerable by a test running against the merged tree. Verified from the diff instead: package.json and toy/package.json dependency blocks and both lockfiles are untouched."
+      }
+    ],
+    "root_cause": "The spec mixed change-scoped acceptance criteria (assertions about the diff) with product-scoped ones (assertions about the artifact) and assigned all of them to one task and one test file. The correctness lens then correctly observed that the change-scoped ones had no test, and the fix loop was sent to write tests that cannot exist. Three test-repair agents, 25+ minutes, one fork bomb (a generated test ran `npm test`, which re-ran that test), one correct dispute. Carried into B3's graph lint.",
+    "provenance": {
+      "node": "build-implement",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "k2i",
+      "created_at": "2026-09-12T03:04:15Z"
+    }
+  },
+  "decision": {
+    "option": "direct_drive",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-12T03:55:14.000Z",
+    "note": "All three correctness findings overruled: AC-1, AC-3 and AC-9 are change-scoped criteria (assertions about the diff) which the verifier panel can check and a landed regression test cannot, because after merge there is no 'before' and no 'this change'. spec_conformance verified them against the actual diff and passed. The disputing test-repair agent was additionally correct that finding 1 misattributes an AC-1/AC-2 requirement to the AC-5 test. Deliverable verified by hand at 136/136 root and 60/60 toy with both scripts unquoted; merged as-is. Not resumed: the interrupted agent would be handed the same impossible task and had already fork-bombed the container writing a test that ran npm test which re-ran itself. Root cause carried into B3's graph lint."
+  }
+}
