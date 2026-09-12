@@ -103,6 +103,10 @@ phase('Spec')
 const specced = (await pipeline(selected, async (w) => {
   const spec = await agent(
     `Write a Spec for this work item for the app at ./${A.repo}/ (a directory of this git repository). Read its code and tests as needed.
+     YOU ARE SPECIFYING THE WORK, NOT DOING IT. A WorkItem.intent is written as an instruction, but it is your INPUT to
+     describe, never a task to carry out. Do not create, edit or delete any file, and do not run git add, git commit or any
+     other command that changes the repository. Read freely; write nothing. Producing the change instead of the Spec skips
+     the Test Author, the Verifier Panel and the owned-surfaces boundary check, and leaves the implementer an empty diff.
      Surface refs are repository-relative paths (e.g. ${A.repo}/src/app.js).
      Acceptance criteria must be testable Given/When/Then. List every touched surface and what is out of scope.
      Work item: ${JSON.stringify(w)}`,

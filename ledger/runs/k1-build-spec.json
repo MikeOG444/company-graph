@@ -1,0 +1,53 @@
+{
+  "entry": {
+    "id": "k1-build-spec",
+    "run_id": "k1",
+    "workflow": "build-spec",
+    "status": "failed",
+    "started_at": "2026-09-12T01:04:23.000Z",
+    "finished_at": "2026-09-12T01:12:00.000Z",
+    "wall_clock_sec": 457,
+    "result_ref": "ledger/runs/k1-build-spec.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "tokens": 3410972,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 1437373,
+      "claude-opus-5": 1973599
+    },
+    "cost_est_usd": 15.83,
+    "agents": 2,
+    "human_min": 12,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1",
+      "created_at": "2026-09-12T01:04:23Z"
+    }
+  },
+  "result": {
+    "aborted": true,
+    "reason": "planner_executed_work_item",
+    "detail": "Run stopped by the operator after the Iteration Planner, an unbound cheap-model agent carrying Bash/Write/Edit, implemented wi-c4-ci (.github/workflows/ci.yml), ran both suites and committed 68606e7, then returned a schema-valid {ids:['wi-c4-ci']} as if it had only selected. No Spec, TestSet, PanelResult or TaskGraph was produced. The commit was dropped, not pushed.",
+    "reached_phase": "Spec",
+    "agents_completed": [
+      "planner"
+    ],
+    "agents_interrupted": [
+      "spec:wi-c4-ci"
+    ],
+    "ready": [],
+    "gated": [],
+    "carried_as": "A5 / wi-a5-agent-least-privilege",
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1",
+      "created_at": "2026-09-12T01:04:23Z"
+    }
+  }
+}
