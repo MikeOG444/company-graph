@@ -258,5 +258,31 @@
       "run_id": "carry-seed",
       "created_at": "2026-09-12T02:21:43Z"
     }
+  },
+  {
+    "id": "wi-c10-repo-root-resolution",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "One repository-root resolver for the test suite, found by walking up rather than counting '..'",
+    "intent": "Five files under substrate/test/ each resolve the repository root with the same hardcoded-depth expression, `path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')`: ci-workflow.test.js:21, fixloop-helpers.js:14, helpers.js:7, node-support-floor-and-test-glob.test.js:24 and t2-doc-paths.js:15. Three of them (fixloop-helpers, helpers, t2-doc-paths) each EXPORT their own identical REPO constant, so the same fragile definition exists three times and is imported by at least six test files. The expression is correct only while the file sits exactly two levels below the repository root, and this repo routinely runs test files somewhere else: build-implement writes TestSets into .artifacts/tests/<task>/ and a mechanical agent may run them from there before they land, and AC-15-style tests copy the tree into a throwaway directory. A file at any other depth silently resolves REPO to the wrong directory. It is the same class of defect as C1 — something that works only at the location it was born in — and it has already bitten: the landed TestSet from an earlier run hardcoded the worktree it was authored in, which is gitignored and dies with the container. The fix already exists and is salvaged at .artifacts/salvage/repo-root.js (25 lines, written by the k1v Test Author and NOT merged with C4, because it was unused and outside that spec's touched_surfaces). It walks up from the calling file until it finds a directory containing BOTH contracts.schema.json and package.json, and throws a named error rather than returning a wrong answer if it reaches the filesystem root. Note .artifacts/ is gitignored, so that copy dies with the container: read it now or reconstruct the same behaviour. Deliverable: one module exporting REPO, used by every one of the five sites; the three duplicate REPO exports collapse to re-exports or are removed and their importers repointed; no test changes behaviour. Add a test that resolves the root correctly from a file at a DIFFERENT depth (write a temporary file two, three and one level down and assert all three agree), because a resolver only exercised from its birthplace proves exactly the thing the hardcoded version already proved. Out of scope: changing what any existing test asserts, adding a dependency, and touching anything outside substrate/test/.",
+    "priority": 5,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 25
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "carry-seed",
+      "created_at": "2026-09-12T04:15:00Z"
+    }
   }
 ]

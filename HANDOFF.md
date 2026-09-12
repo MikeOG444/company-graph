@@ -483,6 +483,24 @@ one. This is the same hole commit `74aabe1` closed for the Spec Gate — *"the S
 unverifiable"* — still open one gate over. Fold into whichever item touches the gate-verification path; it is a few
 lines beside the existing check, and it wants the same mechanical-agent read of the closed record by id.
 
+**C10 — Five files each resolve the repository root by counting `..`, and three export their own copy of it.**
+`ci-workflow.test.js:21`, `fixloop-helpers.js:14`, `helpers.js:7`, `node-support-floor-and-test-glob.test.js:24` and
+`t2-doc-paths.js:15` all carry `path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')`. Three of them
+export that as `REPO`, so one fragile definition exists three times and is imported by at least six test files.
+
+It is right only while the file sits exactly two levels under the repository root — and this repo routinely runs test
+files elsewhere: `/build-implement` writes TestSets to `.artifacts/tests/<task>/` and may run them there before they
+land, and AC-15-style tests copy the tree into a throwaway directory. At any other depth `REPO` silently points at the
+wrong directory. Same class as C1: correct only at the location it was born in, and it has already bitten once, when a
+landed TestSet hardcoded the gitignored worktree it was authored in.
+
+*The fix is already written.* Run `k1v`'s Test Author produced `repo-root.js`, which walks up until it finds a
+directory holding both `contracts.schema.json` and `package.json`, and throws a named error rather than returning a
+wrong answer. It was **not** merged with C4 — unused, and outside that spec's `touched_surfaces` — and is salvaged at
+`.artifacts/salvage/repo-root.js`. **That path is gitignored and dies with the container**, so read it or reproduce it.
+Carried as `wi-c10-repo-root-resolution`. The test that matters resolves the root from a file at a *different* depth;
+a resolver only ever exercised from its birthplace proves exactly what the hardcoded version already proved.
+
 ### D. Measurement gaps
 
 **D1 — The Lens Calibrator has no honest sample.** `ledger/runs/mr2-memory-roll.json` → `roll.lens_catch_rates`: `catch_rate: null`, `unavailable_reason: "no escaped-defect denominator exists"`. 30 panels, 39 findings raised, 39 upheld, 0 attributable escapes. **Phase 4's planted defects are not lens misses and must never be counted as any.** Covered by `opp-p5-7`.
