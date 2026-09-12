@@ -1,0 +1,203 @@
+{
+  "entry": {
+    "id": "k2-build-spec",
+    "run_id": "k2",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-12T03:00:37.497Z",
+    "finished_at": "2026-09-12T03:03:25.500Z",
+    "wall_clock_sec": 168,
+    "result_ref": "ledger/runs/k2-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 147265,
+    "tokens_by_model": {
+      "claude-opus-5": 64348,
+      "claude-haiku-4-5": 82917
+    },
+    "cost_est_usd": 0.57,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k2",
+      "created_at": "2026-09-12T03:00:14Z"
+    },
+    "trace_ref": ".artifacts/traces/k2-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-c8-node20-test-glob",
+          "work_item_id": "wi-c8-node20-test-glob",
+          "goal": "Make `npm test` succeed on Node 20 in both packages by unquoting the `--test` glob in the root and toy/ package.json test scripts, and add one new guard test under substrate/test/ that fails if (a) the support floor in engines.node and the node-version pinned in .github/workflows/ci.yml ever disagree, or (b) either package.json test script re-quotes its glob. The resolution is fixed by the work item and is not open for redesign: unquote the globs, keep engines.node at \">=20\", keep ci.yml's node-version at 20, do not touch ci.yml. Measured in this container on Node v22.22.2 before any change: `node --test substrate/test/*.test.js` (unquoted) passes with 132 tests — the work item's \"114 passing\" figure is stale, since substrate/test/ci-workflow.test.js has been added since it was written, so the implementer records the count actually observed rather than 114; `NODE_ENV=test node --test test/*.test.js` in toy/ passes with 60 tests; the quoted form also passes on Node 22, which is exactly why the defect was invisible; and `node --test substrate/test/` fails with `Error: Cannot find module '/home/user/company-graph/substrate/test'` / `code: 'MODULE_NOT_FOUND'`, so a bare directory argument is NOT an acceptable substitute. The glob must stay `*.test.js`, not `*.js`: substrate/test/ contains non-test helper modules (helpers.js, fixloop-helpers.js, t2-doc-paths.js, extract-fixloop.js) that must not be executed as tests.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the repository root package.json, whose \"test\" script is currently `node --test \"substrate/test/*.test.js\"`",
+              "when": "the file is read after the change",
+              "then": "the \"test\" script is exactly `node --test substrate/test/*.test.js` — the same command with the double quotes around the glob removed, the glob still ending in `*.test.js`, no directory-only argument, no added flags, no wrapper script, and every other field of package.json (name, version, private, description, type, engines, bin, the other scripts, dependencies) byte-identical to before",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "toy/package.json, whose \"test\" script is currently `NODE_ENV=test node --test \"test/*.test.js\"`",
+              "when": "the file is read after the change",
+              "then": "the \"test\" script is exactly `NODE_ENV=test node --test test/*.test.js` — quotes removed, the `NODE_ENV=test` prefix preserved, the glob still ending in `*.test.js`, and every other field of toy/package.json byte-identical to before",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "the pre-change working tree",
+              "when": "`git diff --name-only` is inspected after the change",
+              "then": "the changed paths are exactly package.json, toy/package.json and the one new guard test file under substrate/test/ — .github/workflows/ci.yml is byte-identical to before, package.json still declares engines.node \">=20\", ci.yml still pins node-version: 20, and no file under substrate/ other than the new test, and no file under toy/src/, is modified",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a new test file under substrate/test/ whose name ends in .test.js (so the repaired glob collects it), reading .github/workflows/ci.yml as plain text and package.json as JSON, with no YAML parser and no new dependency",
+              "when": "the suite runs against the fixed tree",
+              "then": "it passes an assertion that the numeric major version parsed out of package.json's engines.node range (\">=20\" → 20) equals the numeric node-version pinned in the actions/setup-node `with:` block of ci.yml, matched by regex over the workflow text in the style of the existing substrate/test/ci-workflow.test.js",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the same new guard test file",
+              "when": "the suite runs against the fixed tree",
+              "then": "it passes an assertion that neither package.json's nor toy/package.json's \"test\" script wraps its `--test` glob argument in quote characters (\" or '), and that each script still passes a glob ending in `*.test.js` rather than a bare directory",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "that a guard which has never failed proves nothing, and that the guard must be demonstrated against the pre-fix state without re-introducing the defect",
+              "when": "the new guard test file is run",
+              "then": "both guard checks are implemented as pure functions of supplied content (a workflow-text string and a package-script string) rather than reading the real files inline, and the same file additionally asserts negative cases — the quote check rejects the literal pre-fix scripts `node --test \"substrate/test/*.test.js\"` and `NODE_ENV=test node --test \"test/*.test.js\"`, and the floor check rejects a synthetic workflow text pinning node-version to a value other than the engines.node floor — so the failing-against-pre-fix-state evidence is executed by the suite itself rather than only asserted in prose",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the fixed tree on the container's Node (v22.22.2), with the scripts now in the form Node 20 also accepts",
+              "when": "`npm test` is run at the repository root and `npm test` is run in toy/",
+              "then": "both exit 0, the root suite reports the full set of substrate tests passing (132 at spec time, plus the tests added by AC-4/AC-5/AC-6; the count must not be lower than the pre-change count) with 0 failures, the toy suite reports 60 passing with 0 failures, and neither run loads substrate/test/helpers.js, substrate/test/fixloop-helpers.js, substrate/test/t2-doc-paths.js, substrate/test/extract-fixloop.js or toy/test/helpers.js as a test file",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "the existing substrate/test/ci-workflow.test.js, in particular its AC-4 test asserting node-version 20 against engines.node \">=20\"",
+              "when": "the suite runs after the change",
+              "then": "that file is unmodified and every one of its tests still passes — the new guard is additive and does not amend, weaken, or duplicate-and-replace AC-4 of spec-wi-c4-ci",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the dependency surface of both packages",
+              "when": "the dependency blocks of package.json and toy/package.json and any lockfiles are inspected after the change",
+              "then": "no dependency is added, removed, or upgraded in either package — in particular no YAML parser — and the new guard test imports only node: builtins plus, at most, existing helper modules already present in substrate/test/",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "./package.json"
+            },
+            {
+              "kind": "path",
+              "ref": "./toy/package.json"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/node-support-floor-and-test-glob.test.js"
+            }
+          ],
+          "out_of_scope": [
+            "Changing engines.node in either package.json (it stays \">=20\"), or adding an engines block to toy/package.json.",
+            "Editing .github/workflows/ci.yml in any way, including changing node-version away from 20, adding a version matrix, or adding/removing steps.",
+            "Amending, weakening, or relocating AC-4 of spec-wi-c4-ci, or editing any assertion in substrate/test/ci-workflow.test.js.",
+            "Modifying any existing test file under substrate/test/ or toy/test/, including the shared helper modules (helpers.js, fixloop-helpers.js, t2-doc-paths.js, extract-fixloop.js, toy/test/helpers.js).",
+            "Modifying any source under substrate/ (validator.js, artifacts.js, gates.js, ledger.js, deploy.js, lib/) or under toy/src/ (app.js, server.js).",
+            "Adding, removing, or upgrading any dependency in either package, explicitly including a YAML parser — the workflow is asserted on as text.",
+            "Replacing the glob with a bare directory argument (`node --test substrate/test/`, which throws MODULE_NOT_FOUND), widening it to `*.js`, changing --test-reporter or --experimental-test-* flags, or introducing a cross-platform wrapper script or third-party test runner.",
+            "Fixing, re-running, or otherwise acting on GitHub Actions run 34667094594 or PR #8 — CI going green is the observed consequence of the tree change, not a deliverable of the implementer.",
+            "Any change to the substrate artifact store, gate queue, ledger, contracts.schema.json, or the workflows and agent definitions under .claude/.",
+            "Adding Windows/cmd.exe compatibility for the unquoted glob, or any change driven by shells other than the POSIX shell npm uses on the CI runner and in this container."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "Additive and reversible: removes quotes from shell strings in package.json scripts and adds one test file; both easily undone",
+            "No external consumers: client is self (venture 0); no external APIs or contracts to break",
+            "No infrastructure/data/auth changes: script definitions are not app config or dependencies; CI workflow excluded from scope; no data model changes",
+            "Scope-limited to two package.json files and one new test file; major systems (workflows, agents, substrate, source code) out-of-scope",
+            "Functionally equivalent on Node 20: unquoted glob already verified to pass; no behavior change, only shell syntax normalization",
+            "Safety-improving: new guard test ensures Node version floor and CI pinning stay aligned, preventing regressions"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k2",
+            "created_at": "2026-09-12T03:00:14Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-c8-node20-test-glob",
+          "tasks": [
+            {
+              "id": "task-1",
+              "spec_id": "spec-wi-c8-node20-test-glob",
+              "description": "Unquote the --test glob in package.json and toy/package.json test scripts, and add a new guard test that verifies the node support floor in engines.node matches the node-version in ci.yml, and that both test scripts use unquoted globs ending in *.test.js",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "./package.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./toy/package.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": "./substrate/test/node-support-floor-and-test-glob.test.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k2",
+            "created_at": "2026-09-12T03:00:14Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k2",
+      "created_at": "2026-09-12T03:00:14Z"
+    }
+  }
+}
