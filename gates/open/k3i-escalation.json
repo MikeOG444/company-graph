@@ -1,0 +1,54 @@
+{
+  "id": "k3i-escalation",
+  "gate": "escalation",
+  "run_id": "k3i",
+  "workflow": "build-implement",
+  "status": "open",
+  "opened_at": "2026-09-12T17:03:51.000Z",
+  "options": [
+    "direct_drive",
+    "guide",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k3i",
+    "created_at": "2026-09-12T17:03:51.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "k3i",
+    "workflow": "build-implement",
+    "spec": "spec-wi-a7-test-dispute-unruled",
+    "escalation_reason": "budget",
+    "escalated_at_round": 4,
+    "branch": "integration/k3i",
+    "integration_commit": "2295de851b9031d96facb1236060785ea5d15efc",
+    "what_the_escalation_said": "Four rounds deadlocked on one AC-13 argument: the TestSet's own assertion demanded destructuring syntax at the first resolveRound( occurrence, while the spec only requires that resolveRound's resolution reach nextLenses. The implementer was barred from fixing the test by AC-17 and the out-of-scope clause; the budget went to a syntax preference.",
+    "verified_by_hand_after_the_run": {
+      "escalation_diagnosis": "CORRECT. Neither call site destructures: :891 is `const passRound = resolveRound(...)`, :1057 is `const round = resolveRound(...)`, and round.resolution is passed to nextLenses at :1070 — which satisfies AC-13 as written. The original assertion also matched the function DEFINITION at :474, not a call site, which is the actual root cause.",
+      "was_it_then_fixed": "YES, at the landing step. The Test Author's landed version excludes the function definition from the call-site search, finds ALL call sites, and accepts both idioms (destructuring, or binding the whole result and reading .resolution). Corrected, not weakened — it now tests the spec's requirement instead of a syntax preference.",
+      "integration_branch_suites": "root 152/152, toy 60/60, A7's own dispute-unruled.test.js 16/16",
+      "core_fix_present": "disputesToJudge filters ONLY on fixOutcome(r.notes) with no kind/path check — the kind==='code' filter that WAS the defect is gone. roundOutcome returns 'pass' only when carried is empty, else 'escalate'.",
+      "security_findings_r1": "Three HIGH path-traversal findings vetoed round 1 and were genuinely fixed in commits 1ed9638 and af48bf2: scopeOf now rejects absolute paths (POSIX, UNC, drive-letter) and any '..' or '.' path segment, and resolveRound validates tests_ref before adopting it.",
+      "stale_worktree_note": "Running dispute-unruled.test.js in the TASK worktree shows 14/16. That copy is stale and the file is not on the task branch at all — it lands only at integration. The authoritative result is the integration branch's 16/16."
+    },
+    "assessment": "The escalation is real but STALE relative to the integration branch: the thing it is deadlocked on was resolved by the Test Author's landed repair after round 4. A7's actual purpose is achieved and verified.",
+    "options": [
+      "direct_drive",
+      "guide",
+      "kill_to_spec"
+    ],
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k3i",
+      "created_at": "2026-09-12T15:24:51Z"
+    }
+  }
+}
