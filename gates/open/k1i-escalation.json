@@ -1,0 +1,61 @@
+{
+  "id": "k1i-escalation",
+  "gate": "escalation",
+  "run_id": "k1i",
+  "workflow": "build-implement",
+  "status": "open",
+  "opened_at": "2026-09-12T02:04:31.000Z",
+  "options": [
+    "direct_drive",
+    "guide",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k1i",
+    "created_at": "2026-09-12T02:04:31.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "escalation": {
+      "task_id": "t1-ci-workflow",
+      "reason": "budget",
+      "history": [
+        "r1 [spec_conformance,security,correctness]: fail (3 findings)",
+        "r1: budget breach — tokens 71345/120000 this task, 71345/40000 this round",
+        "escalation check on branch task/t1-ci-workflow (worktree .artifacts/worktrees/t1-ci-workflow): `node --test substrate/test/ci-workflow.test.js` is 15/15 pass, # fail 0, including AC-15 which actually runs both installs and both suites",
+        "escalation check: shipped .github/workflows/ci.yml uses only the primary command forms (`run: cd toy && npm ci`, `run: cd toy && npm test`) and contains no `working-directory:` key at all, so every line the three findings touch is a fallback branch that cannot fire against the artifact under test — toyInstallAlt evaluates to -1 today and toyInstall carries AC-6",
+        "escalation check: all 3 open findings are target=test, same two lines (substrate/test/ci-workflow.test.js:124 and :155), and f1-ac6-test-precedence / AC-6-toy-install-alt-logic-error are the same defect reported by two lenses under different dedupe_keys — the real残 work is ~2 lines: wrap the :124 OR in parentheses, and give :155 a toyInstallAlt-style fallback so AC-8's own assertion message stays true"
+      ],
+      "hypothesis": "Stuck because the panel is spending strong-lens rounds on latent defects in the test's unreachable alternative-form branches rather than on anything the spec's artifact does — the loop cannot converge by argument since the findings are true but unfalsifiable against a green 15/15 suite, and round 1 alone consumed 71345 of the 40000-token round cap before a fixer ever touched two lines.",
+      "repeats": [],
+      "options": [
+        "direct_drive",
+        "guide",
+        "kill_to_spec"
+      ],
+      "disputes_lost": []
+    },
+    "task_branch": "task/t1-ci-workflow",
+    "task_commit": "8f77338",
+    "verified_by_hand": {
+      "landed test suite in worktree": "15/15 pass, 0 fail",
+      "shipped ci.yml": "no working-directory: key at all; primary forms only",
+      "both flagged lines": "unreachable fallback branches against this artifact",
+      "findings 1 and 2": "the same defect, two lenses, two dedupe_keys",
+      "root suite in worktree": "129 pass (114 base + 15 new); toy 60 pass"
+    },
+    "remaining_work": "wrap the OR at ci-workflow.test.js:124 in parentheses; give the AC-8 search at :155 a toyInstallAlt-style fallback so its own assertion message stays true",
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k1i",
+      "created_at": "2026-09-12T01:32:01Z"
+    }
+  }
+}

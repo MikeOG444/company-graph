@@ -206,8 +206,29 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 **A3 — The owned-surfaces boundary is enforced but has never run.**
 `.claude/workflows/build-implement.js`: `surfaceRef:292`, `withinOwned:305`, `boundaryCheck:326`, `criteriaScope:351`, `stripForeignFindings:400`, `routeFinding:424`, `fixOutcome:436`. Call sites: `:622` (settled ChangeSet, before any lens/test-runner/fixer) and `:921` (each round's merged ChangeSet); scoping at `:714`. Run `t7i` executed the pre-merge copy, so the next build is the first real exercise. Watch it deliberately.
 
+*Executed at last on run `k1i`, and stayed silent — correctly, but this does not close A3.* `spec-wi-c4-ci`
+decomposed to a **single** task owning both its surfaces, so `boundaryCheck` had no sibling to compare against:
+`strays` and `unowned` were both empty and the interesting branches never ran. What `k1i` proves is only that the
+check executes without throwing on the merged copy. `criteriaScope` is equally untested here — one task owned all
+fifteen criteria, so `sibling_owner` was empty and `stripForeignFindings` dropped nothing. **The real exercise needs
+a spec that decomposes to two or more tasks**, which none of the remaining carry items is guaranteed to produce.
+Keep A3 open until a multi-task spec runs, and prefer one deliberately.
+
 **A4 — Escalation rate and the hitl/hotl question.**
 10 escalations across 31 `hotl` runs, carrying most of the spend. Open design question: should some escalation reasons be `hotl` (proceed, land in the review queue) rather than `hitl` (stop the world)? `repeat_finding` on findings a fixer provably cannot close is the candidate.
+
+*Run `k1i` is the first evidence that a `budget` escalation earns its keep, and a second candidate for `hotl`.*
+Round 1 spent 71,345 tokens against a 40,000 round cap and escalated **before** `max_rounds`, exactly as designed.
+The escalation it wrote was not a shrug: it re-ran the landed suite (15/15), read the shipped artifact, established
+that the shipped `ci.yml` carries no `working-directory:` key so every line the findings touch is an unreachable
+fallback, noticed that two of the three findings were **one defect reported by two lenses under different
+`dedupe_keys`**, and scoped the remaining work to two lines. A human then verified all four claims and found them
+correct. That is the machinery working — but the whole run cost $1.30 and a human decision to resolve two lines in
+dead code, in a change whose suite was already green. The `hotl` case here is stronger than for `repeat_finding`:
+when every open finding is `target: test`, the suite passes, and the escalation itself can show the findings are
+unreachable against the artifact, proceeding into the review queue loses nothing a human gate is buying.
+**Counter-evidence to weigh first:** the findings were real defects, and merging on a green suite is how latent
+bugs in fallback branches ship. The question is whether the review queue actually gets read — which is C5.
 
 **A5 — A workflow agent with no `agentType` can do the work instead of describing it, and nothing in the run says so.**
 Found on run `k1`, the first `/build-spec` of the carry-list work, against work item `wi-c4-ci`.
@@ -247,6 +268,29 @@ judgment never holds a tool that produces a commit**, enforced at the call site 
 It refused this session's own attempts to widen `.claude/settings.json` (`[Self-Modification]`) and to `git reset --hard`
 (`[Irreversible Local Destruction]`), while a Haiku subagent wrote `.github/` and committed without challenge. The
 allow-list in `.claude/settings.json` is therefore not the control surface for agent writes; `agentType` is.
+
+**A6 — A spec can hand the Test Author's job to the implementer, and the TestSet then dies in `.artifacts/`.**
+Found on run `k1i`. `spec-wi-c4-ci` listed `substrate/test/ci-workflow.test.js` in `touched_surfaces`, the decomposer
+duly put it in the single task's `owned_surfaces`, and the **implementer** wrote it — 289 lines, 15/15 passing, on
+`task/t1-ci-workflow`. The **Test Author** ran in parallel as designed and produced its own TestSet at
+`.artifacts/tests/t1-ci-workflow/` covering AC-1…AC-13. The bundle came back `tests_landed: []`. Two agents were
+pointed at one job; the one the design intends produced the artifact that does not survive the container, and the
+one that shipped was never meant to write tests at all.
+
+The decomposer prompt (`build-spec.js:87-93`) forbids *a task whose only job is writing tests* and says a separate
+Test Author writes them from the spec. It does not forbid a spec from naming a test file as a touched surface, and
+`t1-ci-workflow` was not a test-only task, so nothing in the graph objected. The gap is upstream of the decomposer:
+the **spec writer** chose the verification strategy and named the file.
+
+*Consequence beyond the duplication:* the implementer writes tests **against its own implementation**, which is
+precisely the independence the Test Author exists to preserve. `.claude/agents/test-author.md` says tests come from
+the Spec alone, never from the implementation. On `k1i` that guarantee was quietly void — and the tests it produced
+are the ones that would have shipped.
+
+*Proposed:* in `build-spec`, treat a surface under the repo's `test_dir` appearing in `Spec.touched_surfaces` as a
+decomposition error, the same class of check as B3 — zero tokens, script code. Either the spec must not name test
+files, or the Test Author must own them; the two cannot both be true. Fold into B3's graph lint rather than
+carrying separately.
 
 ### B. Missing edges
 
