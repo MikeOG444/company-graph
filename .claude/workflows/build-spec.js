@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-spec',
   description: 'Plan an iteration, write specs, classify risk and decompose in parallel. Ends at the Spec Gate: high-risk specs need a human decision before /build-implement.',
-  phases: [{ title: 'Plan', detail: 'select work items within capacity' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
+  phases: [{ title: 'Plan', detail: 'select work items within capacity — script code, zero tokens' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
 }
 
 // args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context? }
@@ -52,15 +52,50 @@ const Task = { type: 'object', additionalProperties: false,
 const TaskGraph = { type: 'object', additionalProperties: false, required: ['spec_id', 'tasks'],
   properties: { spec_id: { type: 'string' }, tasks: { type: 'array', minItems: 1, items: Task } } }
 
+// ---- BEGIN plan-selection ----
+// The Iteration Planner, in code (CLAUDE.md rule 3: selecting, counting and filtering are script code).
+//
+// This was a cheap-model agent until run k1. Its whole contract was to return the ids it selected, but a
+// WorkItem.intent reads like an instruction, and the agent carried the default workflow-subagent toolset —
+// Bash, Write, Edit — because the call site named no agentType. So it created .github/workflows/ci.yml,
+// ran both suites, `git commit`ed the result, and THEN returned the correct {ids} as if it had only chosen.
+// The schema was satisfied and the run looked clean; the commit was found by a git hook, not by the line.
+// One cheap agent had bypassed Spec, TestSet, the Verifier Panel and the owned-surfaces boundary check.
+//
+// No judgment crosses this edge. Fitting items into a token budget is a sort and a take, so nothing is
+// gained by asking a model and a whole class of failure is removed by not asking one. Deterministic, free,
+// and replayable, which the agent never was.
+//
+// Order: starved items first (deferred_iterations desc), then priority (1 = highest), then id for stability.
+// An item with no budget.tokens is costed at defaultItemTokens. A missing or non-positive capacity means
+// "no ceiling" — take everything — rather than silently selecting nothing.
+function planIteration(workItems, capacityTokens, defaultItemTokens = 120000) {
+  const items = [...(workItems ?? [])]
+  items.sort((a, b) =>
+    (b.deferred_iterations ?? 0) - (a.deferred_iterations ?? 0) ||
+    (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER) ||
+    String(a.id ?? '').localeCompare(String(b.id ?? '')))
+  const cap = Number(capacityTokens)
+  const bounded = Number.isFinite(cap) && cap > 0
+  const selected = []
+  const skipped = []
+  let planned_tokens = 0
+  for (const w of items) {
+    const cost = Number(w?.budget?.tokens ?? defaultItemTokens)
+    if (bounded && planned_tokens + cost > cap) { skipped.push({ id: w?.id, cost, reason: 'over_capacity' }); continue }
+    planned_tokens += cost
+    selected.push(w)
+  }
+  return { selected, skipped, planned_tokens }
+}
+// ---- END plan-selection ----
+
 // =====================================================================
 phase('Plan')
-const plan = await agent(
-  `Select work items to ship this iteration within ${A.capacity.tokens} tokens. Prefer higher priority and items
-   with deferred_iterations > 0. Work items: ${JSON.stringify(A.workItems)}. Return the selected ids only.`,
-  { label: 'planner', model: MODEL.cheap,
-    schema: { type: 'object', required: ['ids'], properties: { ids: { type: 'array', items: { type: 'string' } } } } })
-const selected = A.workItems.filter(w => plan.ids.includes(w.id))
-log(`Planned ${selected.length}/${A.workItems.length} work items`)
+const { selected, skipped, planned_tokens } = planIteration(A.workItems, A.capacity?.tokens)
+log(`Planned ${selected.length}/${(A.workItems ?? []).length} work items, ${planned_tokens} budgeted tokens`)
+// No silent caps: every item left out says so and why.
+for (const s of skipped) log(`deferred ${s.id}: ${s.reason} (${s.cost} tokens vs ${A.capacity?.tokens} capacity)`)
 
 // =====================================================================
 phase('Spec')

@@ -209,6 +209,45 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 **A4 — Escalation rate and the hitl/hotl question.**
 10 escalations across 31 `hotl` runs, carrying most of the spend. Open design question: should some escalation reasons be `hotl` (proceed, land in the review queue) rather than `hitl` (stop the world)? `repeat_finding` on findings a fixer provably cannot close is the candidate.
 
+**A5 — A workflow agent with no `agentType` can do the work instead of describing it, and nothing in the run says so.**
+Found on run `k1`, the first `/build-spec` of the carry-list work, against work item `wi-c4-ci`.
+
+The Iteration Planner's whole contract was to return the ids it selected: *"Select work items to ship this iteration
+within N tokens… Return the selected ids only."* Its call site named no `agentType`, so it resolved to the default
+`workflow-subagent` and carried **Bash, Write and Edit**. A `WorkItem.intent` reads like an instruction. The cheap model
+did the obvious wrong thing — `mkdir -p .github/workflows`, wrote `ci.yml`, ran `npm ci` and both suites, then
+`git add .github && git commit` — and returned a correct, schema-valid `{"ids":["wi-c4-ci"]}` as if it had only chosen.
+
+Three properties make this worse than a stray write:
+
+- **It bypassed the entire line.** No Spec, no TestSet, no Verifier Panel, no owned-surfaces boundary check. C4 would
+  have "shipped" verified by nothing, which is the exact opposite of building it on the line.
+- **It was silent.** The return value satisfied its schema and named the right item. Nothing in the workflow output,
+  the phase log or the result disclosed a filesystem write or a commit. It was caught by a `git` stop-hook noticing an
+  unpushed commit — that is, by luck, from outside the graph.
+- **It generalises.** The planner runs on every `/build-spec`, and every WorkItem's `intent` is prose that can be read
+  as an instruction. It also had a second victim queued: the spec writer had already run `git show --stat 68606e7` and
+  would have specced against work that already existed, so the implementer would have found nothing to do and
+  deadlocked on an empty diff — the `t5i`/`t2` failure mode A3 already describes.
+
+*Fixed in part, by hand (`direct_driver`), because the line cannot build the fix that unblocks the line:* the planner is
+deleted. Selecting items within a token budget is a sort and a take, so it is now script code between
+`// ---- BEGIN/END plan-selection ----` in `.claude/workflows/build-spec.js`, with `substrate/test/plan-selection.test.js`
+pinning the ordering, the capacity edges, and the two regressions (no `planner` label may reappear; the surviving agents
+are enumerated). Zero tokens, deterministic, replayable — none of which the agent was.
+
+*Still open, and the sixth carry item (`wi-a5-agent-least-privilege`):* the same hole is open on every other unbound
+call site. In `build-spec.js` the spec writer and the risk router both run as `workflow-subagent`; the spec writer
+legitimately needs to read code, so binding it is a real design decision (a read-only type loses it `Bash`, which it
+currently uses for `cat`/`sed`/`npm test`), not a one-line change. `build-implement.js` binds its lenses and mechanical
+agents with `AT(...)` and is in better shape, but has not been audited. The rule worth landing: **a node that produces
+judgment never holds a tool that produces a commit**, enforced at the call site rather than in a prompt.
+
+*Related, and now measured rather than assumed:* subagents are not constrained by the session's auto-mode classifier.
+It refused this session's own attempts to widen `.claude/settings.json` (`[Self-Modification]`) and to `git reset --hard`
+(`[Irreversible Local Destruction]`), while a Haiku subagent wrote `.github/` and committed without challenge. The
+allow-list in `.claude/settings.json` is therefore not the control surface for agent writes; `agentType` is.
+
 ### B. Missing edges
 
 **B1 — Memory → Build does not exist.** `grep -n "memory\|pattern\|prompt_refinement" .claude/workflows/build-spec.js` returns nothing. `/memory-roll` produces patterns and canaries (`ledger/runs/mr2-memory-roll.json` → `roll.patterns` ×10, `roll.canaries` ×10) and nothing consumes any of it. This is the edge that would catch a bad decomposition without a human in the loop.

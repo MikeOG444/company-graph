@@ -7,9 +7,15 @@
     "intent": "This repository has no .github/workflows/ at all, so nothing runs either suite on a push and every green number in HANDOFF.md §5 came from a human running tests by hand. That is not a theoretical gap: on a fresh container both suites are red until someone runs `npm ci`, because node_modules is absent in the repository root and in toy/ alike, and nothing in the repo asserts the install step. Add a GitHub Actions workflow that runs on push to any branch and on pull_request, installs dependencies with `npm ci` in the repository root AND in toy/ (both have a committed package-lock.json), then runs the root suite (`npm test`, expected 105 passing) and the toy suite (`cd toy && npm test`, expected 60 passing) as separately named steps so a reader can tell which one failed. Pin actions/checkout and actions/setup-node to a major version tag and set node-version to 20 to match the engines field in package.json. The job must fail when either suite fails. Do not add linting, coverage, matrix builds, caching, deployment, or any release automation — this item is the missing verification step and nothing else.",
     "priority": 1,
     "deferred_iterations": 0,
-    "budget": { "tokens": 120000, "wall_clock_min": 25 },
+    "budget": {
+      "tokens": 120000,
+      "wall_clock_min": 25
+    },
     "surfaces": [
-      { "kind": "path", "ref": ".github/workflows/ci.yml" }
+      {
+        "kind": "path",
+        "ref": ".github/workflows/ci.yml"
+      }
     ],
     "provenance": {
       "node": "backlog_seeder",
@@ -27,12 +33,27 @@
     "intent": "Nothing delivers a gate to a human. `substrate/gates.js` writes a JSON file and exits; `grep -n \"notif|alert|webhook|slack|email\" substrate/gates.js` returns nothing. The measured cost: run m1 emitted a sev1 page at 2026-09-11T03:04:00Z that was opened 18h53m later, and only because a human happened to ask for a Phase 4 audit. Nothing about the silence distinguished 'no sev1' from 'an unmitigated sev1 nobody has been told about'. Build a notifier that runs beside `gates open`, never inside a workflow, because a workflow cannot pause for a person and the gate record is already the single place every page passes through. Hard requirements: (1) Delivery is BEST-EFFORT AND NON-BLOCKING — a failed, timed-out or unconfigured send must never fail the gate, never change the exit code of `gates open`, and never prevent the record being written; the record on disk stays the source of truth and the notification is a pointer to it. (2) The GateRecord must record that delivery was ATTEMPTED and whether it SUCCEEDED, so an unopened page is distinguishable from an undelivered one — which is exactly what could not be told apart for m1. Add a `delivery` object to the GateRecord $def in contracts.schema.json carrying at minimum attempted (boolean), ok (boolean), channel (string), at (ISO string) and error (string, optional); it must be optional so all 18 existing records in gates/closed/ still validate. (3) Severity routes: a sev1_page and a budget breach go to the phone channel; a spec_gate and other routine gates go to the queue channel. The routing table is code, not configuration guesswork. (4) The transport is PLUGGABLE — a driver interface with the driver selected by environment variable. Ship exactly one driver that is verified end-to-end from this container: a GitHub issue driver that opens a labelled issue via the GitHub REST API using a token read from the environment. This is the only reachable transport: the organisation egress policy answers 403 at CONNECT for ntfy.sh, hooks.slack.com, api.pushover.net, api.telegram.org and api.twilio.com, while api.github.com answers 200. A generic webhook driver MAY be included for the operator to point at ntfy or Slack from their own machine, but it must be documented in substrate/README.md as UNVERIFIED FROM CI, and no test may claim otherwise. (5) Never log or write the token into a GateRecord, a ledger row, an issue body or an error string. (6) Tests must not make real network calls: bind a local HTTP server on 127.0.0.1 (which the proxy no-proxy list covers) and point the driver at it. Cover at least: a successful send stamps delivery.ok true; a driver that throws, times out, or is not configured still writes the record, still exits 0, and stamps delivery.attempted with ok false; severity routing picks the right channel; a record with no delivery field still validates.",
     "priority": 2,
     "deferred_iterations": 0,
-    "budget": { "tokens": 260000, "wall_clock_min": 60 },
+    "budget": {
+      "tokens": 260000,
+      "wall_clock_min": 60
+    },
     "surfaces": [
-      { "kind": "path", "ref": "substrate/gates.js" },
-      { "kind": "path", "ref": "substrate/notify.js" },
-      { "kind": "schema", "ref": "contracts.schema.json" },
-      { "kind": "path", "ref": "substrate/README.md" }
+      {
+        "kind": "path",
+        "ref": "substrate/gates.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/notify.js"
+      },
+      {
+        "kind": "schema",
+        "ref": "contracts.schema.json"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/README.md"
+      }
     ],
     "provenance": {
       "node": "backlog_seeder",
@@ -50,10 +71,19 @@
     "intent": "`.claude/workflows/build-spec.js` lines 87-93 state the decomposition rules to the decomposer in prose and validate none of them. Run t7's decomposition still shipped a false edge AND assigned criterion AC-12 to a task that did not own the file that criterion names — a criterion assigned to a task that may not touch the file it names is unsatisfiable, and the fix loop cannot close it (rulings r5, c1). Two checks in pure script code, zero tokens, in the workflow body after the decomposer returns and before the TaskGraph is stamped. Check 1, CRITERION REACHABILITY: for every task, every acceptance criterion in that task's criteria_ids whose text names a repository path must have that path covered by the task's owned_surfaces. Reuse the existing directory-aware matching semantics from build-implement.js's withinOwned — an owned ref ending in '/' covers everything beneath it, one that does not covers only an exact match, so 'substrate/test' never covers 'substrate/testing/x.js'. Check 2, FALSE EDGE: every entry in a task's depends_on must be justified by a variable actually crossing that edge, which here means the depended-on task's owned_surfaces intersect a surface the dependent task's criteria require it to read or write; a depends_on that no data crossing justifies is a false edge, which CLAUDE.md rule 1 forbids. Both checks must also reject a depends_on naming a task id that is not in the graph, and a dependency cycle. On a violation the workflow must NOT silently drop or auto-repair the task graph and must NOT pass by default: surface the violations on the returned object so the human sees them at the Spec Gate, and mark the affected spec as gated even when the risk router said low. Extract the checked functions between `// ---- BEGIN/END graph-lint ----` sentinels and unit-test them with the same extraction idiom substrate/test/extract-fixloop.js already uses, so the rules are tested without executing the workflow runtime.",
     "priority": 3,
     "deferred_iterations": 0,
-    "budget": { "tokens": 180000, "wall_clock_min": 40 },
+    "budget": {
+      "tokens": 180000,
+      "wall_clock_min": 40
+    },
     "surfaces": [
-      { "kind": "path", "ref": ".claude/workflows/build-spec.js" },
-      { "kind": "path", "ref": "substrate/test/" }
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-spec.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
     ],
     "provenance": {
       "node": "backlog_seeder",
@@ -71,10 +101,19 @@
     "intent": "The lens-worktree fix is prompt-only, and prompt guidance has been measured insufficient here. Run t7i escalated repeat_finding on nine findings that were every one of them true of the base commit and false of the change under review: the lens prompt is the only verify-loop prompt that never named the worktree, so a lens that opened a file greped the repository root at the pre-task commit. The script cannot set a subagent's working directory, so no code-side enforcement exists. Add one in `.claude/workflows/build-implement.js`, applied to each round's raw verdicts alongside the existing stripForeignFindings step. IMPORTANT — the filter is FILE-LEVEL, NOT LINE-LEVEL, and it must never create a path where a panel passes by default. Drop a finding only when the file part of its cited location appears NEITHER in the set of files the diff touches NOR in the TestSet's tests_ref. Never drop a finding that cites an acceptance criterion this task owns, whatever its location — a spec-conformance finding of the form 'AC-7 is unmet' has no line in the diff BY CONSTRUCTION, and dropping it would let a change with a genuinely unmet criterion pass the panel. A finding whose cited file IS in the diff but whose cited line falls outside every diff hunk is a LOGGED WARNING ONLY, pushed to ctx.history and never dropped, so the ledger can measure how often line-level mismatch fires before anyone promotes it to a drop. Every dropped finding must be recorded on ctx.history with its dedupe_key and cited file, exactly as the existing dropped-finding logging does, so a drop is auditable and countable rather than silent. The set of files a diff touches must be derived from the actual diff at diff_ref by a mechanical agent — the script cannot read disk — and returned under a schema; if that agent fails or returns nothing, the filter must DISABLE ITSELF and drop nothing, because an empty file list would otherwise drop every finding and pass the change by default. Extract the pure decision functions between `// ---- BEGIN/END citation-filter ----` sentinels and unit-test them with the substrate/test/extract-fixloop.js idiom.",
     "priority": 4,
     "deferred_iterations": 0,
-    "budget": { "tokens": 200000, "wall_clock_min": 45 },
+    "budget": {
+      "tokens": 200000,
+      "wall_clock_min": 45
+    },
     "surfaces": [
-      { "kind": "path", "ref": ".claude/workflows/build-implement.js" },
-      { "kind": "path", "ref": "substrate/test/" }
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
     ],
     "provenance": {
       "node": "backlog_seeder",
@@ -92,11 +131,23 @@
     "intent": "The Memory→Build edge does not exist. `grep -n \"memory|pattern|prompt_refinement\" .claude/workflows/build-spec.js` returns nothing. /memory-roll produces ten patterns and ten canaries (ledger/runs/mr2-memory-roll.json, roll.patterns and roll.canaries) and nothing consumes any of it, so the line cannot learn from its own history and a human notices things by hand instead. Two halves. B1: build-spec accepts an optional memory input — a path to a stored memory roll, read by a mechanical agent because the script cannot touch disk, returned under a schema — and injects the extracted patterns into the DECOMPOSER prompt as prior evidence, so a decomposition repeating a known-bad shape is caught without a human in the loop. Patterns must be passed as structured items the script selects and formats, never as an opaque blob, and the selection (which patterns, how many, on what relevance rule) is script code. B2: build-implement's canary runner currently reads A.canary from args only, at line 599, so a human hand-picks one; Phase 8's exit test needs the runner to pull from roll.canaries instead. Let build-implement accept a canary LIBRARY reference, select from it in script code by a deterministic rule (no Math.random — the runtime forbids it, so derive any choice from run_id and the task id), and keep the existing explicit A.canary as an override that always wins. Both halves must DEGRADE SILENTLY AND SAFELY: a missing, unreadable, empty or malformed memory roll must leave both workflows behaving exactly as they do today, because Memory is a Dark Factory sink that is never on a critical path (OPERATING_MODEL §8) and a build must never fail for want of it. Neither half may increase the token cost of a run that supplies no memory input. Unit-test the selection and formatting functions via the sentinel-extraction idiom, and cover the degradation paths explicitly.",
     "priority": 5,
     "deferred_iterations": 0,
-    "budget": { "tokens": 240000, "wall_clock_min": 55 },
+    "budget": {
+      "tokens": 240000,
+      "wall_clock_min": 55
+    },
     "surfaces": [
-      { "kind": "path", "ref": ".claude/workflows/build-spec.js" },
-      { "kind": "path", "ref": ".claude/workflows/build-implement.js" },
-      { "kind": "path", "ref": "substrate/test/" }
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-spec.js"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
     ],
     "provenance": {
       "node": "backlog_seeder",
@@ -104,6 +155,40 @@
       "method": "human",
       "run_id": "carry-seed",
       "created_at": "2026-09-12T00:59:26Z"
+    }
+  },
+  {
+    "id": "wi-a5-agent-least-privilege",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "Bind every workflow agent to a least-privilege agentType; a judgment node never holds a commit tool",
+    "intent": "Run k1 measured the hole: build-spec's Iteration Planner named no agentType at its call site, so it resolved to the default workflow-subagent carrying Bash, Write and Edit. Its contract was to return selected work-item ids. Instead it created .github/workflows/ci.yml, ran npm ci and both suites, ran `git add .github && git commit`, and then returned a correct schema-valid {ids} as if it had only chosen. The write was disclosed by nothing in the workflow's output and was found by a git hook from outside the graph. The planner itself is already fixed by hand: it is deleted and replaced by script code between the `// ---- BEGIN/END plan-selection ----` sentinels, because selecting items within a token budget is a sort and a take and no judgment crosses that edge. THIS item is the rest of the audit. Enumerate every agent() call site in .claude/workflows/*.js and classify each as judgment (reads and reasons, must never write) or mechanical (legitimately needs shell and filesystem). Bind every judgment call site to a read-only agentType so the toolset, not a prompt sentence, is what prevents the write — A1's whole lesson is that prompt guidance is measured insufficient in this repo. Known unbound sites to start from: in build-spec.js the spec writer and the risk router both run as workflow-subagent. The spec writer is the hard case and must be decided explicitly rather than by reflex: it legitimately needs to read code, and today it uses Bash for cat, sed, grep and npm test, so a read-only Read/Glob/Grep type changes how it works and may need a new agent definition rather than an existing one. build-implement.js already binds its lenses and mechanical agents with AT(...) but has not been audited end to end; audit it and the other three workflows too. Note the runtime fact recorded in CLAUDE.md: agent definitions register from the committed tree on a delay, so any NEW .claude/agents/*.md this item adds will not resolve in the run that creates it, and each workflow must therefore still behave correctly when a type it names is missing — use the missing_agent_types mechanism rather than losing every definition. Add a test that fails when a judgment call site regains an unbound toolset, in the style of substrate/test/plan-selection.test.js, so this cannot silently come back. Do not change what any agent is asked to decide; this item changes only what each one is permitted to touch.",
+    "priority": 2,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 220000,
+      "wall_clock_min": 50
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/agents/"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "human",
+      "run_id": "carry-seed",
+      "created_at": "2026-09-12T01:04:23Z"
     }
   }
 ]
