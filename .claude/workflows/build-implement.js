@@ -152,10 +152,16 @@ function adjudicate(panelVerdicts) {
 // plain value) and nothing here waits on anything, so a test can cut this block out and evaluate it standalone.
 
 // A location is "path:line" or "path:line:col"; a non-path (a route, a bare word) is reported as not-a-file.
+// An absolute path or one with a ".." or "." segment is also reported as not-a-file: every caller of scopeOf
+// joins the result onto a worktree/artifact-dir prefix and hands it to an agent as a place to read or write, so a
+// finding location that tries to walk out of that prefix (e.g. "../../etc/passwd:10") must never come back as a
+// usable scope — it is not a path this loop is allowed to touch, exactly like a bare route or word is not a path.
 function scopeOf(location) {
   let s = String(location ?? '').trim()
   s = s.replace(/(:\d+){1,2}\s*$/, '').trim()
   if (!s || /\s/.test(s)) return ''
+  if (s.startsWith('/') || s.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(s)) return ''
+  if (s.split(/[\\/]/).some(seg => seg === '..' || seg === '.')) return ''
   return s
 }
 
@@ -530,6 +536,12 @@ function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
   const testsDirPrefix = artifact_dir ? `${artifact_dir}/tests/` : null
   const underArtifactTests = (testsDirPrefix && file.startsWith(testsDirPrefix)) || (tests_ref && file.startsWith(tests_ref))
   if (underArtifactTests) return { ref: file, source: 'tests_ref' }
+  // A finding.location is untrusted input from a verifier lens. An absolute path or a '..' segment does not
+  // name a file inside this task's worktree — it names a repair target outside it (e.g. "/etc/passwd:10" or
+  // "../../../../etc/passwd:10" surviving scopeOf as a bare path). Treat it as not-a-file rather than let it be
+  // concatenated into ${worktree}/${file} (or returned bare when worktree is falsy) and handed to the Test
+  // Author's repair prompt as a write target.
+  if (file.startsWith('/') || file.split('/').includes('..')) return { ref: tests_ref, source: 'tests_ref' }
   return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
 }
 
