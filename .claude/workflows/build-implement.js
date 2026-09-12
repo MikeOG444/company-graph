@@ -505,9 +505,22 @@ function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_
   }
   const carried = [...byKey.values()].filter(f => resolution[f.dedupe_key] !== 'fixed' && resolution[f.dedupe_key] !== 'overruled')
 
+  // A test repair's `tests_ref` is a string the Test Author agent chose to return, not something this loop can
+  // trust as-is: testRepairTarget later hands it straight to the Test Author as a WRITE target whenever a
+  // finding's location isn't a file, and also matches a finding.location's prefix against it to decide whether
+  // that location is "already inside the artifact TestSet". An absolute path or a '..' segment here would smuggle
+  // a traversal target past both uses — the same class of value scopeOf already rejects for finding.location.
+  // Reject it here too and keep the previous tests_ref rather than adopt it.
+  const isSafeTestsRef = (s) => {
+    const candidate = String(s ?? '').trim()
+    if (!candidate || /\s/.test(candidate)) return false
+    if (candidate.startsWith('/') || candidate.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(candidate)) return false
+    if (candidate.split(/[\\/]/).some(seg => seg === '..' || seg === '.')) return false
+    return true
+  }
   let nextTestsRef = tests_ref
   for (const r of repairs ?? []) {
-    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref) nextTestsRef = r.tests_ref
+    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = r.tests_ref
   }
 
   const needs_rediff = (repairs ?? []).some(r => {
