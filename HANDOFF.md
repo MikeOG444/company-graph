@@ -391,6 +391,26 @@ the current one, so a fourth instance cannot hide the way the first three did.
 
 **B3 — Graph lint belongs in code, not in the decomposer prompt.** `.claude/workflows/build-spec.js:87-93` states the rules and validates none of them. `t7`'s decomposition still shipped a false edge *and* assigned AC-12 to a task that did not own the file it names. Two checks, zero tokens: every criterion's required surface ∈ its task's `owned_surfaces`; every `depends_on` justified by a variable actually crossing.
 
+*Fourth demonstration, run `k4`, and the clearest one yet — B3's three checks are exactly its three failures.*
+A5's spec was good: 16 criteria, well-reasoned, 56 `agent()` call sites enumerated with line numbers. Its
+**decomposition** was not, and the run was stopped before `/build-implement` rather than spending on it:
+
+- **Orphaned criteria.** AC-11, AC-12, AC-15 and AC-16 are claimed by no task in the graph. AC-11 and AC-12 are the
+  invariant tests — *the entire regression guarantee of the item* — assigned to nobody.
+- **Duplicated assignment.** 57 criteria assignments across 12 distinct criteria. AC-8 is claimed by all ten tasks;
+  AC-1 and AC-14 by nine. Ten parallel panels would each judge the same global criteria and raise the same findings.
+- **False edges.** Ten tasks, nine of them `depends_on: ["t-agent-definitions"]`. No variable crosses those edges:
+  the agent type names come from the Spec, not from that task's output, and each workflow task owns only its own
+  `.js` file. It is "B comes after A" reasoning, which CLAUDE.md rule 1 forbids outright.
+
+Cost avoided by catching it: `k3i` was $5.54 for **one** task. Ten tasks, nine serialized behind a barrier, would
+plausibly have been $25–55 and hours of wall clock, to produce a graph whose own criteria coverage was incomplete.
+
+**This is the second consecutive run whose decomposition defect was caught by a human reading the task graph.** That
+is the argument for B3 jumping the queue: the checks are cheap, they are pure script code, and they are the
+difference between the line catching this and me catching it. `build-implement` does carry an unassigned-criteria
+check, so the orphans would eventually have surfaced — but only after the fan-out had been paid for.
+
 *Third check, from run `k2i`, and it is the one that cost the most so far.* **A spec may write criteria no landed
 test can ever assert, and the correctness lens will then demand tests for them forever.** `spec-wi-c8-node20-test-glob`
 mixed two kinds of criterion and assigned both to one task and one test file:

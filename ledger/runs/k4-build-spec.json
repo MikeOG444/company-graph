@@ -1,0 +1,464 @@
+{
+  "entry": {
+    "id": "k4-build-spec",
+    "run_id": "k4",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-14T02:28:46.059Z",
+    "finished_at": "2026-09-14T02:35:25.506Z",
+    "wall_clock_sec": 399,
+    "result_ref": "ledger/runs/k4-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 238968,
+    "tokens_by_model": {
+      "claude-opus-5": 121601,
+      "claude-haiku-4-5": 117367
+    },
+    "cost_est_usd": 1.02,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k4",
+      "created_at": "2026-09-14T02:28:14Z"
+    },
+    "trace_ref": ".artifacts/traces/k4-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-a5-agent-least-privilege",
+          "work_item_id": "wi-a5-agent-least-privilege",
+          "goal": "Make the toolset, not a prompt sentence, the thing that stops a judgment node from writing. Audit all 56 `agent()` call sites across the nine workflows in `.claude/workflows/`, classify each as **judgment** (reads and reasons; must never write or commit) or **mechanical** (legitimately needs shell/filesystem), and bind every one of them to a least-privilege `agentType` at the call site. Fourteen sites are currently unbound and therefore resolve to the default `workflow-subagent`, which carries Bash, Write and Edit — the exact configuration that let run k1's Iteration Planner commit an implementation and return a schema-valid `{ids}` as if it had only chosen. The unbound sites are: `build-spec.js` `spec:` (:113), `route:` (:121), `decompose:` (:135); `build-implement.js` `escalate:` (:721, :775, :873), `tiebreak:` (:855), `dispute:` (:1032), `integrate:resolve` (:1167); `build-reentry.js` `classify:` (:110), `surfaces:` (:114); `create-project.js` `stack` (:70), `seed` (:94); `launch.js` `notes` (:78); `maintain-triage.js` `incident` (:367). Two of those fourteen (`integrate:resolve`, `notes`) are genuinely mechanical and get a write-capable type; the other twelve are judgment and get a read-only one. The already-bound sites in all nine workflows are audited too, against the same rule, and `root-cause` (a judgment node currently holding Bash) is the one existing binding the audit must resolve explicitly. Because new `.claude/agents/*.md` definitions register from the committed tree on a delay, every workflow that names an agentType gains the `missing_agent_types` mechanism, and a judgment site whose intended type is unresolvable must fall back to another read-only type or refuse — never to the unbound default, which would silently reopen the hole. A new invariant test in `substrate/test/` fails when any call site is unclassified, unbound, or bound to a type whose declared tools exceed its classification. Nothing about what any agent is asked to decide changes: labels, schemas and the decision content of every prompt stay as they are.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the nine workflow files in .claude/workflows/ and the agent definitions in .claude/agents/",
+              "when": "a reader looks for the capability classification of any agent() call site",
+              "then": "each of the 56 call sites carries an explicit, machine-readable classification of exactly one of 'judgment' or 'mechanical' that a test can read without executing the workflow — either an annotation adjacent to the call site or an entry in a declared table inside the workflow between whole-line sentinels in the style of '// ---- BEGIN/END plan-selection ----' — and no call site is unclassified",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the fourteen currently unbound call sites named in the goal",
+              "when": "each call site's options object is read as text",
+              "then": "every one of them spreads an agentType binding helper with a literal type name (never an empty object and never omitted), so no call site in any of the nine workflows can resolve to the default workflow-subagent",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "a call site classified 'judgment'",
+              "when": "the .claude/agents/<type>.md it names is read and its frontmatter 'tools:' list is parsed",
+              "then": "the file exists, declares an explicit 'tools:' list, and that list is a subset of {Read, Glob, Grep} — it contains no Write, no Edit, no NotebookEdit and no Bash, so the type cannot create a file or produce a commit",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "the spec writer at .claude/workflows/build-spec.js:113, which legitimately reads code and today uses Bash for cat, sed, grep and npm test",
+              "when": "its binding and the comment at its call site are read",
+              "then": "it is bound to a judgment type satisfying AC-3, and a comment at the call site records the decision explicitly: that losing Bash is intended, that reading is done with Read/Glob/Grep instead of shell, and that the spec writer may not run the suite — the loss of that capability is stated, not left to be discovered",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the two unbound sites that legitimately write — 'integrate:resolve' in build-implement.js and 'notes' in launch.js",
+              "when": "their bindings are read",
+              "then": "each names a type classified 'mechanical' whose declared tools include the write capability the prompt requires (integrate:resolve commits on the integration branch; notes writes markdown under .artifacts/), and each is classified 'mechanical' under AC-1 rather than being an unbound exception",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the Release Notes Writer at launch.js:78, whose only filesystem need is writing one markdown file under .artifacts/",
+              "when": "the declared tools of the type it is bound to are read",
+              "then": "they include Write but not Bash, so the node that authors prose cannot produce a commit even though it can produce a file",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the existing binding .claude/agents/root-cause.md (tools: Bash, Read, Glob, Grep), used at maintain-triage.js:276 for a node whose contract is 'Proposes no patch'",
+              "when": "the audit result is read",
+              "then": "the node is resolved one of two ways and the choice is recorded in a comment at the call site: either its tools are reduced to the AC-3 read-only set with the git history reads it needs moved to a mechanical agent upstream, or it is listed in a single, named exception table that the invariant test reads, with a one-line justification per entry — so granting Bash to a judgment node always requires editing a test",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "a workflow that names any agentType",
+              "when": "its binding helper is read",
+              "then": "every one of the nine workflows supports 'missing_agent_types' in the shape improve-analyze.js:62-63 and memory-roll.js:58-59 already use (a Set from args, consulted per type), not only the blunt 'agent_types: false' hatch, so a single unregistered definition drops only itself",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a judgment call site whose intended agentType appears in args.missing_agent_types (the normal state of any type added by this change, in the run that adds it)",
+              "when": "the workflow builds that call's options",
+              "then": "the site never resolves unbound: it substitutes a named fallback agentType that already exists in .claude/agents/ at the base commit and satisfies AC-3, or, if no fallback resolves, the node is not run and the workflow logs the skip and takes its existing null-result path — the empty-object fallback is never applied to a judgment site",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "that a dropped agentType takes its role prompt with it (CLAUDE.md, runtime facts)",
+              "when": "the prompt text of each newly bound judgment call site is read",
+              "then": "every constraint that the new .md role prompt would have supplied and that the prompt did not already state is stated inline in the workflow prompt, including the prohibition on creating, editing or deleting any file and on running git add or git commit",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "a fresh checkout at the post-change commit",
+              "when": "the new invariant test under substrate/test/ is run against a copy of the tree in which one judgment call site has had its agentType binding removed",
+              "then": "the test fails and names that call site by its label; and when instead a new agent() call site is added to any workflow with no classification entry, the test fails and names that site as unclassified",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the same invariant test",
+              "when": "it is run against a copy of the tree in which one judgment type's .md frontmatter gains 'Bash' (or 'Write', or 'Edit') to its tools list",
+              "then": "the test fails and names that type, so a judgment node cannot regain a commit-capable toolset through the agent definition either",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "the k3i finding that finding.location — untrusted output from another agent — flowed into a path interpolated into a test-repair agent's prompt, closed by the validation at build-implement.js:546-559 (testRepairTarget) and build-implement.js:514-520 (isSafeTestsRef)",
+              "when": "every call site whose prompt interpolates a filesystem path derived from another agent's output is enumerated",
+              "then": "each such site is either bound to a judgment type satisfying AC-3 (so a wrong path cannot be acted on destructively) or passes its path through an existing validator that rejects absolute paths and '..' segments before interpolation, and the invariant test asserts the enumerated set is exactly the sites that satisfy one of those two conditions",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "that this change alters what each agent may touch and not what it is asked to decide",
+              "when": "the post-change workflows are diffed against the base commit",
+              "then": "for every call site that existed before the change, the 'label:' value and the 'schema:' identifier are byte-identical to the base, and no pre-existing call site is deleted and no new agent() call site is added",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "substrate/test/plan-selection.test.js, whose final test 'every agent() call in build-spec that can write is bound to an agentType' today only records which sites are still unbound rather than failing on them",
+              "when": "that file is read after the change",
+              "then": "it contains no assertion that treats an unbound call site as acceptable, and the guarantee it was standing in for is asserted by the new invariant test across all nine workflows rather than build-spec alone",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "the repository at the post-change commit",
+              "when": "'node --test substrate/test/*.test.js' is run from the repository root",
+              "then": "every test passes, including the new invariant test and every pre-existing suite, with no test skipped or deleted to make it pass",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-reentry.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/create-project.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/launch.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/deploy.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/maintain-triage.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/improve-analyze.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/memory-roll.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/"
+            }
+          ],
+          "out_of_scope": [
+            "Writing or editing any file under substrate/test/. The Test Author owns the new invariant test and the tightening of substrate/test/plan-selection.test.js's final assertion, from AC-11, AC-12, AC-13 and AC-15. Run k1i's lesson (HANDOFF.md A6) is that a spec naming a test file as a touched surface hands the Test Author's job to the implementer and voids the independence the Test Author exists to preserve; the test files are therefore deliberately absent from touched_surfaces.",
+            "Changing what any agent is asked to decide: no prompt's decision content, no schema, no label, no model tier, and no adjudication or routing rule changes. This item changes only what each node is permitted to touch.",
+            "Changing the model tier of any node. HANDOFF.md records that tier is to be revisited from ledger evidence after A5/A6/A7 land, not as part of this item, and the k1 planner failure was measured to be a tools failure rather than a tier failure.",
+            "Amending CLAUDE.md, COMPANY.md, OPERATING_MODEL.md or HANDOFF.md. The rule 'a judgment node never holds a tool that produces a commit' is enforced here at the call sites and in the invariant test; promoting it to a non-negotiable rule in CLAUDE.md is a separate item and CLAUDE.md is outside this work item's declared surfaces.",
+            "Changing contracts.schema.json or any inlined contract copy in a workflow. No edge shape changes.",
+            "The remaining A5 sibling defects: A1 (lens worktree citations), A6 (spec naming test files / TestSet boundary checking), A7 (unruled test disputes), B3 (graph lint) and C9 (unverified escalation gates). They are separate carry items even where they touch the same files.",
+            "Changing .claude/settings.json or any permission allow-list. Run k1 measured that the session's allow-list is not the control surface for subagent writes; agentType is.",
+            "Adding a runtime mechanism to specify a toolset inline at a call site. Binding is done with the agentType names the runtime already supports.",
+            "Re-running or re-measuring any historical run in ledger/runs/."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "No external clients — venture 0 is self-scoped with no external consumers",
+            "No breaking changes — AC-14 requires call site labels and schemas remain byte-identical; only permissions change, not what agents are asked to do",
+            "No data shape, auth, secrets, payments, or infrastructure changes — pure internal tooling boundary",
+            "Backward-compatible — missing_agent_types fallback (AC-8, AC-9) ensures new types skipped cleanly; restrictive errors fail immediately and visibly",
+            "Comprehensive invariant test — prevents future regression of k1 pattern and enforces that no call site can regain write capability",
+            "Fixes a documented vulnerability — makes toolset, not prompt, the control; judgment nodes cannot accidentally commit",
+            "No irreversibility — bindings can be reverted"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k4",
+            "created_at": "2026-09-14T02:28:14Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "tasks": [
+            {
+              "id": "t-agent-definitions",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Create new judgment and mechanical agent type definitions in .claude/agents/. Create judgment-only types (read-only tools: Read, Glob, Grep) for the 12 judgment call sites that have no binding. Create mechanical types with appropriate write capability for integrate:resolve (Bash, Write, Edit for git commits) and notes (Write for markdown files). Update root-cause.md to remove Bash from tools (making it judgment-only per AC-7). Ensure all new definitions declare explicit tools lists in frontmatter and include appropriate role prompts that reinforce constraints.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-3",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8"
+              ]
+            },
+            {
+              "id": "t-build-spec",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the three unbound judgment call sites in build-spec.js (spec writer at :113, router at :118, decomposer at :135) to a judgment-only agentType. Add explicit classification markers (comment annotations or entries in a classification table) for each site. Update the AT() helper to support missing_agent_types by consulting args.missing_agent_types. Add explicit comment at spec writer site documenting that Bash capability is intentionally lost (per AC-4). Update prompts to include inline constraints about no filesystem/git access if the new agentType definition is potentially unresolvable.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-spec.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-4",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-build-implement",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the seven unbound call sites in build-implement.js: five judgment sites (escalate at :721, :775, :873; tiebreak at :855; dispute at :1032) to a judgment-only agentType, and one mechanical site (integrate:resolve at :1167) to a mechanical agentType with write capability. Add explicit classification markers for each site. Update the AT() helper to support missing_agent_types. Update prompts to include constraints. Enumerate all call sites whose prompts interpolate filesystem paths from other agent outputs and verify each either uses a judgment type (AC-3) or passes the path through an existing validator (isSafeTestsRef, testRepairTarget).",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-5",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-13",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-build-reentry",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the two unbound judgment call sites in build-reentry.js (classify at :110, surfaces at :114) to a judgment-only agentType. Add explicit classification markers for each site. Update the AT() helper to support missing_agent_types. Update prompts to include constraints about no filesystem/git access. Ensure all 4 agent() sites in this workflow have classifications visible to a reader.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-reentry.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-create-project",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the two unbound judgment call sites in create-project.js (stack at :70, seed at :94) to a judgment-only agentType. Add explicit classification markers for each site. Update the AT() helper to support missing_agent_types. Update prompts to include constraints. Ensure all 5 agent() sites in this workflow have classifications visible.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/create-project.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-launch",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the one unbound mechanical call site in launch.js (notes at :78) to a mechanical agentType with Write but not Bash capability (per AC-6). Add explicit classification marker as 'mechanical'. Update the AT() helper to support missing_agent_types. Update prompts as needed. Ensure all 4 agent() sites in this workflow have classifications visible.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/launch.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-5",
+                "AC-6",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-maintain-triage",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind and classify the one unbound judgment call site in maintain-triage.js (incident at :367) to a judgment-only agentType. Add explicit classification marker. Audit the existing root-cause agent binding (used at :276): verify it satisfies AC-7 by either confirming tools are read-only or adding it to an exception table with justification. Update the AT() and NEW() helpers to support missing_agent_types. Update prompts as needed. Ensure all 10 agent() sites in this workflow have classifications visible.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/maintain-triage.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-deploy",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Audit and classify all seven bound agent() call sites in deploy.js. Add explicit classification markers for each site (all currently mechanical). Verify that each mechanical binding correctly references an agentType with appropriate tools. Update the AT() helper to support missing_agent_types (currently only checks agent_types flag). Ensure all 7 call sites have classifications visible to readers and all bindings match their call sites' needs.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/deploy.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-8",
+                "AC-9",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-improve-analyze",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Audit and classify all five bound agent() call sites in improve-analyze.js. Add explicit classification markers for each site. Verify that the AT() helper (which already supports missing_agent_types) is correctly applied. Ensure all 5 call sites have classifications visible and all bindings are correct. No unbound sites expected in this workflow.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/improve-analyze.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-8",
+                "AC-14"
+              ]
+            },
+            {
+              "id": "t-memory-roll",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Audit and classify all four bound agent() call sites in memory-roll.js. Add explicit classification markers for each site. Verify that the AT() helper (which already supports missing_agent_types) is correctly applied. Ensure all 4 call sites have classifications visible and all bindings are correct. No unbound sites expected in this workflow.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/memory-roll.js"
+                }
+              ],
+              "depends_on": [
+                "t-agent-definitions"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-8",
+                "AC-14"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k4",
+            "created_at": "2026-09-14T02:28:14Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k4",
+      "created_at": "2026-09-14T02:28:14Z"
+    }
+  }
+}
