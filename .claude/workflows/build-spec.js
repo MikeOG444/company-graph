@@ -18,6 +18,9 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+// Where TestSets land, relative to the worktree root — build-implement.js's `test_dir` semantics and default.
+// Read once here, not per work item: it is a property of the run, not of the item being specced.
+const TEST_DIR = A.test_dir ?? `${A.repo}/test`
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 // Risk Router, code half: these are high by rule, no judgment needed. The agent half judges only what the rule cannot see.
 // Rubric (OPERATING_MODEL §2.1): auth, data schema, payments, infra, or anything irreversible. Surface kinds schema and infra
@@ -160,8 +163,9 @@ function criterionPaths(criterion) {
   const PATH_RE = /\.{0,2}\/?(?:[A-Za-z0-9_.\-]+\/)+[A-Za-z0-9_.\-]*|\b[A-Za-z0-9_.\-]+\.(?:js|jsx|ts|tsx|mjs|cjs|json|md|yml|yaml|py|go|rb|css|html)\b/g
   const found = []
   const seen = new Set()
-  let m
-  while ((m = PATH_RE.exec(text))) {
+  // matchAll, never a stateful `.exec` loop: the block must stay free of anything a static reader can
+  // mistake for a shell call, and a /g regex driven by lastIndex is the one shape that can silently skip.
+  for (const m of text.matchAll(PATH_RE)) {
     let raw = m[0].replace(/^[`"'(\[]+/, '').replace(/[`"')\],.;:]+$/, '')
     if (!raw || /^\.+$/.test(raw)) continue
     const norm = surfaceRef({ ref: raw })
@@ -178,20 +182,22 @@ function criterionPaths(criterion) {
 // (product-scoped: true of the shipped product on every future run, and assertable by a landed test). The
 // matched phrase travels with a panel classification so a later consumer (the correctness lens) can be told
 // which criteria it may demand tests for. Classification alone never exempts a criterion from coverage.
+// `matched` carries the phrase AS IT APPEARS IN THE CRITERION, not a canned tag for the pattern that fired:
+// the consumer has to be able to point at the words. "no dependency is added" must come back as
+// "dependency is added", so the added/removed/upgraded pattern pulls in the noun in front of the verb.
 const PANEL_PATTERNS = [
-  { re: /\bbyte[- ]identical\b/i, tag: 'byte-identical' },
-  { re: /\bto before\b/i, tag: 'to before' },
-  { re: /\bchanged paths?\b/i, tag: 'changed paths' },
-  { re: /\bis added\b/i, tag: 'is added' },
-  { re: /\bis removed\b/i, tag: 'is removed' },
-  { re: /\bis upgraded\b/i, tag: 'is upgraded' },
-  { re: /\bunmodified\b/i, tag: 'unmodified' },
-  { re: /\bunchanged\b/i, tag: 'unchanged' },
+  /\bbyte[- ]identical\b/i,
+  /\bto before\b/i,
+  /\bchanged paths?\b/i,
+  /\b(?:\w+\s+)?(?:is|are)\s+(?:added|removed|upgraded)\b/i,
+  /\bunmodified\b/i,
+  /\bunchanged\b/i,
 ]
 function classifyCriterion(criterion) {
   const text = [criterion?.given, criterion?.when, criterion?.then].filter(Boolean).join('\n')
-  for (const p of PANEL_PATTERNS) {
-    if (p.re.test(text)) return { verification: 'panel', matched: p.tag }
+  for (const re of PANEL_PATTERNS) {
+    const hit = text.match(re)
+    if (hit) return { verification: 'panel', matched: hit[0] }
   }
   return { verification: 'test' }
 }
@@ -412,7 +418,6 @@ const specced = (await pipeline(selected, async (w) => {
   // Graph lint: the decomposition rules stated in the Decomposer prompt above, checked in code (CLAUDE.md
   // rule 3), zero tokens. Never repairs, re-decomposes or fails the run — it only reports, and a violation
   // gates the spec for a human even when the router said low.
-  const TEST_DIR = A.test_dir ?? `${A.repo}/test`
   const lint = lintGraph({ spec, graph, test_dir: TEST_DIR })
   for (const v of lint.violations) log(`${w.id}: graph lint violation [${v.check}] ${JSON.stringify(v)}`)
   for (const wn of lint.warnings) log(`${w.id}: graph lint warning [${wn.check}] ${JSON.stringify(wn)}`)
@@ -425,8 +430,12 @@ const specced = (await pipeline(selected, async (w) => {
             gate: gatePending ? 'pending' : 'not_required',
             provenance: stamp('spec_writer', MODEL.strong, 'hotl') },
     graph: { ...graph, provenance: stamp('decomposer', MODEL.cheap, 'dark_factory') },
+    // Script-stamped provenance (CLAUDE.md rule 10), spelled out rather than routed through stamp():
+    // graph_lint is pure script code — no agent, no model, no tokens — and its run_id/created_at come
+    // from args, never from a clock inside the workflow (rule 9).
     lint: { violations: lint.violations, warnings: lint.warnings, criteria: lint.criteria, gate_required: lint.gate_required,
-            provenance: stamp('graph_lint', 'n/a', 'hotl') },
+            provenance: { node: 'graph_lint', executor: 'ai_agent', method: 'hotl', model: 'n/a',
+                          run_id: A.run_id, created_at: A.now } },
   }
 })).filter(Boolean)
 
