@@ -1,0 +1,276 @@
+{
+  "entry": {
+    "id": "k5-build-spec",
+    "run_id": "k5",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-14T02:48:53.186Z",
+    "finished_at": "2026-09-14T02:54:42.292Z",
+    "wall_clock_sec": 349,
+    "result_ref": "ledger/runs/k5-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 189731,
+    "tokens_by_model": {
+      "claude-opus-5": 102751,
+      "claude-haiku-4-5": 86980
+    },
+    "cost_est_usd": 0.84,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k5",
+      "created_at": "2026-09-14T02:48:04Z"
+    },
+    "trace_ref": ".artifacts/traces/k5-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-b3-graph-lint",
+          "work_item_id": "wi-b3-graph-lint",
+          "goal": "Move the decomposition rules that `.claude/workflows/build-spec.js` only states in the decomposer prompt (lines 87-93) into validated script code. Add one pure-JavaScript block, delimited by the whole lines `// ---- BEGIN graph-lint ----` and `// ---- END graph-lint ----`, that runs per work item after the Router ∥ Decomposer parallel and before the spec is stamped, costing zero tokens (CLAUDE.md rule 3). It performs five checks against the Spec and its TaskGraph: (1) CRITERION REACHABILITY — every repository path named by a criterion in a task's `criteria_ids` must be covered by that task's `owned_surfaces`, using build-implement.js's directory-aware `withinOwned`/`surfaceRef` semantics (an owned ref ending in '/' covers everything beneath it; one that does not covers only an exact match, so 'substrate/test' never covers 'substrate/testing/x.js'); (2) FALSE EDGE — every `depends_on` must be justified by a variable actually crossing it (the depended-on task's `owned_surfaces` must cover a path the dependent task's criteria name), plus rejection of a `depends_on` naming an absent task id and of any dependency cycle; (3) CRITERION COVERAGE — every criterion in `Spec.acceptance` claimed by exactly one task, with orphans and duplicates both reported, and a claimed id absent from the Spec reported too; (4) CHANGE-SCOPED CRITERIA — classify every criterion in code as `panel` (change-scoped: assertions about a diff, which no landed test can assert after merge) or `test` (product-scoped), carrying the classification per criterion id on the lint object so a later build-implement change can tell the correctness lens which criteria it may demand tests for; (5) TEST-DIR SURFACES (A6, folded in) — a surface under the repo's `test_dir` must never appear in `Spec.touched_surfaces`, because that hands the Test Author's job to the implementer and the resulting TestSet lands nowhere. On violation the workflow must NOT drop, auto-repair, re-decompose or pass by default: it surfaces the violations on the returned entry and marks the affected spec `gate: \"pending\"` even when the risk router said low, so a human sees them at the Spec Gate. Where a rule cannot be decided from the available data (a criterion whose text names no path; a dependent task whose criteria name no decidable path), a WARNING is recorded and the item passes — a false positive stops legitimate work, a false negative merely leaves today's behaviour. The checked functions must be extractable and unit-testable standalone via the `substrate/test/extract-fixloop.js` idiom (whole-line sentinels, `new Function`), and every check must be demonstrated FAILING on the real defect that motivated it — run k4's shape (ten tasks, nine false edges, four orphaned criteria, AC-8 claimed by all ten), run t7's (a criterion naming a file its task does not own) and run k2i's (change-scoped criteria mixed with product-scoped ones) as fixtures — not merely passing on a clean graph.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "`.claude/workflows/build-spec.js` on disk, read as text",
+              "when": "a test finds the whole lines `// ---- BEGIN graph-lint ----` and `// ---- END graph-lint ----`, cuts the lines strictly between them, and evaluates the block with `new Function(block + \"\\nreturn { surfaceRef, withinOwned, criterionPaths, classifyCriterion, checkCriterionReachability, checkFalseEdges, checkCriterionCoverage, checkTestSurfaces, lintGraph }\")()`",
+              "then": "each sentinel line occurs exactly once in the file, evaluation throws nothing, and every one of those nine names resolves to a function",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the block text extracted in AC-1, evaluated with no `args`, `A`, `log`, `phase`, `agent`, `parallel`, `pipeline`, `budget` or module bindings in scope",
+              "when": "the block is evaluated and each exported function is called with plain-object fixtures only",
+              "then": "nothing throws a ReferenceError, and the block text contains no `import`, `require(`, `fs.`, shell invocation, `Date.now(` or `Math.random(` (CLAUDE.md rules 3 and 9)",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "the extracted `surfaceRef` and `withinOwned`",
+              "when": "`surfaceRef` is called with `{ref:'./contracts.schema.json#/$defs/Finding'}` and `{ref:'substrate/test/'}`, and `withinOwned` is asked whether 'substrate/test/a.js', 'substrate/test' and 'substrate/testing/x.js' fall inside owned refs `['substrate/test']` and, separately, `['substrate/test/']`",
+              "then": "`surfaceRef` returns 'contracts.schema.json' and 'substrate/test' (fragment, leading './' and trailing '/' stripped); the non-slash owned ref covers only the exact match 'substrate/test'; the trailing-slash owned ref covers 'substrate/test' and 'substrate/test/a.js'; and neither owned ref ever covers 'substrate/testing/x.js'",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "run t7's shape as a fixture: a Spec whose `touched_surfaces` include both `.claude/workflows/build-implement.js` and `substrate/x.js`, and a TaskGraph whose single task owns only `substrate/x.js` while claiming a criterion whose text names `.claude/workflows/build-implement.js`",
+              "when": "`lintGraph({ spec, graph, test_dir })` runs",
+              "then": "the result's `violations` contains exactly one entry with `check: 'criterion_reachability'`, carrying the task id, the criterion id and the offending path `.claude/workflows/build-implement.js`, and `gate_required` is true",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "a Spec listing `substrate/foo/` and a task owning `substrate/foo/` (directory-shaped) that claims a criterion whose text names `substrate/foo/bar.js`",
+              "when": "`lintGraph` runs",
+              "then": "no `criterion_reachability` violation is produced, because a directory-shaped owned ref covers everything beneath it",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "a graph in which one claimed criterion's text names no repository path at all, and another claimed criterion names a path that appears nowhere in `Spec.touched_surfaces`",
+              "when": "`lintGraph` runs",
+              "then": "both produce entries in `warnings` (with distinct machine-readable reasons for 'names no path' and 'path not in Spec.touched_surfaces'), neither appears in `violations`, and `gate_required` stays false when these are the only findings",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "run k4's shape as a fixture: ten tasks, nine of which carry `depends_on: ['t-agent-definitions']`, where each dependent task owns only its own `.js` file and its claimed criteria name only that same file, so no variable crosses those edges",
+              "when": "`lintGraph` runs",
+              "then": "`violations` contains exactly nine entries with `check: 'false_edge'`, one per dependent task, each naming the dependent task id and 't-agent-definitions', and `gate_required` is true",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "task B whose claimed criterion names a path covered by task A's `owned_surfaces`, with `B.depends_on = ['A']`",
+              "when": "`lintGraph` runs",
+              "then": "no `false_edge` violation is produced for that edge — a variable does cross it",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a task whose `depends_on` names 't-nope', an id present on no task in the graph",
+              "when": "`lintGraph` runs",
+              "then": "`violations` contains an entry with `check: 'unknown_dependency'` naming the dependent task and 't-nope', and `gate_required` is true",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "two graphs: one with `t1.depends_on=['t2']` and `t2.depends_on=['t1']` where each edge would otherwise be justified by a crossing surface, and one with a task that depends on itself",
+              "when": "`lintGraph` runs on each",
+              "then": "each result's `violations` contains an entry with `check: 'dependency_cycle'` listing the task ids that form the cycle, and `gate_required` is true in both cases",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "a dependent task whose claimed criteria name no decidable repository path, so whether a variable crosses its `depends_on` edge cannot be determined from the data",
+              "when": "`lintGraph` runs",
+              "then": "the edge yields an entry in `warnings` rather than in `violations`, and `gate_required` stays false when it is the only finding",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "run k4's coverage shape as a fixture: a Spec with sixteen acceptance criteria (AC-1..AC-16) and a ten-task graph whose `criteria_ids` total 57 assignments across only twelve distinct criteria, with AC-11, AC-12, AC-15 and AC-16 claimed by no task and AC-8 claimed by all ten",
+              "when": "`lintGraph` runs",
+              "then": "`violations` contains exactly four entries with `check: 'orphan_criterion'`, naming AC-11, AC-12, AC-15 and AC-16; one entry with `check: 'duplicate_criterion'` per criterion claimed by more than one task, each listing every claiming task id, including AC-8 with all ten; and `gate_required` is true",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "a clean single-task graph in which every criterion of the Spec is claimed exactly once",
+              "when": "`lintGraph` runs",
+              "then": "`violations` is empty, `gate_required` is false, and no `orphan_criterion` or `duplicate_criterion` entry is produced",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "a task whose `criteria_ids` include 'AC-99', an id absent from `Spec.acceptance`",
+              "when": "`lintGraph` runs",
+              "then": "`violations` contains an entry with `check: 'unknown_criterion'` naming the task and 'AC-99'",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "run k2i's criteria as a fixture: change-scoped criteria whose text reads 'every other field byte-identical to before', 'the changed paths are exactly these three' and 'no dependency is added', alongside product-scoped criteria such as 'the test script is exactly `node --test substrate/test/*.test.js`'",
+              "when": "`lintGraph` runs",
+              "then": "the result's `criteria` array carries one entry per criterion in `Spec.acceptance`, keyed by criterion id, classifying each of the three change-scoped criteria as `verification: 'panel'` with the matched phrase recorded, and the product-scoped criteria as `verification: 'test'`; the classification alone produces no `violations` entry and does not set `gate_required`",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "a Spec containing a change-scoped (panel-classified) criterion",
+              "when": "that criterion is claimed by exactly one task, and separately when it is claimed by no task",
+              "then": "in the first case no violation mentions it — classification never exempts a criterion from being built, and never manufactures a coverage gap — and in the second case it is still reported as `orphan_criterion` like any other unclaimed criterion",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "`test_dir` resolved to 'substrate/test' and two Specs, one whose `touched_surfaces` include `substrate/test/ci-workflow.test.js` (run k1i's A6 defect) and one whose `touched_surfaces` include `substrate/testing/x.js`",
+              "when": "`lintGraph` runs on each",
+              "then": "the first yields a violation with `check: 'spec_names_test_surface'` naming that ref and `gate_required` true; the second yields no such violation, because 'substrate/test' is not directory-shaped and never covers 'substrate/testing/x.js'",
+              "testable": true
+            },
+            {
+              "id": "AC-18",
+              "given": "`.claude/workflows/build-spec.js` after the change",
+              "when": "the workflow is run with no `test_dir` in `args`, and separately with `test_dir: 'substrate/test'`",
+              "then": "the check resolves `test_dir` to `` `${A.repo}/test` `` by default and to the supplied value when given, matching build-implement.js's documented `test_dir` semantics, and the `args` comment block at the top of build-spec.js documents the new optional `test_dir` argument",
+              "testable": true
+            },
+            {
+              "id": "AC-19",
+              "given": "any fixture whose lint produces violations (the k4, t7 or k2i fixtures)",
+              "when": "`lintGraph({ spec, graph, test_dir })` is called and its result inspected",
+              "then": "the `spec` and `graph` objects passed in are deep-equal to structured copies taken before the call — no task, `depends_on` entry, criterion or surface is added, removed, reordered or rewritten — and the lint neither re-invokes the decomposer nor substitutes a repaired graph",
+              "testable": true
+            },
+            {
+              "id": "AC-20",
+              "given": "a work item whose risk router returns `risk: 'low'` and whose graph produces at least one lint violation",
+              "when": "build-spec's Spec phase completes",
+              "then": "the returned entry appears in `gated` and not in `ready`, with `spec.gate === 'pending'`, one string per violation added to `spec.risk_reasons` prefixed `graph lint: `, and the entry carrying a third key `lint` holding `{ violations, warnings, criteria, gate_required, provenance }` whose provenance is script-stamped with `node: 'graph_lint'`, the run's `run_id` and `created_at` (CLAUDE.md rule 10)",
+              "testable": true
+            },
+            {
+              "id": "AC-21",
+              "given": "a work item whose graph produces warnings only and no violations",
+              "when": "build-spec's Spec phase completes",
+              "then": "the entry stays in `ready` with `spec.gate === 'not_required'`, still carries a `lint` object whose `violations` is empty and whose `warnings` list the undecidable cases, and each violation and warning is emitted through `log()` so it is visible in the run trace",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            }
+          ],
+          "out_of_scope": [
+            "Test files. The unit tests that drive these checks against the k4, t7 and k2i fixtures are the Test Author's to write and land under the repo's test_dir (substrate/test/, matched by `node --test substrate/test/*.test.js`). No path under test_dir appears in touched_surfaces — this Spec obeys the very rule CHECK 5 adds (A6, run k1i): a spec that names a test file hands the Test Author's job to the implementer and the real TestSet then dies in gitignored .artifacts/.",
+            "Any change to `.claude/workflows/build-implement.js`. Consuming `lint.criteria[].verification` in the lens prompt, keeping panel-classified criteria out of a test file's `criteria_ids`, and boundary-checking the TestSet's landed files (A6's second half, run k1v) are separate work items. This Spec only produces the classification and the violation report.",
+            "Any change to `contracts.schema.json`. `AcceptanceCriterion`, `Spec`, `Task` and `TaskGraph` all set `additionalProperties: false`, so no new field may be added to a criterion, a task or the spec body; the classification and the violations travel on the `lint` key of the returned entry, which is not a contract-validated object. `spec.risk_reasons` is used for the human-readable gate reasons because it is already in the contract.",
+            "Auto-repair of any kind: dropping a false edge, deleting a duplicate `criteria_ids` entry, inventing a task for an orphaned criterion, widening `owned_surfaces` to make a criterion reachable, re-running the decomposer, or retrying with a stricter prompt.",
+            "Failing or aborting the run. A lint violation gates one spec; it never throws, never removes the item from the returned object, and never blocks the other work items in the iteration.",
+            "Rewriting the existing decomposer prompt rules at build-spec.js:87-93, changing model tiers, or editing anything under `.claude/agents/`. The prose stays as guidance to the decomposer; this work adds the code that verifies it.",
+            "Semantic judgement about whether a criterion is well written, whether a task decomposition is sensible, or whether a path a criterion names is one it reads versus writes. Every check is a syntactic, deterministic rule over the Spec and TaskGraph data.",
+            "Gate delivery and notification (C5), the memory/canary edges into build-spec (B1, B2), and the plan-selection block, which is untouched."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "No external consumers (client is self). No stored data shape changes. No auth/secrets/payments/infra touches. Additive code (pure function block in build-spec.js, lint key in returned entry). Gate behavior change only affects specs with decomposition defects that currently slip through. Reversible. Single touched surface."
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k5",
+            "created_at": "2026-09-14T02:48:04Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-b3-graph-lint",
+          "tasks": [
+            {
+              "id": "t-graph-lint",
+              "spec_id": "spec-wi-b3-graph-lint",
+              "description": "Implement graph-lint validation block in .claude/workflows/build-spec.js to verify task decompositions against five structural rules: criterion reachability, false edges, criterion coverage, test-dir surfaces, and change-scoped criteria classification. Block must export nine utility functions and integrate into the Spec phase to gate specs with violations.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-spec.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17",
+                "AC-18",
+                "AC-19",
+                "AC-20",
+                "AC-21"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k5",
+            "created_at": "2026-09-14T02:48:04Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k5",
+      "created_at": "2026-09-14T02:48:04Z"
+    }
+  }
+}
