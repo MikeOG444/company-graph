@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "k3i",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-12T17:03:51.000Z",
   "options": [
     "direct_drive",
@@ -50,5 +50,11 @@
       "run_id": "k3i",
       "created_at": "2026-09-12T15:24:51Z"
     }
+  },
+  "decision": {
+    "option": "direct_drive",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-14T02:27:08.000Z",
+    "note": "Escalation real but stale against the integration branch. Its diagnosis was correct and verified by hand: the TestSet's AC-13 assertion matched the function DEFINITION at :474 rather than a call site, and neither real call site destructures — :891 binds passRound, :1057 binds round, and round.resolution reaches nextLenses at :1070, which is exactly what AC-13 requires. Four rounds went to a syntax preference the spec never stated. The Test Author's landed version then fixed it properly rather than weakening it: it excludes the definition, finds every call site, and accepts both binding idioms. Merging as-is. Verified independently: disputesToJudge filters only on fixOutcome with no kind/path check, roundOutcome returns pass only when carried is empty, scopeOf rejects absolute paths and .. segments after the security veto, root 152/152, toy 60/60, A7's own test 16/16. Not re-panelled: another full panel would cost ~$5 to re-confirm what is checked above, and the blocker resolved itself at landing."
   }
 }
