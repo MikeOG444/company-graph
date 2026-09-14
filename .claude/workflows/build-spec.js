@@ -4,10 +4,14 @@ export const meta = {
   phases: [{ title: 'Plan', detail: 'select work items within capacity — script code, zero tokens' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
 }
 
-// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context? }
+// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir? }
 //   project_context: one sentence about the venture the router should know (e.g. "client: self, no external consumers yet").
 //   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
-// returns: { ready: [{spec, graph}], gated: [{spec, graph}], provenance }
+//   test_dir: where TestSets land, relative to the worktree root (default "${repo}/test", matching
+//             build-implement.js's test_dir semantics). Used only by graph-lint's test-dir-surfaces check
+//             (B3, folding in A6): a spec that names a path under test_dir in touched_surfaces hands the
+//             Test Author's job to the implementer, so it gates the spec for a human at the Spec Gate.
+// returns: { ready: [{spec, graph, lint}], gated: [{spec, graph, lint}], provenance }
 //
 // The human reviews `gated` in chat, then runs:
 //   /build-implement with approved specs + the `ready` list
@@ -90,6 +94,271 @@ function planIteration(workItems, capacityTokens, defaultItemTokens = 120000) {
 }
 // ---- END plan-selection ----
 
+// ---- BEGIN graph-lint ----
+// The decomposition rules stated in the Decomposer prompt above (and nowhere validated) as pure, zero-token
+// script code (CLAUDE.md rule 3). Called once per work item, after Router ∥ Decomposer and before the spec
+// is stamped, on the Spec and TaskGraph the agents returned. Five checks:
+//   1. criterion reachability — every path a task's claimed criteria name must sit inside that task's owned_surfaces.
+//   2. false edges — every depends_on must be justified by a variable actually crossing it (plus unknown deps
+//      and dependency cycles, which are never justifiable).
+//   3. criterion coverage — every Spec criterion claimed by exactly one task; an unknown criteria_ids entry is
+//      reported too.
+//   4. change-scoped classification — every criterion is classified 'panel' (assertable only against a diff,
+//      never after merge) or 'test' (product-scoped), carried for a later consumer; classification alone never
+//      creates or erases a coverage gap.
+//   5. test-dir surfaces (A6, folded in) — a Spec must never name a path under the repo's test_dir in its own
+//      touched_surfaces; that is the Test Author's surface, not the Spec's to claim.
+// On violation: this NEVER drops, repairs, re-decomposes or fails the run. It only reports — the caller (the
+// Spec phase below) decides what a violation means for the gate. Where a rule cannot be decided from the data
+// (a criterion whose text names no path; a dependency whose crossing cannot be determined), a WARNING is
+// recorded and the item passes: a false positive here stops legitimate work, a false negative only leaves
+// today's behaviour. No `args`, `A`, `log`, `agent` or any runtime binding is referenced anywhere below this
+// line down to END graph-lint — every function here is a pure function of its plain-object arguments, callable
+// standalone (substrate/test/extract-fixloop.js idiom: whole-line sentinels + `new Function`).
+
+// Canonical form of a Surface ref: drop a '#...' fragment (a schema pointer), a leading './', and a trailing
+// '/'. Copied verbatim from build-implement.js's surfaceRef (kept in sync by hand, same as the inlined
+// contracts above — the runtime forbids importing across workflow files).
+function surfaceRef(surface) {
+  let ref = String(surface?.ref ?? '')
+  const hashIdx = ref.indexOf('#')
+  if (hashIdx !== -1) ref = ref.slice(0, hashIdx)
+  if (ref.startsWith('./')) ref = ref.slice(2)
+  if (ref.length > 1 && ref.endsWith('/')) ref = ref.slice(0, -1)
+  return ref
+}
+
+// True when touchedRef sits inside one of ownedRefs or exemptPrefixes. An owned/exempt ref ending in '/' is
+// directory-shaped: it covers itself and everything under it. One that does NOT end in '/' covers only an
+// exact match — 'substrate/test' never covers 'substrate/testing/x.js'. Copied verbatim from
+// build-implement.js's withinOwned.
+function withinOwned(touchedRef, ownedRefs, exemptPrefixes) {
+  const t = surfaceRef({ ref: touchedRef })
+  const covers = (rawRef) => {
+    let owned = String(rawRef ?? '')
+    const hashIdx = owned.indexOf('#')
+    if (hashIdx !== -1) owned = owned.slice(0, hashIdx)
+    if (owned.startsWith('./')) owned = owned.slice(2)
+    if (t === owned) return true
+    if (owned.endsWith('/')) {
+      const dir = owned.slice(0, -1)
+      if (t === dir || t.startsWith(owned)) return true
+    }
+    return false
+  }
+  return (ownedRefs ?? []).some(covers) || (exemptPrefixes ?? []).some(covers)
+}
+
+// Repository-relative paths named in a criterion's given/when/then text, deduped and normalized through
+// surfaceRef. Two shapes are recognized: a multi-segment path containing at least one '/' (so a sibling-prefix
+// near miss like 'substrate/testing' is never split into a bogus path), and a bare filename carrying a
+// recognized extension (e.g. 'contracts.schema.json', 'package.json') for the top-level files that name no
+// directory at all. Anything else — prose, a version number, a bare word — is not a path: criterionPaths
+// returns [] for it, which callers below treat as "undecidable", never as "no violation is possible here".
+function criterionPaths(criterion) {
+  const text = [criterion?.given, criterion?.when, criterion?.then].filter(Boolean).join('\n')
+  const PATH_RE = /\.{0,2}\/?(?:[A-Za-z0-9_.\-]+\/)+[A-Za-z0-9_.\-]*|\b[A-Za-z0-9_.\-]+\.(?:js|jsx|ts|tsx|mjs|cjs|json|md|yml|yaml|py|go|rb|css|html)\b/g
+  const found = []
+  const seen = new Set()
+  let m
+  while ((m = PATH_RE.exec(text))) {
+    let raw = m[0].replace(/^[`"'(\[]+/, '').replace(/[`"')\],.;:]+$/, '')
+    if (!raw || /^\.+$/.test(raw)) continue
+    const norm = surfaceRef({ ref: raw })
+    if (!norm || seen.has(norm)) continue
+    seen.add(norm)
+    found.push(norm)
+  }
+  return found
+}
+
+// A criterion is 'panel' (change-scoped: an assertion about THIS diff — "to before", "byte-identical", the
+// changed paths, a dependency added/removed/upgraded — that no test landed after the merge can ever assert,
+// because after the merge there is no "before" and no "this change" left to compare against) or 'test'
+// (product-scoped: true of the shipped product on every future run, and assertable by a landed test). The
+// matched phrase travels with a panel classification so a later consumer (the correctness lens) can be told
+// which criteria it may demand tests for. Classification alone never exempts a criterion from coverage.
+const PANEL_PATTERNS = [
+  { re: /\bbyte[- ]identical\b/i, tag: 'byte-identical' },
+  { re: /\bto before\b/i, tag: 'to before' },
+  { re: /\bchanged paths?\b/i, tag: 'changed paths' },
+  { re: /\bis added\b/i, tag: 'is added' },
+  { re: /\bis removed\b/i, tag: 'is removed' },
+  { re: /\bis upgraded\b/i, tag: 'is upgraded' },
+  { re: /\bunmodified\b/i, tag: 'unmodified' },
+  { re: /\bunchanged\b/i, tag: 'unchanged' },
+]
+function classifyCriterion(criterion) {
+  const text = [criterion?.given, criterion?.when, criterion?.then].filter(Boolean).join('\n')
+  for (const p of PANEL_PATTERNS) {
+    if (p.re.test(text)) return { verification: 'panel', matched: p.tag }
+  }
+  return { verification: 'test' }
+}
+
+// CHECK 1 — every path a task's claimed criteria name must sit inside that task's owned_surfaces. A path is
+// only checked against ownership once it is confirmed to be a real surface of this Spec (present in
+// Spec.touched_surfaces, directory-aware); a path a criterion names that touches nothing the Spec declared is
+// undecidable prose, not a reachability defect, so it warns rather than violates.
+function checkCriterionReachability({ spec, graph }) {
+  const violations = []
+  const warnings = []
+  const touchedRefs = (spec?.touched_surfaces ?? []).map(s => s.ref)
+  for (const task of graph?.tasks ?? []) {
+    const ownedRefs = (task?.owned_surfaces ?? []).map(s => s.ref)
+    for (const cid of task?.criteria_ids ?? []) {
+      const criterion = (spec?.acceptance ?? []).find(c => c.id === cid)
+      if (!criterion) continue // an id absent from the Spec is checkCriterionCoverage's unknown_criterion, not this check's concern
+      const paths = criterionPaths(criterion)
+      if (!paths.length) {
+        warnings.push({ check: 'criterion_reachability', reason: 'names_no_path', task: task.id, criterion: cid })
+        continue
+      }
+      for (const path of paths) {
+        if (!withinOwned(path, touchedRefs, [])) {
+          warnings.push({ check: 'criterion_reachability', reason: 'path_not_in_touched_surfaces', task: task.id, criterion: cid, path })
+          continue
+        }
+        if (!withinOwned(path, ownedRefs, [])) {
+          violations.push({ check: 'criterion_reachability', task: task.id, criterion: cid, path })
+        }
+      }
+    }
+  }
+  return { violations, warnings }
+}
+
+// Every task id depends_on names, restricted to ids that actually exist in this graph — a dependency-cycle
+// search never needs to (and must not) walk into an unknown_dependency violation. Returns one entry per
+// distinct cycle (task ids deduped and in walk order), including a task depending on itself.
+function findDependencyCycles(tasks) {
+  const byId = new Map((tasks ?? []).filter(t => t?.id != null).map(t => [t.id, t]))
+  const cycles = []
+  const cycleKeys = new Set()
+  const visited = new Set()
+  const stack = []
+  const onStack = new Set()
+  const visit = (id) => {
+    if (onStack.has(id)) {
+      const start = stack.indexOf(id)
+      const cyc = [...new Set(stack.slice(start).concat(id))]
+      const key = [...cyc].sort().join(',')
+      if (!cycleKeys.has(key)) { cycleKeys.add(key); cycles.push(cyc) }
+      return
+    }
+    if (visited.has(id)) return
+    visited.add(id)
+    stack.push(id)
+    onStack.add(id)
+    for (const dep of byId.get(id)?.depends_on ?? []) {
+      if (byId.has(dep)) visit(dep)
+    }
+    stack.pop()
+    onStack.delete(id)
+  }
+  for (const t of tasks ?? []) if (t?.id != null) visit(t.id)
+  return cycles
+}
+
+// CHECK 2 — every depends_on must be justified by a variable actually crossing it: the depended-on task's
+// owned_surfaces must cover a path the DEPENDENT task's criteria name (that is what the dependent task would
+// be reading from the one it depends on). depends_on naming an absent task id is rejected outright, and so is
+// any dependency cycle, self-loop included — "B comes after A" is never itself a reason (CLAUDE.md rule 1).
+function checkFalseEdges({ spec, graph }) {
+  const violations = []
+  const warnings = []
+  const tasks = graph?.tasks ?? []
+  const byId = new Map(tasks.filter(t => t?.id != null).map(t => [t.id, t]))
+  for (const task of tasks) {
+    for (const depId of task?.depends_on ?? []) {
+      const dep = byId.get(depId)
+      if (!dep) {
+        violations.push({ check: 'unknown_dependency', task: task.id, depends_on: depId })
+        continue
+      }
+      const depOwnedRefs = (dep.owned_surfaces ?? []).map(s => s.ref)
+      let decidable = false
+      let justified = false
+      for (const cid of task?.criteria_ids ?? []) {
+        const criterion = (spec?.acceptance ?? []).find(c => c.id === cid)
+        if (!criterion) continue
+        for (const path of criterionPaths(criterion)) {
+          decidable = true
+          if (withinOwned(path, depOwnedRefs, [])) { justified = true; break }
+        }
+        if (justified) break
+      }
+      if (!decidable) {
+        warnings.push({ check: 'false_edge', reason: 'edge_undecidable', task: task.id, depends_on: depId })
+      } else if (!justified) {
+        violations.push({ check: 'false_edge', task: task.id, depends_on: depId })
+      }
+    }
+  }
+  for (const cyc of findDependencyCycles(tasks)) {
+    violations.push({ check: 'dependency_cycle', tasks: cyc })
+  }
+  return { violations, warnings }
+}
+
+// CHECK 3 — every criterion in Spec.acceptance claimed by exactly one task. Zero claimants is an orphan; more
+// than one is a duplicate, reported with every claiming task id (AC-8 claimed by all ten tasks lists all ten).
+// A task's criteria_ids entry absent from Spec.acceptance is reported too, against the claiming task.
+function checkCriterionCoverage({ spec, graph }) {
+  const violations = []
+  const claimants = new Map()
+  for (const task of graph?.tasks ?? []) {
+    for (const cid of task?.criteria_ids ?? []) {
+      if (!claimants.has(cid)) claimants.set(cid, [])
+      claimants.get(cid).push(task.id)
+    }
+  }
+  for (const c of spec?.acceptance ?? []) {
+    const claimedBy = claimants.get(c.id) ?? []
+    if (claimedBy.length === 0) violations.push({ check: 'orphan_criterion', criterion: c.id })
+    else if (claimedBy.length > 1) violations.push({ check: 'duplicate_criterion', criterion: c.id, tasks: claimedBy })
+  }
+  const acceptanceIds = new Set((spec?.acceptance ?? []).map(c => c.id))
+  for (const [cid, claimingTasks] of claimants) {
+    if (!acceptanceIds.has(cid)) {
+      for (const taskId of claimingTasks) violations.push({ check: 'unknown_criterion', task: taskId, criterion: cid })
+    }
+  }
+  return { violations }
+}
+
+// CHECK 5 (A6, folded in) — a surface under the repo's test_dir must never appear in Spec.touched_surfaces:
+// that hands the Test Author's job to the implementer, and the TestSet the Test Author would have produced
+// lands nowhere. test_dir is always treated as directory-shaped here (a trailing '/' is added if missing) so
+// a file under it is covered, while a same-prefix sibling directory ('substrate/testing/') never is.
+function checkTestSurfaces({ spec, test_dir }) {
+  const violations = []
+  const dir = String(test_dir ?? '')
+  const dirRef = dir.endsWith('/') ? dir : `${dir}/`
+  for (const surf of spec?.touched_surfaces ?? []) {
+    const ref = surfaceRef(surf)
+    if (withinOwned(ref, [dirRef], [])) {
+      violations.push({ check: 'spec_names_test_surface', ref })
+    }
+  }
+  return { violations }
+}
+
+// The whole lint, read-only over spec and graph (never mutated, never re-decomposed, never repaired). Callers
+// decide what a violation means for the gate; this only reports. gate_required is true iff violations is
+// non-empty — warnings never gate on their own.
+function lintGraph({ spec, graph, test_dir }) {
+  const reach = checkCriterionReachability({ spec, graph })
+  const edges = checkFalseEdges({ spec, graph })
+  const coverage = checkCriterionCoverage({ spec, graph })
+  const testSurfaces = checkTestSurfaces({ spec, test_dir })
+  const violations = [...reach.violations, ...edges.violations, ...coverage.violations, ...testSurfaces.violations]
+  const warnings = [...reach.warnings, ...edges.warnings]
+  const criteria = (spec?.acceptance ?? []).map(c => ({ id: c.id, ...classifyCriterion(c) }))
+  return { violations, warnings, criteria, gate_required: violations.length > 0 }
+}
+// ---- END graph-lint ----
+
 // =====================================================================
 phase('Plan')
 const { selected, skipped, planned_tokens } = planIteration(A.workItems, A.capacity?.tokens)
@@ -137,13 +406,27 @@ const specced = (await pipeline(selected, async (w) => {
   if (!risk || !graph) return null
 
   const ruleReasons = codeRisk(spec)
-  const high = ruleReasons.length > 0 || risk.risk === 'high'
+  const ruleHigh = ruleReasons.length > 0 || risk.risk === 'high'
   if (ruleReasons.length) log(`${w.id}: high by rule (${ruleReasons[0]})`)
+
+  // Graph lint: the decomposition rules stated in the Decomposer prompt above, checked in code (CLAUDE.md
+  // rule 3), zero tokens. Never repairs, re-decomposes or fails the run — it only reports, and a violation
+  // gates the spec for a human even when the router said low.
+  const TEST_DIR = A.test_dir ?? `${A.repo}/test`
+  const lint = lintGraph({ spec, graph, test_dir: TEST_DIR })
+  for (const v of lint.violations) log(`${w.id}: graph lint violation [${v.check}] ${JSON.stringify(v)}`)
+  for (const wn of lint.warnings) log(`${w.id}: graph lint warning [${wn.check}] ${JSON.stringify(wn)}`)
+  const lintReasons = lint.violations.map(v => `graph lint: ${v.check} ${JSON.stringify(v)}`)
+  const gatePending = ruleHigh || lint.gate_required
+
   return {
-    spec: { ...spec, risk: high ? 'high' : 'low', risk_reasons: [...ruleReasons.map(r => `rule: ${r}`), ...risk.reasons],
-            gate: high ? 'pending' : 'not_required',
+    spec: { ...spec, risk: ruleHigh ? 'high' : 'low',
+            risk_reasons: [...ruleReasons.map(r => `rule: ${r}`), ...risk.reasons, ...lintReasons],
+            gate: gatePending ? 'pending' : 'not_required',
             provenance: stamp('spec_writer', MODEL.strong, 'hotl') },
     graph: { ...graph, provenance: stamp('decomposer', MODEL.cheap, 'dark_factory') },
+    lint: { violations: lint.violations, warnings: lint.warnings, criteria: lint.criteria, gate_required: lint.gate_required,
+            provenance: stamp('graph_lint', 'n/a', 'hotl') },
   }
 })).filter(Boolean)
 
