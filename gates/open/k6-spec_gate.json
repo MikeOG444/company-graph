@@ -1,0 +1,232 @@
+{
+  "id": "k6-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "k6",
+  "workflow": "build-spec",
+  "status": "open",
+  "opened_at": "2026-09-24T23:51:58.713Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k6",
+    "created_at": "2026-09-24T23:51:58.713Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec_id": "spec-wi-a5-agent-least-privilege",
+    "work_item_id": "wi-a5-agent-least-privilege",
+    "risk": "low",
+    "gated_by": "graph_lint",
+    "gate_note": "Risk router and the code rule both returned LOW. This gate is opened entirely by graph-lint (B3), which is the first time the line has gated a spec on its decomposition rather than on blast radius.",
+    "criteria_count": 13,
+    "tasks": [
+      {
+        "id": "t1-agent-definitions",
+        "owned": [
+          ".claude/agents/spec.md",
+          ".claude/agents/route.md",
+          ".claude/agents/decompose.md",
+          ".claude/agents/escalate.md",
+          ".claude/agents/tiebreak.md",
+          ".claude/agents/dispute.md",
+          ".claude/agents/classify.md",
+          ".claude/agents/surfaces.md",
+          ".claude/agents/stack.md",
+          ".claude/agents/seed.md",
+          ".claude/agents/incident.md",
+          ".claude/agents/integrate-resolve.md",
+          ".claude/agents/notes.md"
+        ],
+        "depends_on": [],
+        "criteria_ids": [
+          "AC-6",
+          "AC-9",
+          "AC-10"
+        ]
+      },
+      {
+        "id": "t2-workflow-bindings",
+        "owned": [
+          ".claude/workflows/build-spec.js",
+          ".claude/workflows/build-implement.js",
+          ".claude/workflows/build-reentry.js",
+          ".claude/workflows/create-project.js",
+          ".claude/workflows/launch.js",
+          ".claude/workflows/maintain-triage.js",
+          ".claude/workflows/deploy.js",
+          ".claude/workflows/improve-analyze.js",
+          ".claude/workflows/memory-roll.js"
+        ],
+        "depends_on": [
+          "t1-agent-definitions"
+        ],
+        "criteria_ids": [
+          "AC-1",
+          "AC-5",
+          "AC-7",
+          "AC-8",
+          "AC-13"
+        ]
+      },
+      {
+        "id": "t3-agent-binding-test",
+        "owned": [
+          "substrate/test/agent-binding.test.js",
+          "substrate/test/agent-binding-helpers.js"
+        ],
+        "depends_on": [
+          "t1-agent-definitions",
+          "t2-workflow-bindings"
+        ],
+        "criteria_ids": [
+          "AC-2",
+          "AC-3",
+          "AC-4",
+          "AC-6",
+          "AC-9",
+          "AC-11",
+          "AC-12"
+        ]
+      }
+    ],
+    "lint": {
+      "gate_required": true,
+      "violations": [
+        {
+          "check": "criterion_reachability",
+          "task": "t1-agent-definitions",
+          "criterion": "AC-10",
+          "path": ".claude/agents"
+        },
+        {
+          "check": "criterion_reachability",
+          "task": "t3-agent-binding-test",
+          "criterion": "AC-2",
+          "path": ".claude/agents"
+        },
+        {
+          "check": "false_edge",
+          "task": "t2-workflow-bindings",
+          "depends_on": "t1-agent-definitions"
+        },
+        {
+          "check": "false_edge",
+          "task": "t3-agent-binding-test",
+          "depends_on": "t1-agent-definitions"
+        },
+        {
+          "check": "false_edge",
+          "task": "t3-agent-binding-test",
+          "depends_on": "t2-workflow-bindings"
+        },
+        {
+          "check": "duplicate_criterion",
+          "criterion": "AC-6",
+          "tasks": [
+            "t1-agent-definitions",
+            "t3-agent-binding-test"
+          ]
+        },
+        {
+          "check": "duplicate_criterion",
+          "criterion": "AC-9",
+          "tasks": [
+            "t1-agent-definitions",
+            "t3-agent-binding-test"
+          ]
+        },
+        {
+          "check": "spec_names_test_surface",
+          "ref": "substrate/test/agent-binding.test.js"
+        },
+        {
+          "check": "spec_names_test_surface",
+          "ref": "substrate/test/agent-binding-helpers.js"
+        }
+      ],
+      "warning_count": 18,
+      "criteria": [
+        {
+          "id": "AC-1",
+          "verification": "test"
+        },
+        {
+          "id": "AC-2",
+          "verification": "test"
+        },
+        {
+          "id": "AC-3",
+          "verification": "test"
+        },
+        {
+          "id": "AC-4",
+          "verification": "test"
+        },
+        {
+          "id": "AC-5",
+          "verification": "test"
+        },
+        {
+          "id": "AC-6",
+          "verification": "test"
+        },
+        {
+          "id": "AC-7",
+          "verification": "test"
+        },
+        {
+          "id": "AC-8",
+          "verification": "test"
+        },
+        {
+          "id": "AC-9",
+          "verification": "test"
+        },
+        {
+          "id": "AC-10",
+          "verification": "test"
+        },
+        {
+          "id": "AC-11",
+          "verification": "test"
+        },
+        {
+          "id": "AC-12",
+          "verification": "test"
+        },
+        {
+          "id": "AC-13",
+          "verification": "panel",
+          "matched": "call is added"
+        }
+      ]
+    },
+    "risk_reasons": [
+      "No changes to stored data shapes or contracts (workflows produce identical outputs per AC-13)",
+      "No auth, secrets, payments, or deployed infrastructure touched; purely internal agent toolset configuration",
+      "Not irreversible; agent definitions and tests can be changed or rolled back if needed",
+      "No existing route contracts broken; AC-13 guarantees same inputs/outputs and no re-tiering or re-labeling",
+      "No external consumers affected (Venture 0 is self-contained; client is self)",
+      "Only internal scaffolding changes (workflow agent definitions, test files, agent capability bindings)",
+      "Preserves all existing decision logic and workflow behavior; changes only tool constraints, not prompts or structure",
+      "Additive safety and hygiene improvement to the build system itself",
+      "graph lint: criterion_reachability {\"check\":\"criterion_reachability\",\"task\":\"t1-agent-definitions\",\"criterion\":\"AC-10\",\"path\":\".claude/agents\"}",
+      "graph lint: criterion_reachability {\"check\":\"criterion_reachability\",\"task\":\"t3-agent-binding-test\",\"criterion\":\"AC-2\",\"path\":\".claude/agents\"}",
+      "graph lint: false_edge {\"check\":\"false_edge\",\"task\":\"t2-workflow-bindings\",\"depends_on\":\"t1-agent-definitions\"}",
+      "graph lint: false_edge {\"check\":\"false_edge\",\"task\":\"t3-agent-binding-test\",\"depends_on\":\"t1-agent-definitions\"}",
+      "graph lint: false_edge {\"check\":\"false_edge\",\"task\":\"t3-agent-binding-test\",\"depends_on\":\"t2-workflow-bindings\"}",
+      "graph lint: duplicate_criterion {\"check\":\"duplicate_criterion\",\"criterion\":\"AC-6\",\"tasks\":[\"t1-agent-definitions\",\"t3-agent-binding-test\"]}",
+      "graph lint: duplicate_criterion {\"check\":\"duplicate_criterion\",\"criterion\":\"AC-9\",\"tasks\":[\"t1-agent-definitions\",\"t3-agent-binding-test\"]}",
+      "graph lint: spec_names_test_surface {\"check\":\"spec_names_test_surface\",\"ref\":\"substrate/test/agent-binding.test.js\"}",
+      "graph lint: spec_names_test_surface {\"check\":\"spec_names_test_surface\",\"ref\":\"substrate/test/agent-binding-helpers.js\"}"
+    ],
+    "spec_ref": ".artifacts/build-spec/k6/specs/spec-wi-a5-agent-least-privilege.json",
+    "graph_ref": ".artifacts/build-spec/k6/graphs/spec-wi-a5-agent-least-privilege.json"
+  }
+}
