@@ -9,7 +9,8 @@ export const meta = {
 }
 
 // args: { brief: ProjectBrief (status "signed"; small enough to inline), gate: { gate_id }, repo, run_id, now,
-//         hosting?: overrides brief.hosting (same shape), id_prefix?: work item id prefix (default "wi-<run_id>-") }
+//         hosting?: overrides brief.hosting (same shape), id_prefix?: work item id prefix (default "wi-<run_id>-"),
+//         agent_types?: false, missing_agent_types?: [name] }
 //   repo: a directory of THIS git repository that holds (or will hold) the app, e.g. "toy". Scaffolding an empty
 //         directory is supported by the same node; the toy already exists so here it only verifies and installs.
 // returns: Workspace (contracts.schema.json), or { refused: true, reason } — never a half-provisioned Workspace.
@@ -20,7 +21,12 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
+// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
+// constraint that matters is also stated inline in the prompts below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const brief = A.brief
 const project = brief.id
@@ -66,8 +72,10 @@ if (hosting.app_dir !== A.repo) return refuse(`hosting.app_dir "${hosting.app_di
 // Stack Selector: judgment only when the Brief leaves it open. With stack_preferences the decision is code.
 const stack = brief.stack_preferences?.length
   ? { runtime: brief.stack_preferences[0], framework: brief.stack_preferences[1] ?? '', test_runner: brief.stack_preferences[2] ?? '', reasons: ['from brief.stack_preferences'] }
-  : await agent(`Choose a stack for this project: runtime, framework, test runner, with reasons. Constraints: ${JSON.stringify(brief.constraints ?? [])}.
-                 Problem: ${brief.problem}. Prefer boring, well-known choices.`, { label: 'stack', model: MODEL.cheap, schema: StackDecision })
+  : await agent(`Choose a stack for this project: runtime, framework, test runner, with reasons. Do not create, edit or delete
+                 any file, and do not run any command that changes the repository — you choose, the Repo Scaffolder builds.
+                 Constraints: ${JSON.stringify(brief.constraints ?? [])}.
+                 Problem: ${brief.problem}. Prefer boring, well-known choices.`, { label: 'stack', model: MODEL.cheap, ...AT('stack'), schema: StackDecision })
 if (!stack) return refuse('stack selection failed')
 
 // Three independent inputs → three concurrent lines: (Scaffolder → CI) ∥ Seeder. Envs/observability/comms are code and cost nothing.
@@ -87,11 +95,13 @@ const [repoLine, seed] = await parallel([
       { label: 'ci', model: MODEL.cheap, ...AT('mechanical'), schema: CiResult })
     return { handle, ci }
   },
-  () => agent(`Backlog Seeder. Turn each line of the Brief's initial_scope into one WorkItem seed: a title, a one-paragraph intent (why it exists
+  () => agent(`Backlog Seeder. Do not create, edit or delete any file, and do not run any command that changes the repository —
+       you seed the backlog description, you never scaffold or write code. Turn each line of the Brief's initial_scope into one
+       WorkItem seed: a title, a one-paragraph intent (why it exists
        and what "done" looks like, from the Brief's problem, users and success metrics), and a priority (1 = first). Split a line only if it clearly
        names two independent deliverables. Do not invent scope. Brief: ${JSON.stringify({ problem: brief.problem, users: brief.users,
        success_metrics: brief.success_metrics, constraints: brief.constraints, initial_scope: brief.initial_scope })}.`,
-    { label: 'seed', model: MODEL.cheap, schema: Seed }),
+    { label: 'seed', model: MODEL.cheap, ...AT('seed'), schema: Seed }),
 ])
 if (!repoLine?.handle) return refuse('scaffolder failed')
 if (!repoLine.handle.stack_ok) return refuse(`./${A.repo}/ exists but is not a ${stack.framework || stack.runtime} app`)

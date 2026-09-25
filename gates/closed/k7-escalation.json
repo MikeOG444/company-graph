@@ -1,0 +1,59 @@
+{
+  "id": "k7-escalation",
+  "gate": "escalation",
+  "run_id": "k7",
+  "workflow": "build-implement",
+  "status": "decided",
+  "opened_at": "2026-09-25T22:45:34.000Z",
+  "options": [
+    "direct_drive",
+    "guide",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k7",
+    "created_at": "2026-09-25T22:45:34.000Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "run_id": "k7",
+    "workflow": "build-implement",
+    "spec": "spec-wi-a5-agent-least-privilege",
+    "escalations": [
+      {
+        "task_id": "t2-workflow-bindings",
+        "reason": "no_fresh_findings",
+        "facts": "12 sibling_owner strays: t2 wrote .claude/agents/{spec-writer,risk-router,decomposer,escalation-packager,tiebreak-judge,dispute-checker,integrator,patch-classifier,surface-namer,stack-selector,backlog-seeder,incident-narrator}.md inside t1's owned surface; 0 unowned."
+      },
+      {
+        "task_id": "t1-agent-definitions",
+        "reason": "budget",
+        "facts": "r1 correctness lens F1 (target test, high): the Test Author's helper resolved REPO three levels above .artifacts/tests/<task>/, i.e. the main checkout, never the task worktree. 170609 tokens against an 83333 round ceiling."
+      }
+    ],
+    "root_cause": "An interface value (the agentType name string) was DEFINED by one task and CONSUMED by its sibling, with no edge and no value in the spec to carry it. Nobody knew the names at spec time; they only came into existence during implementation. This is not a spec-writing omission a human could reliably have prevented.",
+    "assessment": "The line cannot recover from this on its own today. A3's boundary check detected it correctly and attributed every stray to the right sibling, but detection ends in an escalation, not a repair.",
+    "patches_ref": "ledger/runs/k7/",
+    "options": [
+      "direct_drive",
+      "guide",
+      "kill_to_spec"
+    ],
+    "provenance": {
+      "node": "escalation",
+      "executor": "ai_agent",
+      "method": "hitl",
+      "run_id": "k7",
+      "created_at": "2026-09-25T22:45:34Z"
+    }
+  },
+  "decision": {
+    "option": "direct_drive",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-25T22:45:41.000Z",
+    "note": "Decided by the human in chat: direct drive, deliberately, so the intervention is on the record as an artifact to engineer away rather than hidden by pre-naming the interface in the spec (kill_to_spec rejected for that reason: the value that would have to be named is typically unknowable at spec time). Driven by hand in session: took t1's 12 definitions (the owner's; t2's 12 strays discarded), applied t2's workflow edits and rebound its 12 invented names to t1's. Landed the Test Author's 42 tests as substrate/test/a5-*.test.js with three test fixes: REPO re-pointed two levels up; AC-6 now strips the closing quote from labels; the scanner counts a computed AT(`lens-${...}`) spread as bound. Verified: 15 unbound sites to 0; labels/tiers/schemas/structure identical in all nine files; original prompt sentences intact; two planted mutations (unbind route; give spec Bash) each turned 5-6 tests red; root 216/216, toy 60/60. Not re-panelled."
+  }
+}

@@ -7,7 +7,8 @@ export const meta = {
   ],
 }
 
-// args: { bundle_ref, spec_refs: [path], repo, run_id, now, base_ref? (default "main"), project_id? }
+// args: { bundle_ref, spec_refs: [path], repo, run_id, now, base_ref? (default "main"), project_id?,
+//         agent_types?: false, missing_agent_types?: [name] }
 //   bundle_ref: path to the EvidenceBundle JSON — either a bare bundle or a ledger run file (ledger/runs/<run>-build-implement.json,
 //               whose .result is the bundle). Bundles are large (every panel round); they cross this edge by ref and a mechanical
 //               agent returns only the digest Preflight needs.
@@ -20,7 +21,12 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
+// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
+// constraint that matters is also stated inline in the prompts below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const BASE = A.base_ref ?? 'main'
 
@@ -75,7 +81,7 @@ const [pre, notes] = await parallel([
   () => agent(`Release Notes Writer. Read each spec at ${JSON.stringify(A.spec_refs ?? [])} and write user-facing release notes: one headline per spec
        (what changed for the API's users, not how), then a short "behavior changes" list. No internal ids in the prose. Write the markdown to
        .artifacts/launch/${A.run_id}.notes.md and return that path, a summary under 900 characters, and one headline per spec_id.`,
-    { label: 'notes', model: MODEL.cheap, schema: Notes }),
+    { label: 'notes', model: MODEL.cheap, ...AT('mechanical'), schema: Notes }),
 ])
 if (!pre?.digest) return { failed: true, reason: 'bundle digest failed', provenance: stamp('launch', 'n/a', 'hitl') }
 if (!pre.artifact || !pre.queue) return { failed: true, reason: 'artifact check or gate queue read failed', provenance: stamp('launch', 'n/a', 'hitl') }

@@ -16,7 +16,7 @@ export const meta = {
 //         gate?: { gate_id },                                 // the CLOSED sev1_page record. Required when any patch is sev1.
 //         ratio?: { guardrail (0.5), default_maintain (0.2),
 //                   history: [{ iteration, actual_maintain, breach }] },  // pass [] to assert "no prior breach"; absent is not assumed
-//         starvation_threshold? (2), artifact_dir?, new_agent_types?: false }
+//         starvation_threshold? (2), artifact_dir?, agent_types?: false, missing_agent_types?: [name] }
 // returns: { work_items: WorkItem[] (ordered), plan: ReentryPlan, deferred, starved_items,
 //            gate?: { gate: 'ratio_gate', options, next, payload_ref }, refs, provenance }
 //          or { refused: true, reason } when a sev1 patch arrives without a decided sev1_page, or a breach cannot be judged.
@@ -41,7 +41,12 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
+// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
+// constraint that matters is also stated inline in the prompts below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const ART = A.artifact_dir ?? '.artifacts'
 const DIR = `${ART}/reentry/${A.run_id}`
@@ -99,7 +104,9 @@ if (sev1Patches.length && !A.gate?.gate_id) return refuse(`${sev1Patches.length}
 
 // One barrier, and it is the one §3 names: the Merge Planner needs every classification, the gate record and every surface set.
 const thunks = [
-  ...patches.map(p => () => agent(`Classify one Patch for Build re-entry and write the WorkItem it becomes. Read its diff at ${p.change_set.diff_ref} and the repo (app at ./${A.repo}/).
+  ...patches.map(p => () => agent(`Classify one Patch for Build re-entry and write the WorkItem it becomes. Do not create, edit
+       or delete any file, and do not run any command that changes the repository — you classify only. Read its diff at
+       ${p.change_set.diff_ref} and the repo (app at ./${A.repo}/).
        urgency: "hotfix" only if production is currently wrong for users in a way that cannot wait for the normal iteration — otherwise "routine".
          Severity is evidence, not the answer: a sev1 whose mitigation is still holding production can be routine, and a sev2 that corrupts stored data cannot.
        urgency_reason: one sentence, from the diff and the cause.
@@ -107,11 +114,12 @@ const thunks = [
        title: imperative, under 120 characters, no ids. intent: one paragraph a Spec Writer can work from — the defect, the user-visible symptom, and that a
          regression test already exists on branch ${p.change_set.branch ?? '(none)'}. Never describe the fix as optional.
        Patch (diff by ref, never inlined): ${JSON.stringify({ id: p.id, severity: p.severity, signal_ids: p.signal_ids, cause: p.cause, repro: { status: p.repro?.status, steps: p.repro?.steps, observed: p.repro?.observed, expected: p.repro?.expected }, verification: p.verification?.verified, branch: p.change_set.branch, base_commit: p.change_set.base_commit })}`,
-    { label: `classify:${p.id}`, phase: 'Classify', model: MODEL.cheap, schema: Classification }).then(c => c && { kind: 'patch', patch: p, c })),
+    { label: `classify:${p.id}`, phase: 'Classify', model: MODEL.cheap, ...AT('classify'), schema: Classification }).then(c => c && { kind: 'patch', patch: p, c })),
   ...improveItems.filter(w => !(w.surfaces?.length)).map(w => () => agent(`Name the surfaces this work item would touch, so conflict detection has something to overlap on.
+       Do not create, edit or delete any file, and do not run any command that changes the repository — you name surfaces only.
        Read the app at ./${A.repo}/. Repository-relative refs, narrowest that is honest; [] is a valid answer when the intent names nothing in the code.
        Work item: ${JSON.stringify({ id: w.id, title: w.title, intent: w.intent })}`,
-    { label: `surfaces:${w.id}`, phase: 'Classify', model: MODEL.cheap, schema: Surfaces }).then(s => s && { kind: 'surfaces', item: w, s })),
+    { label: `surfaces:${w.id}`, phase: 'Classify', model: MODEL.cheap, ...AT('surfaces'), schema: Surfaces }).then(s => s && { kind: 'surfaces', item: w, s })),
   ...(A.gate?.gate_id ? [() => agent(`Run from the repo root: node substrate/gates.js show ${A.gate.gate_id}. Report found, status, gate, decision.option ("" if none),
        payload.project_id ("" if absent), payload.signal_ids ([] if absent), decision.decided_by, decision.decided_at, decision.note ("" if none).
        Copy, never interpret. If the command fails, found=false and the error text in note.`,

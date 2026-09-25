@@ -26,6 +26,8 @@ export const meta = {
 //   verify_only: { [task_id]: { branch, base } } — re-panel an EXISTING branch: no implementer; a mechanical agent checks it out
 //         and writes the diff base...branch; test author, panel, fix loop and integration run as usual. For re-verification
 //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
+//   agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
+//   missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
 // returns: EvidenceBundle (see contracts.schema.json)
 //
 // Human touchpoints: none inside this run. Escalations come back in the bundle;
@@ -42,9 +44,13 @@ const SEV = { high: 0, medium: 1, low: 2 }
 const TASK_TOKENS = A.budget?.task_tokens ?? 250000
 const ART = A.artifact_dir ?? '.artifacts'
 const BASE = A.base ?? 'HEAD'
-// .claude/agents/ definitions register at session start; a session that predates them must pass agent_types:false
-// (an unknown agentType throws and drops the task).
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule, so an agent committed mid-session is unavailable to the next run and available some minutes later.
+// agent_types:false drops every binding (a session that predates .claude/agents/ registering at all); missing_agent_types
+// names the individual types THIS run's runtime has not yet registered, so AT() drops only those. When a type is
+// dropped its ROLE PROMPT goes with it, so every constraint that matters is also stated inline in the prompts below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const APP = `${A.repo}`
 // Where landed TestSets go, relative to the worktree root. Defaults to <repo>/test, which is right for an app like
 // toy/. It is NOT right for venture-0 work on the plant itself: there repo is "." and the runner's glob is
@@ -714,11 +720,13 @@ async function runTask({ spec, task, spec_ref }) {
           ? `. Task ${strayedIntoMe[0].straying_task_id} was recorded straying into this task's owned surfaces at ${strayedIntoMe.map(s => s.ref).join(', ')} — that almost certainly explains the empty diff.`
           : (deps.length ? `. Its dependency ${deps.map(d => d.task.id).join(', ')} may already carry this task's work — check whether that implementer wrote outside its owned surfaces.` : '.'))
     log(why)
-    const esc = await agent(`Write an Escalation for a human. Reason: cannot_repro. History: ${JSON.stringify([why])}.
+    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+                             command that changes the repository — you package the escalation, you never fix it.
+                             Reason: cannot_repro. History: ${JSON.stringify([why])}.
                              Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
                              ${specText}. The task produced no reviewable change, so no panel was run and no round was spent.
                              One-line hypothesis for why the diff is empty. Options: guide, direct_drive, kill_to_spec.`,
-      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
+      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
     if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'cannot_repro', repeats: [], disputes_lost: [] })
     return { spec, task, passed: false, skipped: false }
   }
@@ -767,12 +775,14 @@ async function runTask({ spec, task, spec_ref }) {
     boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
     const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
     lines.forEach(l => ctx.history.push(l))
-    const esc = await agent(`Write an Escalation for a human. Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+                             command that changes the repository — you package the escalation, you never fix it.
+                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
                              Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
                              ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
                              disjoint across tasks in the same spec); no panel was run and no round was spent on it.
                              One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
-      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
+      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
     if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
   }
   if (initialBoundary.verdict === 'violation') { await escalateBoundaryViolation(initialBoundary); return { ...ctx, passed: false } }
@@ -851,8 +861,9 @@ async function runTask({ spec, task, spec_ref }) {
 
     let { result, veto_by, split } = adjudicate(verdicts)
     if (split) {
-      const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. ${specText}. Change: ${JSON.stringify(diffOnly)}.`,
-        { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, schema: Verdict })
+      const tie = await agent(`Adjudicate a split review. Do not create, edit or delete any file, and do not run any
+               command that changes the repository — you adjudicate, you never patch. Verdicts: ${JSON.stringify(verdicts)}. ${specText}. Change: ${JSON.stringify(diffOnly)}.`,
+        { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, ...AT('tiebreak'), schema: Verdict })
       if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
     }
     const findings = dedupe(verdicts.flatMap(v => v.findings))
@@ -866,11 +877,13 @@ async function runTask({ spec, task, spec_ref }) {
     // Defined before the pass/fail branch below so the pass branch's roundOutcome guard can call it too.
     const escalate = async (reason, open) => {
       const repeats = open.filter(f => ctx.overruled.some(o => o.lens === f.lens && fileOf(o.location) === fileOf(f.location)))
-      const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
+      const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+                               command that changes the repository — you package the escalation, you never fix it.
+                               Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
                                Open findings: ${JSON.stringify(open)}. Repeats: ${JSON.stringify(repeats)}.
                                Disputes lost (fixer disputed, judge upheld): ${JSON.stringify(ctx.upheld)}. Overruled by judge: ${JSON.stringify(ctx.overruled)}.
                                ${specText}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
-        { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
+        { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
       if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
       return { ...ctx, passed: false }
     }
@@ -1026,10 +1039,11 @@ async function runTask({ spec, task, spec_ref }) {
     if (disputed.length) {
       // Its ruling crosses two edges: the next round's lens prompt and the Escalation.
       rulings = await parallel(disputed.map(x => () =>
-        agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.notes}.
+        agent(`Rule on a disputed finding. Do not create, edit or delete any file, and do not run any command that changes
+               the repository — you rule, you never patch. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.notes}.
                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
-          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
+          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('dispute'), schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
       // Compare against rulings from EARLIER rounds only: the guard catches a lens re-raising after being overruled, not several
       // overrules inside one round (r6 escalated a green change on that mistake).
       const priorOverruled = [...ctx.overruled]
@@ -1164,7 +1178,7 @@ if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || (suit
                                 Carry forward tests_landed ${JSON.stringify(suite.tests_landed ?? [])} and tests_skipped ${JSON.stringify(suite.tests_skipped ?? [])} unchanged
                                 unless you changed which tests are present. Then run \`git rev-parse HEAD\` in that worktree and return its FULL
                                 40-character sha as integration_commit — your commit, not the one the mechanical merge reported. Copy it exactly; omit it if the command fails.`,
-    { label: 'integrate:resolve', model: MODEL.strong, schema: Suite })
+    { label: 'integrate:resolve', model: MODEL.strong, ...AT('integrate-resolve'), schema: Suite })
   if (resolved) finalSuite = resolved
 }
 

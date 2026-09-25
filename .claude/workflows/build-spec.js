@@ -4,13 +4,18 @@ export const meta = {
   phases: [{ title: 'Plan', detail: 'select work items within capacity — script code, zero tokens' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
 }
 
-// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir? }
+// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir?,
+//         agent_types?: false, missing_agent_types?: [name] }
 //   project_context: one sentence about the venture the router should know (e.g. "client: self, no external consumers yet").
 //   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
 //   test_dir: where TestSets land, relative to the worktree root (default "${repo}/test", matching
 //             build-implement.js's test_dir semantics). Used only by graph-lint's test-dir-surfaces check
 //             (B3, folding in A6): a spec that names a path under test_dir in touched_surfaces hands the
 //             Test Author's job to the implementer, so it gates the spec for a human at the Spec Gate.
+//   agent_types: false drops every agentType binding (a session that predates .claude/agents/ registering at all).
+//   missing_agent_types: names the agentTypes THIS run's runtime has not yet registered (committing one is necessary
+//             but not sufficient — the runtime rescans on its own schedule); AT() drops only those, not every type,
+//             so every constraint that matters is also stated inline in the prompts below and survives the drop.
 // returns: { ready: [{spec, graph, lint}], gated: [{spec, graph, lint}], provenance }
 //
 // The human reviews `gated` in chat, then runs:
@@ -18,6 +23,8 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 // Where TestSets land, relative to the worktree root — build-implement.js's `test_dir` semantics and default.
 // Read once here, not per work item: it is a property of the run, not of the item being specced.
 const TEST_DIR = A.test_dir ?? `${A.repo}/test`
@@ -385,16 +392,18 @@ const specced = (await pipeline(selected, async (w) => {
      Surface refs are repository-relative paths (e.g. ${A.repo}/src/app.js).
      Acceptance criteria must be testable Given/When/Then. List every touched surface and what is out of scope.
      Work item: ${JSON.stringify(w)}`,
-    { label: `spec:${w.id}`, model: MODEL.strong, schema: Spec })
+    { label: `spec:${w.id}`, model: MODEL.strong, ...AT('spec'), schema: Spec })
   if (!spec) return null
 
   // Router and Decomposer both consume only the Spec — run together.
   const [risk, graph] = await parallel([
-    () => agent(`Classify blast radius of this spec as low or high, with reasons. ${A.project_context ? `Project context: ${A.project_context}. ` : ''}
+    () => agent(`Classify blast radius of this spec as low or high, with reasons. Do not create, edit or delete any file, and do
+                 not run any command that changes the repository — you classify only. ${A.project_context ? `Project context: ${A.project_context}. ` : ''}
                  High ONLY if it changes the stored data shape, touches auth/secrets/payments/infra, is irreversible, or BREAKS an existing
                  route's contract for existing clients (an additive route, field, or query parameter is low). Spec: ${JSON.stringify(spec)}`,
-      { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
+      { label: `route:${w.id}`, model: MODEL.cheap, ...AT('route'), schema: Risk }),
     () => agent(`Decompose this spec into IMPLEMENTATION tasks with DISJOINT owned surfaces (no two tasks may own the same path).
+                 Do not create, edit or delete any file, and do not run any command that changes the repository — you plan the split only.
                  Never create a task whose only job is writing tests or documentation. A separate Test Author writes tests from the
                  spec, so criteria about existing tests passing or npm test exiting 0 belong to the implementation task that touches
                  the code. A DOCUMENTATION criterion resolves the same way: it belongs to the implementation task that owns the code
@@ -407,7 +416,7 @@ const specced = (await pipeline(selected, async (w) => {
                  require it to write must appear in that task's owned_surfaces — a criterion assigned to a task that may not touch the
                  file it names is unsatisfiable, and the fix loop cannot close it (rulings r5, c1).
                  App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
-      { label: `decompose:${w.id}`, model: MODEL.cheap, schema: TaskGraph }),
+      { label: `decompose:${w.id}`, model: MODEL.cheap, ...AT('decompose'), schema: TaskGraph }),
   ])
   if (!risk || !graph) return null
 
