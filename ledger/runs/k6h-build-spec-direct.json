@@ -179,9 +179,10 @@
           "risk_reasons": [
             "rule: no high-risk surface kind and no sensitive ref among the ten touched surfaces",
             "router k6 (haiku): low — no stored data shape, no auth/secrets/payments/infra, reversible, no external consumer",
-            "graph lint k6h: 0 violations, 15 warnings (all undecidable: a criterion naming no path, or a path outside touched_surfaces)"
+            "graph lint k6h: 0 violations, 15 warnings (all undecidable: a criterion naming no path, or a path outside touched_surfaces)",
+            "gate: pending — k6-spec_gate was decided revise, which is not an approval to build; the corrected Spec and the hand-authored TaskGraph are decided at k6h-spec_gate"
           ],
-          "gate": "not_required",
+          "gate": "pending",
           "provenance": {
             "node": "spec_writer",
             "executor": "human_employee",

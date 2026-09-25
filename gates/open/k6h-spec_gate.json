@@ -1,0 +1,78 @@
+{
+  "id": "k6h-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "k6h",
+  "workflow": "build-spec-direct",
+  "status": "open",
+  "opened_at": "2026-09-25T00:12:18.657Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k6h",
+    "created_at": "2026-09-25T00:12:18.657Z"
+  },
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec_id": "spec-wi-a5-agent-least-privilege",
+    "work_item_id": "wi-a5-agent-least-privilege",
+    "risk": "low",
+    "supersedes": "k6-spec_gate (decided revise)",
+    "what_changed": "Spec corrected by hand after the k6 gate: two substrate/test surfaces dropped, test authorship restated in out_of_scope. Graph hand-authored after four agent decompositions failed the lint.",
+    "lint": {
+      "gate_required": false,
+      "violations": 0,
+      "warnings": 15
+    },
+    "criteria_count": 13,
+    "tasks": [
+      {
+        "id": "t1-agent-definitions",
+        "owned": [
+          ".claude/agents/"
+        ],
+        "depends_on": [],
+        "criteria_ids": [
+          "AC-2",
+          "AC-3",
+          "AC-10"
+        ]
+      },
+      {
+        "id": "t2-workflow-bindings",
+        "owned": [
+          ".claude/workflows/build-spec.js",
+          ".claude/workflows/build-implement.js",
+          ".claude/workflows/build-reentry.js",
+          ".claude/workflows/create-project.js",
+          ".claude/workflows/launch.js",
+          ".claude/workflows/maintain-triage.js",
+          ".claude/workflows/deploy.js",
+          ".claude/workflows/improve-analyze.js",
+          ".claude/workflows/memory-roll.js"
+        ],
+        "depends_on": [],
+        "criteria_ids": [
+          "AC-1",
+          "AC-4",
+          "AC-5",
+          "AC-6",
+          "AC-7",
+          "AC-8",
+          "AC-9",
+          "AC-11",
+          "AC-12",
+          "AC-13"
+        ]
+      }
+    ],
+    "provenance_note": "Spec and TaskGraph both carry executor human_employee / method direct_driver. A human authored the decomposition; the line did not.",
+    "durable_ref": "ledger/runs/k6h-build-spec-direct.json",
+    "estimate": "2 tasks. k3i was $5.54 for one task; expect roughly $6-12 and 1-2 hours wall clock."
+  }
+}
