@@ -19,8 +19,12 @@ export const meta = {
 //         live?: { env (e.g. "prod"), port, app, rollback_to_ref } — the sev1 mitigation target. Absent = no mitigation is
 //                possible and the page says so; a missing rollback_to_ref is never guessed at.
 //         health?: { period: {from,to}, slo: [{name,target,actual}], maintain_ratio?, improve_backlog?, prev?: {defects} },
+//         agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
+//         missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
 //         new_agent_types?: false — this phase added .claude/agents/{triage,reproducer,root-cause,patch-drafter}.md, which
-//                only register at session start; a session that predates them must pass false (they then run as plain tiered agents). }
+//                only register from the committed tree on the runtime's own delayed schedule; a session that predates them
+//                must pass false (they then run as plain tiered agents). Folded into AT()/missing_agent_types: it drops
+//                exactly those four types, same as naming them individually in missing_agent_types. }
 // returns: { patches: Patch[], parked: [{signal_id, repro}], dropped: {duplicates, noise}, triages: Triage[],
 //            health: HealthReport, mitigation?: Mitigation, incident?: IncidentRecord,
 //            gate?: { gate, options, next, payload_ref }, refs, provenance }
@@ -44,8 +48,15 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
-const NEW = (t) => (A.new_agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
+// has not yet registered, so AT() drops only those. new_agent_types:false folds into the same mechanism: it names
+// exactly the four types this phase added ({triage,reproducer,root-cause,patch-drafter}.md) so it keeps dropping
+// exactly those, same as naming them individually in missing_agent_types. When a type is dropped its ROLE PROMPT
+// goes with it, so every constraint that matters is also stated inline in the prompts below.
+const NEW_TYPES = ['triage', 'reproducer', 'root-cause', 'patch-drafter']
+const MISSING = new Set([...(A.missing_agent_types ?? []), ...(A.new_agent_types === false ? NEW_TYPES : [])])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const ART = A.artifact_dir ?? '.artifacts'
 const DIR = `${ART}/maintain/${A.run_id}`
@@ -224,7 +235,7 @@ const processed = (await pipeline(fresh, async (signal) => {
          security_exposure — is something reachable that should not be?
          scope — how many users the payload shows are affected. workaround — does the payload describe one that works?
        surfaces: the narrowest repository-relative surfaces the payload justifies. rationale: two sentences, quoting the payload.`,
-    { label: `triage:${signal.id}`, phase: 'Triage', model: MODEL.cheap, ...NEW('triage'), schema: TriageC })
+    { label: `triage:${signal.id}`, phase: 'Triage', model: MODEL.cheap, ...AT('triage'), schema: TriageC })
   if (!t0) return null
   const [severity, severity_rule] = routeSeverity(t0.facts)
   const triage = { ...t0, severity, severity_rule, signal_id: signal.id, provenance: stamp('triage', MODEL.cheap, 'dark_factory') }
@@ -254,7 +265,7 @@ const processed = (await pipeline(fresh, async (signal) => {
          ${n > 1 ? (repro?.status === 'reproduced'
            ? `Attempt ${n - 1} said it reproduced the defect but returned no failing_test_ref, so it does not count. What it reported: ${JSON.stringify(repro?.notes ?? '')}. If the test is already at ${testRef} and fails, re-run it to confirm and return that path.`
            : `Attempt ${n - 1} did not reproduce it. What it tried: ${JSON.stringify(repro?.notes ?? '')}. Try a different route, input shape, or sequence.`) : ''}`,
-      { label: `repro:${signal.id}:a${n}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('reproducer'), schema: ReproC })
+      { label: `repro:${signal.id}:a${n}`, phase: 'Diagnose', model: MODEL.mid, ...AT('reproducer'), schema: ReproC })
     if (!r) break
     repro = { ...r, signal_id: signal.id, attempts: n }
     if (r.status === 'reproduced' && r.failing_test_ref) break
@@ -273,7 +284,7 @@ const processed = (await pipeline(fresh, async (signal) => {
        One cause, one location (path:line). The hypothesis is the mechanism — what the code does and why it produces the observed output — not a fix and not a list.
        surfaces = the narrowest surfaces a fix must touch; the Patch Drafter will be held to them. suspect_commit only if the history actually points at one.
        Triage: ${JSON.stringify(triage)}. Repro: ${JSON.stringify({ steps: repro.steps, observed: repro.observed, expected: repro.expected })}.`,
-    { label: `rca:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('root-cause'), schema: CauseC })
+    { label: `rca:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...AT('root-cause'), schema: CauseC })
   if (!cause) { parked.push({ signal_id: signal.id, severity: triage.severity, repro, reason: 'root cause analysis returned nothing' }); return { signal, triage, parkedHere: true } }
   log(`${signal.id}: cause at ${cause.location} (confidence ${cause.confidence})`)
 
@@ -292,7 +303,7 @@ const processed = (await pipeline(fresh, async (signal) => {
           Leave task_id and spec_id unset: no Task and no Spec exist yet, and this change set acquires them when the patch enters Build.
        If the cause is wrong, change nothing and set notes to "DISPUTE: <what you ran and what it showed>".
        Cause: ${JSON.stringify(cause)}. Repro: ${JSON.stringify({ steps: repro.steps, observed: repro.observed, expected: repro.expected })}.`,
-    { label: `draft:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('patch-drafter'), schema: ChangeSetC })
+    { label: `draft:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...AT('patch-drafter'), schema: ChangeSetC })
   if (!cs || cs.notes?.startsWith('DISPUTE:')) {
     parked.push({ signal_id: signal.id, severity: triage.severity, repro, reason: cs?.notes ?? 'the patch drafter returned nothing' })
     log(`${signal.id}: no patch — ${cs?.notes ?? 'drafter returned nothing'}`)
@@ -355,7 +366,9 @@ let mitigation = null, incident = null
 if (sev1.length) {
   mitigation = await mitigationP
   const sev1Patches = sev1.filter(p => p.patch).map(p => p.patch)
-  const narrative = await agent(`Write the sev1 page a single human reads on their phone. Plain sentences, no ids in the prose, no reassurance.
+  const narrative = await agent(`Write the sev1 page a single human reads on their phone. Do not create, edit or delete any
+       file, and do not run any command that changes the repository or sends a page — you write the narrative, code decides
+       the page options and pages the human. Plain sentences, no ids in the prose, no reassurance.
        summary: what is broken and what was already done to production. impact: who is affected and how, from the signals only.
        lift_means: what changes if the human lifts the mitigation — be concrete about what returns to production.
        timeline: the ordered events you can justify from the data below, each with its timestamp (they all carry ${A.now}; that is the run's clock).
@@ -364,7 +377,7 @@ if (sev1.length) {
        Mitigation (this already happened, before anyone was paged): ${JSON.stringify(mitigation)}.
        Patches drafted so far: ${JSON.stringify(sev1Patches.map(p => ({ id: p.id, cause: p.cause.location, verified: p.verification.verified })))}.
        Parked signals: ${JSON.stringify(parked.filter(x => x.severity === 'sev1'))}.`,
-    { label: 'incident', phase: 'Incident', model: MODEL.mid, schema: IncidentNarrative })
+    { label: 'incident', phase: 'Incident', model: MODEL.mid, ...AT('incident'), schema: IncidentNarrative })
   // Code, not the agent: a failed mitigation never offers keep/lift. An unmitigated sev1 is acknowledged by name.
   const page_options = mitigation.applied ? ['keep_mitigation', 'lift_mitigation'] : ['direct_drive', 'accept_unmitigated']
   incident = {

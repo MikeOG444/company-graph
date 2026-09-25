@@ -1,0 +1,136 @@
+{
+  "entry": {
+    "id": "k5i-build-implement",
+    "run_id": "k5i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-14T02:57:10.422Z",
+    "finished_at": "2026-09-14T03:26:18.165Z",
+    "wall_clock_sec": 1748,
+    "result_ref": "ledger/runs/k5i-build-implement.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 559604,
+    "tokens_by_model": {
+      "claude-sonnet-5": 223541,
+      "claude-haiku-4-5": 233450,
+      "claude-opus-5": 102613
+    },
+    "cost_est_usd": 1.67,
+    "agents": 8,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k5i",
+      "created_at": "2026-09-14T02:55:23Z"
+    },
+    "trace_ref": ".artifacts/traces/k5i-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k5i",
+    "project_id": "venture0",
+    "iteration": 5,
+    "artifact_ref": "integration/k5i",
+    "integration_commit": "2ea1dee60927aef78b002bcd4e594779e07cb4d0",
+    "specs": [
+      "spec-wi-b3-graph-lint"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "cs-t-graph-lint-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified structural integrity: Both sentinel lines (BEGIN/END graph-lint) exist exactly once at lines 97 and 360; all 9 required functions are defined and extractable with new Function() as specified in AC-1.",
+              "Verified pure JavaScript implementation: Found no import, require, fs, Date.now, Math.random, or runtime binding references (args, A, log, agent, etc.) within the graph-lint block; all functions use only built-ins and explicitly passed parameters, satisfying AC-2.",
+              "Traced critical logic paths: Verified surfaceRef/withinOwned correctly normalize and check directory-shaped refs (AC-3); criterion_reachability distinguishes violations from undecidable warnings (AC-4, AC-6); false_edge detection properly validates edges by checking if dependent task's criteria name paths covered by depended task (AC-7, AC-8); coverage checking detects orphans/duplicates/unknowns (AC-12-14); classification correctly identifies panel vs test criteria (AC-15); test_dir is treated as directory-shaped (AC-17); Spec phase integration gates on violations, logs all findings, and includes lint object with provenance (AC-18, AC-20, AC-21); functions are read-only with no mutations (AC-19)."
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "cs-t-graph-lint-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k5i",
+              "created_at": "2026-09-14T02:55:23Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted path traversal via relative path syntax (../) in criterionPaths() regex extraction; code only performs string-based comparisons in withinOwned() and never interprets paths as filesystem operations, preventing traversal.",
+              "Attempted ReDoS via PATH_RE and PANEL_PATTERNS regex matching; neither regex exhibits catastrophic backtracking patterns, and execution time is linear with input length, preventing exponential computation.",
+              "Attempted sensitive data exposure through logging and violation object stringification at lines 417-419 and 424; violation objects contain only metadata (check type, task/criterion IDs, path names) never full criterion text, and criteria array excludes given/when/then content."
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "cs-t-graph-lint-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k5i",
+              "created_at": "2026-09-14T02:55:23Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "confidence": 0.99,
+            "attempts": [
+              "Task claiming duplicate criterion ID from multiple tasks: lintGraph detects via checkCriterionCoverage line 248, reports duplicate_criterion violation, blocks the attack",
+              "Task depending on non-existent task ID: lintGraph detects via checkFalseEdges line 275-277, reports unknown_dependency violation, blocks the attack",
+              "Spec touched_surfaces naming path under test_dir: lintGraph detects via checkTestSurfaces line 340, reports spec_names_test_surface violation and gates spec, blocks the attack"
+            ],
+            "findings": [],
+            "change_set_id": "cs-t-graph-lint-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k5i",
+              "created_at": "2026-09-14T02:55:23Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 1
+      }
+    ],
+    "suite": {
+      "passed": 174,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/k5i.json"
+    },
+    "tests_landed": [
+      "graph-lint-helpers.js",
+      "graph-lint.test.js"
+    ],
+    "tests_skipped": [],
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 212048,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k5i",
+      "created_at": "2026-09-14T02:55:23Z"
+    }
+  }
+}

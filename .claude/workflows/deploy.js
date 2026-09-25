@@ -18,7 +18,8 @@ export const meta = {
 //         watch?: { rounds (3), round_seconds (60), thresholds: { error_rate_delta (0.02), p95_factor (3), p95_floor_ms (25), min_requests (20) } }
 //         seed_regression?: string — TEST ONLY: a mutation a mechanical agent applies to the canary worktree before it
 //                        starts (the rollback drill in HANDOFF Phase 3). Recorded on the LaunchRecord so it can never
-//                        be mistaken for a real rollback. }
+//                        be mistaken for a real rollback.
+//         agent_types?: false, missing_agent_types?: [name] }
 // returns: LaunchRecord (contracts.schema.json); on veto { vetoed: true, work_item: WorkItem(source=launch_veto) };
 //          on a refused precondition { refused: true, reason }.
 //
@@ -27,7 +28,12 @@ export const meta = {
 
 const A = args
 const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
+// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
+// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
+// constraint that matters is also stated inline in the prompts below.
+const MISSING = new Set(A.missing_agent_types ?? [])
+const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
 const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
 const pkg = A.package
 const project = pkg.project_id

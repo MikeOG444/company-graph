@@ -1,0 +1,757 @@
+{
+  "entry": {
+    "id": "k3i-build-implement",
+    "run_id": "k3i",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-12T15:27:02.226Z",
+    "finished_at": "2026-09-12T16:59:58.422Z",
+    "wall_clock_sec": 5576,
+    "result_ref": "ledger/runs/k3i-build-implement.json",
+    "artifact_count": 14,
+    "escalations": 1,
+    "tokens": 2203507,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 1125597,
+      "claude-sonnet-5": 852209,
+      "claude-opus-5": 225701
+    },
+    "cost_est_usd": 5.54,
+    "agents": 37,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k3i",
+      "created_at": "2026-09-12T15:24:51Z"
+    },
+    "trace_ref": ".artifacts/traces/k3i-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k3i",
+    "project_id": "venture0",
+    "iteration": 3,
+    "artifact_ref": "integration/k3i",
+    "integration_commit": "2295de851b9031d96facb1236060785ea5d15efc",
+    "specs": [
+      "spec-wi-a7-test-dispute-unruled"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "a7-implement-fix-loop-r0",
+        "result": "fail",
+        "veto_by": "security",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to pass a task with an unresolved test-path dispute that no judge ruled on: roundOutcome guard at ./.claude/workflows/build-implement.js:868 checks carried.length and escalates when non-empty, preventing the pass",
+              "Attempted to route a test-path dispute to the code Fixer instead of the Dispute Checker: disputesToJudge at line 999 filters only by fixOutcome(r.notes), ignoring r.path, so test and code disputes are selected identically for judging",
+              "Attempted to silently drop a skipped test file that a repair actually edited: unlandedRepairs at line 1121 is called with tests_skipped and repaired_tests, matching basenames, and unlanded is interpolated into the integrate:resolve prompt at line 1134, forcing strong-model handling"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "a7-implement-fix-loop-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "fail",
+            "attempts": [
+              "Attempted path traversal via relative path sequences (../) in finding.location passed to testRepairTarget; code constructs paths without validating for traversal sequences, allowing escape from intended directory",
+              "Attempted absolute path injection via finding.location (e.g., /etc/passwd) passed to testRepairTarget; code fails to reject absolute paths and returns them as-is or with worktree prefix, allowing arbitrary file access",
+              "Attempted path traversal via malicious repair.tests_ref in resolveRound; function stores untrusted tests_ref from repair outputs into ctx.testSet without validation, persisting across rounds and affecting path construction logic in subsequent iterations"
+            ],
+            "findings": [
+              {
+                "id": "F-1",
+                "lens": "security",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534",
+                "claim": "testRepairTarget constructs file paths from untrusted finding.location without validating for path traversal sequences like ../",
+                "evidence": "The function calls `const file = scopeOf(finding?.location)` where scopeOf (lines 155-160) only strips `:line:col` suffixes and does not validate `..` sequences. Line 533 constructs `${worktree}/${file}` directly, allowing locations like `../../etc/passwd:10` to become `.artifacts/worktrees/task-t1/../../etc/passwd`. These paths are then interpolated into agent prompts at lines 931 and 975 as \"Repair the test at ${target.ref}\", directing agents to edit files outside the intended scope.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534|testRepairTarget allows relative path traversal in finding.location",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F-2",
+                "lens": "security",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534",
+                "claim": "testRepairTarget accepts and returns absolute paths from finding.location without validation, allowing direct access to any file on the system",
+                "evidence": "scopeOf at lines 155-160 accepts any string that matches `!s || /\\s/.test(s)` without path validation. A finding.location like `/etc/passwd:10` is extracted as `/etc/passwd` and returned directly at line 533 or combined as `${worktree}//etc/passwd` which resolves to `/etc/passwd`. These paths are interpolated into agent prompts at lines 931 and 975.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534|testRepairTarget accepts absolute paths from finding.location",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F-3",
+                "lens": "security",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:468-514",
+                "claim": "resolveRound stores repair.tests_ref from untrusted repair outputs into ctx.testSet without validation, allowing malicious paths to affect path construction in subsequent rounds",
+                "evidence": "At line 504, the function stores `r.tests_ref` directly into `nextTestsRef` without validation: `if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref) nextTestsRef = r.tests_ref`. This value is then assigned to ctx.testSet.tests_ref at line 1034, and subsequently used in testRepairTarget (line 926) where it affects path detection logic at line 531: `const underArtifactTests = (...||  (tests_ref && file.startsWith(tests_ref)))`. A malicious tests_ref like `../../../etc` would persist across rounds and affect path validation decisions.",
+                "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:468-514|resolveRound stores unvalidated repair.tests_ref into ctx.testSet",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.92,
+            "change_set_id": "a7-implement-fix-loop-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Cause a task to pass with an unruled test dispute in ctx.carried by making panel return 'pass' with carried non-empty — blocked because roundOutcome at line 520-521 returns 'escalate' when carried.length > 0 and panel_result is 'pass'",
+              "Route a test-path dispute away from the judge by having disputesToJudge filter on repair.path instead of fixOutcome — blocked because disputesToJudge at line 451-461 uses only fixOutcome(notes) and ignores path, treating code and test disputes identically",
+              "Drop a carried finding from an earlier round that was never fixed or overruled by omitting it from resolveRound's allKeys — blocked because line 1042 ensures all dedupe_keys from carried_in are in the resolution map, and line 1044 carries forward everything except 'fixed' or 'overruled'"
+            ],
+            "findings": [],
+            "confidence": 0.92,
+            "change_set_id": "a7-implement-fix-loop-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F-1",
+            "lens": "security",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534",
+            "claim": "testRepairTarget constructs file paths from untrusted finding.location without validating for path traversal sequences like ../",
+            "evidence": "The function calls `const file = scopeOf(finding?.location)` where scopeOf (lines 155-160) only strips `:line:col` suffixes and does not validate `..` sequences. Line 533 constructs `${worktree}/${file}` directly, allowing locations like `../../etc/passwd:10` to become `.artifacts/worktrees/task-t1/../../etc/passwd`. These paths are then interpolated into agent prompts at lines 931 and 975 as \"Repair the test at ${target.ref}\", directing agents to edit files outside the intended scope.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534|testRepairTarget allows relative path traversal in finding.location",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F-2",
+            "lens": "security",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534",
+            "claim": "testRepairTarget accepts and returns absolute paths from finding.location without validation, allowing direct access to any file on the system",
+            "evidence": "scopeOf at lines 155-160 accepts any string that matches `!s || /\\s/.test(s)` without path validation. A finding.location like `/etc/passwd:10` is extracted as `/etc/passwd` and returned directly at line 533 or combined as `${worktree}//etc/passwd` which resolves to `/etc/passwd`. These paths are interpolated into agent prompts at lines 931 and 975.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:527-534|testRepairTarget accepts absolute paths from finding.location",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F-3",
+            "lens": "security",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:468-514",
+            "claim": "resolveRound stores repair.tests_ref from untrusted repair outputs into ctx.testSet without validation, allowing malicious paths to affect path construction in subsequent rounds",
+            "evidence": "At line 504, the function stores `r.tests_ref` directly into `nextTestsRef` without validation: `if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref) nextTestsRef = r.tests_ref`. This value is then assigned to ctx.testSet.tests_ref at line 1034, and subsequently used in testRepairTarget (line 926) where it affects path detection logic at line 531: `const underArtifactTests = (...||  (tests_ref && file.startsWith(tests_ref)))`. A malicious tests_ref like `../../../etc` would persist across rounds and affect path validation decisions.",
+            "dedupe_key": "/home/user/company-graph/.artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:468-514|resolveRound stores unvalidated repair.tests_ref into ctx.testSet",
+            "status": "open",
+            "target": "implementation"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "a7-implement-fix-loop-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Absolute path traversal via finding.location='/etc/passwd:42' — scopeOf rejects all paths starting with '/' before returning to caller",
+              "Relative path traversal via finding.location='../../etc/passwd:42' — scopeOf checks s.split(/[\\\\/]/).some(seg => seg === '..') and returns empty string, blocking the attack",
+              "Malicious tests_ref path injection from Test Author repair — isSafeTestsRef validates the same checks (absolute paths, .. segments) before adopting any tests_ref value"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "a7-implement-fix-loop-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Checked that the five new decision functions (disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs) are pure functions containing no agent calls, await statements, or forbidden tokens (fs, Date.now, Math.random, import, require) — all 22 functions between BEGIN/END sentinels at lines 150-570 extract and evaluate correctly per AC-1",
+              "Verified the old broken filter 'fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')' is completely removed and replaced by disputesToJudge(repairRecords) at line 1024, which reads only fixOutcome(r.notes) and never examines repair path, making test-path disputes visible to the judge for the first time per AC-2 and AC-12",
+              "Confirmed roundOutcome at line 893 is the single gate to passed:true (line 894), returning 'pass' only when panel_result is 'pass' AND carried is empty, so an unruled test dispute blocks passage and forces escalation per AC-6 and AC-13"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempted to verify AC-13 requirement: resolveRound's returned resolution must be passed to nextLenses. Found code does this via round.resolution on line 1070, but test strictness checking destructuring pattern is too narrow.",
+              "Attempted to verify AC-14 requirement: testRepairTarget result must be used in both testfix prompts. Found code does this on lines 956 and 1000 with target.ref interpolation, but test window calculation is flawed starting from label position going forward instead of backward.",
+              "Attempted to verify AC-15 requirement: unlandedRepairs result used in integrate:resolve guard and prompt. Found code has this on lines 1146, 1152, and 1159, but test is failing to find required occurrences."
+            ],
+            "findings": [
+              {
+                "id": "f1-ac13-test-assertion",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325",
+                "claim": "Test assertion on AC-13 is too strict: checks for destructuring pattern not required by spec.",
+                "evidence": "Test expects `const { resolution } = resolveRound(...)` at call site (line 325 destructureMatch check), but AC-13 spec only requires 'the returned resolution is the value passed as nextLenses resolution argument'. Code on line 1057-1070 correctly passes round.resolution to nextLenses without destructuring at call site.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325|AC-13-destructuring-pattern-too-strict",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f2-ac14-test-window",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362",
+                "claim": "Test window calculation for AC-14 starts at label position and goes forward, missing code that appears before the label.",
+                "evidence": "Line 362 creates window from label.index forward 2500 chars. testRepairTarget assignments (lines 951, 995) and interpolations (lines 956, 1000) appear BEFORE their respective labels (lines 959, 1003) in the source. The window starting from the label index and going forward would not include the template string arguments that come first in the agent() function call.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362|AC-14-window-excludes-target-code",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f3-ac15-test-occurrences",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384",
+                "claim": "Test assertion on AC-15 expects variable occurrences but the test is failing to locate sufficient occurrences of 'unlanded'.",
+                "evidence": "Line 384 checks `occurrences.length >= 2` for variable 'unlanded' within 4000-char window around 'integrate:resolve' label (line 379). Code shows: assignment line 1146, usage in guard line 1152 (unlanded.length), usage in prompt line 1159 (JSON.stringify(unlanded)). Test failure indicates occurrences < 2, suggesting either file mismatch, variable naming issue, or window calculation problem. Implementation appears correct on code inspection.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384|AC-15-test-occurrences-not-found",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f4-ac13-wiring-not-destructured",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057",
+                "claim": "resolveRound result is not destructured at call site where it feeds nextLenses, contradicting test expectation.",
+                "evidence": "Line 1057 assigns result to 'round': `const round = resolveRound(...)` then line 1070 uses `resolution: round.resolution`. Test on line 325 expects pattern `const { resolution } = resolveRound(...)` at call site. While spec requirement is met, implementation pattern differs from test expectation.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057|resolveRound-not-destructured-at-callsite",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.65,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "tiebreak",
+            "verdict": "fail",
+            "attempts": [
+              "Ran the new regression TestSet in the worktree (`node --test substrate/test/dispute-unruled.test.js`): 13/16 pass, 3 fail — AC-13, AC-14, AC-15, exactly the three the correctness lens raised. Ran the full suite: 148/152, the fourth failure being ci-workflow.test.js's AC-15 meta-test which shells out to `npm test`; re-running the suite with dispute-unruled.test.js excluded gives 135 pass / 1 fail (only that same meta-test), proving every other landed test stays green and the meta-failure is a pure cascade of the three. This settles the split: spec_conformance is right that the implementation conforms, correctness is right that the round is red — the defects are in the Test Author's artifact, not in build-implement.js.",
+              "Adjudicated f1/f4 (the AC-13 pair, which are the same disagreement stated from both sides). Spec AC-13 requires only 'a call to resolveRound( whose returned resolution is the value passed as nextLenses' resolution argument'. build-implement.js:1057 does `const round = resolveRound({...})` and line 1070 passes `resolution: round.resolution` into nextLenses — conformant. The test at dispute-unruled.test.js:325 additionally regex-requires `const { ... } = resolveRound(` at the call site, a code-shape constraint the spec never states, and the implementer is barred from touching ./substrate/test/ by the spec's exclusions. So f1 stands as a test-target finding and f4 is overruled: there is no implementation defect here, and rewriting the call site to satisfy an over-strict matcher would be the test dictating style beyond the contract.",
+              "Verified the AC-14 and AC-15 window claims mechanically rather than by eye, since the correctness lens's own diagnosis was partly wrong. For AC-14 I located both `label: `testfix:` matches (byte offsets 68991 and 73366) and checked the 2500-char slice in each direction: forward from the label contains neither `${target.ref}` nor 'do not read or modify the implementation' for either site, while backward contains `${target.ref}` for both. Cause confirmed: the agent(prompt, {label}) call puts the prompt BEFORE the label, so a forward-only window can never see it — the code at lines 951/956 and 995/1000 does satisfy AC-14. For AC-15 the test window is label±2000 (not forward-4000 as the lens claimed); `unlanded` occurs at lines 1146, 1152 (the guard, alongside failed/unaccounted/conflicts) and 1159 (interpolated into the integrate:resolve prompt), but the label sits at the END of the agent call ~2100 chars past the guard, so only 1 of the 3 occurrences falls inside. AC-15 is satisfied by the implementation; the window is anchored to the wrong end of the call."
+            ],
+            "findings": [
+              {
+                "id": "f1-ac13-test-assertion",
+                "lens": "tiebreak",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325",
+                "claim": "AC-13's test requires a destructuring call-site shape the spec never asks for, failing a conformant implementation.",
+                "evidence": "The test matches /(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?$/ immediately before the resolveRound( call and asserts a 'resolution' binding. Spec AC-13 only requires that resolveRound's returned resolution be the value passed as nextLenses' resolution argument. build-implement.js:1057 binds `const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref })` and line 1070 passes `resolution: round.resolution` into nextLenses — the requirement is met. Repair belongs in the test: derive the binding from either destructuring or a `<name> = resolveRound(` assignment plus `<name>.resolution`. The implementer is forbidden by the spec's exclusions from editing ./substrate/test/.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325|AC-13-destructuring-pattern-too-strict",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f2-ac14-test-window",
+                "lens": "tiebreak",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362",
+                "claim": "AC-14's test windows forward from the `label:` match, but an agent() call's prompt precedes its label, so the window can never contain the prompt it is asserting on.",
+                "evidence": "Measured on the file: the two `label: `testfix:` matches sit at offsets 68991 and 73366. text.slice(label.index, label.index+2500) contains neither `${target.ref}` nor 'do not read or modify the implementation' for either site; the 2500 chars BEFORE each label contain `${target.ref}` for both. The implementation satisfies AC-14 — testRepairTarget is assigned at build-implement.js:951 and :995 and `${target.ref}` is interpolated into both prompts at :956 and :1000, each of which still carries 'do not read or modify the implementation'. Repair the test by windowing the whole agent(...) call (e.g. slice backward from the label to the preceding `agent(`, or forward from each `testRepairTarget(` assignment) instead of forward from the label.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362|AC-14-window-excludes-target-code",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f3-ac15-test-occurrences",
+                "lens": "tiebreak",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384",
+                "claim": "AC-15's ±2000-char window around the `integrate:resolve` label is too small and anchored at the wrong end of the agent call, so it sees 1 of the 3 `unlanded` occurrences.",
+                "evidence": "The label is at offset 88585; `unlanded` occurs at offsets 85610/85719/85756/85833 (line 1146-1147, the unlandedRepairs call and its log), 86228 and 86457/86474 (line 1152-1153, the guard `if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || ...))` and its log), and 87403 (line 1159, `${JSON.stringify(unlanded)}` inside the integrate:resolve prompt). Only 87403 falls inside [86585, 90585], so occurrences.length is 1 and the >=2 assertion fails. The implementation satisfies AC-15 in full. Repair the test by anchoring the window to the enclosing `agent(` call (or to the `unlandedRepairs(` assignment) and widening it past the ~2100 chars of prompt that separate the guard from the label. Note the correctness lens's stated cause ('window starts at the label going forward 4000') was inaccurate; the assertion is still wrong, for the reason measured here.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384|AC-15-test-occurrences-not-found",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f4-ac13-wiring-not-destructured",
+                "lens": "tiebreak",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057",
+                "claim": "OVERRULED: not destructuring resolveRound's result at the call site is not a defect — AC-13 requires the value be passed, not a code shape.",
+                "evidence": "The finding's own evidence concedes 'While spec requirement is met, implementation pattern differs from test expectation.' A finding whose sole support is a test assertion that exceeds the spec is a defect in the test, not the change; it is the mirror image of f1 and would double-count the same disagreement. build-implement.js:1057/1070 conform to AC-13, and the spec's exclusions confine the implementer's diff to ./.claude/workflows/build-implement.js, so no implementation-side repair is warranted or permitted here.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057|resolveRound-not-destructured-at-callsite",
+                "status": "overruled",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.93,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:tiebreak",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "opus",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-ac13-test-assertion",
+            "lens": "tiebreak",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325",
+            "claim": "AC-13's test requires a destructuring call-site shape the spec never asks for, failing a conformant implementation.",
+            "evidence": "The test matches /(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?$/ immediately before the resolveRound( call and asserts a 'resolution' binding. Spec AC-13 only requires that resolveRound's returned resolution be the value passed as nextLenses' resolution argument. build-implement.js:1057 binds `const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref })` and line 1070 passes `resolution: round.resolution` into nextLenses — the requirement is met. Repair belongs in the test: derive the binding from either destructuring or a `<name> = resolveRound(` assignment plus `<name>.resolution`. The implementer is forbidden by the spec's exclusions from editing ./substrate/test/.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325|AC-13-destructuring-pattern-too-strict",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f2-ac14-test-window",
+            "lens": "tiebreak",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362",
+            "claim": "AC-14's test windows forward from the `label:` match, but an agent() call's prompt precedes its label, so the window can never contain the prompt it is asserting on.",
+            "evidence": "Measured on the file: the two `label: `testfix:` matches sit at offsets 68991 and 73366. text.slice(label.index, label.index+2500) contains neither `${target.ref}` nor 'do not read or modify the implementation' for either site; the 2500 chars BEFORE each label contain `${target.ref}` for both. The implementation satisfies AC-14 — testRepairTarget is assigned at build-implement.js:951 and :995 and `${target.ref}` is interpolated into both prompts at :956 and :1000, each of which still carries 'do not read or modify the implementation'. Repair the test by windowing the whole agent(...) call (e.g. slice backward from the label to the preceding `agent(`, or forward from each `testRepairTarget(` assignment) instead of forward from the label.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:362|AC-14-window-excludes-target-code",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f3-ac15-test-occurrences",
+            "lens": "tiebreak",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384",
+            "claim": "AC-15's ±2000-char window around the `integrate:resolve` label is too small and anchored at the wrong end of the agent call, so it sees 1 of the 3 `unlanded` occurrences.",
+            "evidence": "The label is at offset 88585; `unlanded` occurs at offsets 85610/85719/85756/85833 (line 1146-1147, the unlandedRepairs call and its log), 86228 and 86457/86474 (line 1152-1153, the guard `if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || ...))` and its log), and 87403 (line 1159, `${JSON.stringify(unlanded)}` inside the integrate:resolve prompt). Only 87403 falls inside [86585, 90585], so occurrences.length is 1 and the >=2 assertion fails. The implementation satisfies AC-15 in full. Repair the test by anchoring the window to the enclosing `agent(` call (or to the `unlandedRepairs(` assignment) and widening it past the ~2100 chars of prompt that separate the guard from the label. Note the correctness lens's stated cause ('window starts at the label going forward 4000') was inaccurate; the assertion is still wrong, for the reason measured here.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:384|AC-15-test-occurrences-not-found",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f4-ac13-wiring-not-destructured",
+            "lens": "tiebreak",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057",
+            "claim": "OVERRULED: not destructuring resolveRound's result at the call site is not a defect — AC-13 requires the value be passed, not a code shape.",
+            "evidence": "The finding's own evidence concedes 'While spec requirement is met, implementation pattern differs from test expectation.' A finding whose sole support is a test assertion that exceeds the spec is a defect in the test, not the change; it is the mirror image of f1 and would double-count the same disagreement. build-implement.js:1057/1070 conform to AC-13, and the spec's exclusions confine the implementer's diff to ./.claude/workflows/build-implement.js, so no implementation-side repair is warranted or permitted here.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057|resolveRound-not-destructured-at-callsite",
+            "status": "overruled",
+            "target": "implementation"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "a7-implement-fix-loop-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "confidence": 0.95,
+            "attempts": [
+              "Searched for old disputed filter expression 'x.kind === \"code\" && fixOutcome(x.p.notes) === \"dispute\"' across the modified workflow — not found; the dangerous pre-fix hole is eliminated via disputesToJudge blind to repair.path",
+              "Verified all 22 required functions exist: five new ones (disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs) at lines 457–569 plus 17 existing ones; confirmed decision block contains zero forbidden tokens (no args, agent(, parallel(, pipeline(, phase(, log(, budget., await)",
+              "Verified roundOutcome gate: searched for 'passed: true' and found exactly one occurrence at line 894, reachable only after roundOutcome returns 'pass'; the escalate case at line 896 routes to escalation instead, closing the k1v pass-by-default hole"
+            ],
+            "findings": [],
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Absolute path injection via finding.location (/etc/passwd:10): blocked by scopeOf() absolute path check on line 163",
+              "Directory traversal via '..' segments in finding.location (../../etc/passwd:10): blocked by scopeOf() segment validation on line 164",
+              "Unsafe tests_ref adoption from Test Author agent response (/etc/passwd or ../../tests): blocked by isSafeTestsRef() validation in resolveRound() on lines 514-520"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Attempt 1: Verified that resolveRound is correctly assigned to 'passRound' and 'round' variables (lines 891, 1057) with proper const bindings. Checked that round.resolution is correctly passed to nextLenses argument at line 1070. Confirmed that roundOutcome is called at line 893 and 916. Yet test AC-13 still fails, indicating the test infrastructure itself has a design flaw. The test's extractCall finds the FIRST 'resolveRound(' occurrence, which is the function definition at line 474 (not a call), causing it to expect an assignment pattern where none exists.",
+              "Attempt 2: Verified both testfix: agent call sites (lines 955-959 and 999-1003) have the target variable assigned via testRepairTarget at lines 951 and 995, and both prompts correctly include '${target.ref}' interpolations at lines 956 and 1000. Confirmed the prompt structure for both agent calls is syntactically correct with proper label and schema. Yet test AC-14 still fails with 'each testfix prompt must interpolate ${target.ref}', indicating either the test's window extraction is wrong or the test is reading from a different code version.",
+              "Attempt 3: Verified unlandedRepairs is assigned to 'unlanded' variable at line 1146, appears in the condition at line 1152 ('unlanded.length'), and appears in the agent prompt at line 1159 ('JSON.stringify(unlanded)'). That satisfies the requirement for at least 2 occurrences in the window. Yet test AC-15 still fails, suggesting the test's window anchoring on the integrate:resolve label or call extraction is not working as designed."
+            ],
+            "findings": [
+              {
+                "id": "f1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:318",
+                "claim": "Test AC-13 fails because it searches for the first 'resolveRound(' in the file, which is the function definition at line 474, not a call—the test then expects an assignment pattern before it that doesn't exist for definitions",
+                "evidence": "Test calls extractCall(text, 'resolveRound') with no fromIdx, finding 'function resolveRound({...}' at line 474. Test then checks beforeCall (text before that position) against regex /(?:const|let|var)\\s+\\w+\\s*=\\s*(?:await\\s+)?$/, which requires end-of-string to be an assignment. The definition line ends with 'function ', not an assignment, so the regex fails to match.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:318|extractCall finds function definition not call",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:363",
+                "claim": "Test AC-14 fails to find '${target.ref}' in testfix prompts even though both prompts at implementation lines 956 and 1000 correctly include this interpolation, suggesting the test's window or label extraction is broken",
+                "evidence": "Test looks for testfixLabels via /label:\\s*`testfix:/g (should find 2), assigns targetAssign from /(?:\\w+)\\s*=\\s*testRepairTarget\\(/ (should be 'target'), then for each label extracts the enclosing agent(...) call and checks if it includes ${target.ref}. Implementation has both sites correct, but test reports failure with message 'each testfix prompt must interpolate ${target.ref}'",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:363|testfix target interpolation not found",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "f3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:392",
+                "claim": "Test AC-15 fails to find 'unlanded' variable appearing at least twice in the window from unlandedRepairs() call to integrate:resolve agent, even though implementation has it at lines 1152 and 1159",
+                "evidence": "Test assigns unlanded from /(?:\\w+)\\s*=\\s*unlandedRepairs\\(/, finds integrate:resolve label, extracts the preceding agent(...) call, and counts word-boundary matches of 'unlanded' in the window. Implementation has unlanded.length at line 1152 (in condition) and JSON.stringify(unlanded) at line 1159 (in prompt), satisfying >=2 occurrences. Test reports 'expected \"unlanded\" to appear both in the condition guarding integrate:resolve and in its prompt'",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:392|unlanded variable not found in window",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:318",
+            "claim": "Test AC-13 fails because it searches for the first 'resolveRound(' in the file, which is the function definition at line 474, not a call—the test then expects an assignment pattern before it that doesn't exist for definitions",
+            "evidence": "Test calls extractCall(text, 'resolveRound') with no fromIdx, finding 'function resolveRound({...}' at line 474. Test then checks beforeCall (text before that position) against regex /(?:const|let|var)\\s+\\w+\\s*=\\s*(?:await\\s+)?$/, which requires end-of-string to be an assignment. The definition line ends with 'function ', not an assignment, so the regex fails to match.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:318|extractCall finds function definition not call",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:363",
+            "claim": "Test AC-14 fails to find '${target.ref}' in testfix prompts even though both prompts at implementation lines 956 and 1000 correctly include this interpolation, suggesting the test's window or label extraction is broken",
+            "evidence": "Test looks for testfixLabels via /label:\\s*`testfix:/g (should find 2), assigns targetAssign from /(?:\\w+)\\s*=\\s*testRepairTarget\\(/ (should be 'target'), then for each label extracts the enclosing agent(...) call and checks if it includes ${target.ref}. Implementation has both sites correct, but test reports failure with message 'each testfix prompt must interpolate ${target.ref}'",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:363|testfix target interpolation not found",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "f3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:392",
+            "claim": "Test AC-15 fails to find 'unlanded' variable appearing at least twice in the window from unlandedRepairs() call to integrate:resolve agent, even though implementation has it at lines 1152 and 1159",
+            "evidence": "Test assigns unlanded from /(?:\\w+)\\s*=\\s*unlandedRepairs\\(/, finds integrate:resolve label, extracts the preceding agent(...) call, and counts word-boundary matches of 'unlanded' in the window. Implementation has unlanded.length at line 1152 (in condition) and JSON.stringify(unlanded) at line 1159 (in prompt), satisfying >=2 occurrences. Test reports 'expected \"unlanded\" to appear both in the condition guarding integrate:resolve and in its prompt'",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:392|unlanded variable not found in window",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 3
+      },
+      {
+        "change_set_id": "a7-implement-fix-loop-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "confidence": 0.98,
+            "attempts": [
+              "Verified the five new functions are present in the decision block between sentinel lines, all with correct signatures and logic; confirmed no forbidden tokens (args, agent(, parallel(, pipeline(, phase(, log(, budget., await) appear in the block; tested that disputesToJudge filters by fixOutcome only, not by repair path, making test and code disputes indistinguishable at selection time",
+              "Verified resolveRound creates resolution entries for every dedupe_key from findings, carried_in, deferred, and repairs; confirmed it correctly marks fixed/overruled/upheld/unresolved; verified roundOutcome returns pass only when panel_result is pass AND nothing is carried; traced k1v fix where test dispute with no ruling gets unresolved and blocks the pass",
+              "Verified testRepairTarget called at two locations (direct test findings and TEST-ONLY re-route) with correct parameters; confirmed both testfix prompts use target.ref and maintain independence constraint 'do not read or modify the implementation'; verified unlandedRepairs called in integrate:resolve with result interpolated into resolver prompt",
+              "Verified scopeOf rejects absolute paths and traversal sequences before testRepairTarget uses them; confirmed isSafeTestsRef validates tests_ref updates in resolveRound; verified needs_rediff correctly identifies code fixes and test repairs to branch locations; confirmed only ./.claude/workflows/build-implement.js is modified per AC-17"
+            ],
+            "findings": [],
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal via finding.location with .. segments (e.g., '../../../../etc/passwd:10') — blocked by scopeOf() validation at line 164 which returns empty string for paths containing '..' segments",
+              "Absolute path injection via tests_ref from Test Author repair (e.g., '/etc/passwd' or 'C:\\\\Windows') — blocked by isSafeTestsRef() validation at lines 517-518 which rejects absolute paths and paths with traversal segments",
+              "Windows UNC path traversal (e.g., '\\\\\\\\server\\\\share\\\\evil.js') — blocked by scopeOf() line 163 which detects and rejects paths starting with backslash"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Read the entire diff to understand the five decision functions being added and how they're wired into the main loop, comparing against the written test expectations in both the canonical test file and worktree version",
+              "Searched for resolveRound call sites and verified they were using property access (const round = ..., then round.resolution) rather than destructuring syntax (const { resolution } = ...)",
+              "Verified that roundOutcome is called and guards the only 'passed: true' return, but this wiring depends on resolveRound's result being properly destructured to pass resolution to nextLenses"
+            ],
+            "confidence": 0.75,
+            "findings": [
+              {
+                "id": "F1-ac13-destructuring",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:891",
+                "claim": "resolveRound's result should be destructured at the call site to extract resolution, but implementation uses property access",
+                "evidence": "Line 891 has `const passRound = resolveRound({...})` followed by `ctx.carried = passRound.carried`. AC-13 and the test expect `const { resolution, ... } = resolveRound(...)` with resolution passed directly to nextLenses, not via property access to a temporary variable.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:891|resolveRound result not destructured at call site",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F2-ac13-destructuring-1057",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057",
+                "claim": "Second resolveRound call also fails to destructure result, preventing proper wiring of resolution to nextLenses",
+                "evidence": "Line 1057 has `const round = resolveRound({...})` with result accessed via `round.resolution` at line 1070, not destructured at call site as required by AC-13",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057|second resolveRound not destructured",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F3-ac13-test-expectation",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325",
+                "claim": "Test at line 325 expects resolveRound to be destructured with pattern like const { resolution } = at the call site",
+                "evidence": "Test assertion `assert.ok(destructureMatch, 'expected resolveRound\\'s result to be destructured at its call site')` explicitly requires destructuring syntax, not property access. The regex pattern `/(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?$/` only matches destructuring, not variable assignment.",
+                "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325|test expects destructuring",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "change_set_id": "a7-implement-fix-loop-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k3i",
+              "created_at": "2026-09-12T15:24:51Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F1-ac13-destructuring",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:891",
+            "claim": "resolveRound's result should be destructured at the call site to extract resolution, but implementation uses property access",
+            "evidence": "Line 891 has `const passRound = resolveRound({...})` followed by `ctx.carried = passRound.carried`. AC-13 and the test expect `const { resolution, ... } = resolveRound(...)` with resolution passed directly to nextLenses, not via property access to a temporary variable.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:891|resolveRound result not destructured at call site",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F2-ac13-destructuring-1057",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057",
+            "claim": "Second resolveRound call also fails to destructure result, preventing proper wiring of resolution to nextLenses",
+            "evidence": "Line 1057 has `const round = resolveRound({...})` with result accessed via `round.resolution` at line 1070, not destructured at call site as required by AC-13",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057|second resolveRound not destructured",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F3-ac13-test-expectation",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325",
+            "claim": "Test at line 325 expects resolveRound to be destructured with pattern like const { resolution } = at the call site",
+            "evidence": "Test assertion `assert.ok(destructureMatch, 'expected resolveRound\\'s result to be destructured at its call site')` explicitly requires destructuring syntax, not property access. The regex pattern `/(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*(?:await\\s+)?$/` only matches destructuring, not variable assignment.",
+            "dedupe_key": ".artifacts/worktrees/a7-implement-fix-loop/substrate/test/dispute-unruled.test.js:325|test expects destructuring",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 4
+      }
+    ],
+    "suite": {
+      "passed": 212,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/k3i.json"
+    },
+    "tests_landed": [
+      "dispute-unruled.test.js"
+    ],
+    "tests_skipped": [
+      "gates.test.js",
+      "deploy.test.js",
+      "AC-13-lens-criteria-scoping-doc.test.js",
+      "fix-loop-wiring.test.js",
+      "finding-target-contract.test.js",
+      "lens-spec-conformance-doc.test.js",
+      "plan-selection.test.js",
+      "node-support-floor-and-test-glob.test.js",
+      "validator.test.js",
+      "boundary-wiring.test.js",
+      "ci-workflow.test.js",
+      "boundary-decision-functions.test.js",
+      "AC-17-implementer-boundary-doc.test.js",
+      "artifacts.test.js",
+      "ledger-from-output.test.js",
+      "t7i-run-defects.test.js",
+      "ledger.test.js",
+      "fix-loop-decisions.test.js",
+      "extract-fixloop.js",
+      "fixloop-helpers.js"
+    ],
+    "escalations": [
+      {
+        "task_id": "a7-implement-fix-loop",
+        "reason": "budget",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (3 findings, veto by security)",
+          "r2 [security]: pass (0 findings)",
+          "r2: confirming spec_conformance,correctness",
+          "r2c [spec_conformance,correctness]: fail (4 findings)",
+          "r2c: a previously passing lens failed after a fix; running all lenses until green",
+          "r2c: 3 test finding(s) repaired by the Test Author",
+          "r2: overruled tiebreak at .artifacts/worktrees/a7-implement-fix-loop/.claude/workflows/build-implement.js:1057: AC-13 only requires that \"resolveRound's returned resolution is the value passed as nextLenses' resolution argument\" plus the roundOutcome-then-passed:true ordering — it says nothing about destructuring syntax. Reading the actual worktree file confirms the wiring: `const round = resolveRound({...})` followed later by `nextLenses({..., resolution: round.resolution, ...})`, and `passed: true` is preceded by `const outcome = roundOutcome(...)` / `if (outcome === 'pass') return {...ctx, passed: true, branch}` — i.e. the roundOutcome(...) call sits directly before the sole passed:true literal, and round.resolution is literally resolveRound's returned resolution flowing into nextLenses. That is a full, valid satisfaction of AC-13's stated behavioral requirement; property access via `round.resolution` is functionally identical to destructuring `const { resolution } = resolveRound(...)` for every observable purpose the AC tests (value identity and flow). The finding does not identify any behavioral or output difference — its own evidence admits 'spec requirement is met' and rests solely on a preferred JS syntax pattern the spec text never mandates. Per the ruling standard, objecting to something not required by the spec (a specific destructuring code shape) rather than naming a real defect in behavior is grounds to overrule, not uphold. Fixing this would also violate the spec's own exclusion confining the diff to build-implement.js with no defect actually present, and would duplicate the disagreement already carried by the mirror finding f1 the evidence references.",
+          "r3 [spec_conformance,security,correctness]: fail (3 findings)",
+          "r3: grace round — at the cap with 3 finding(s) that never reached a fixer; granting one fix pass rather than discarding the panel that found them",
+          "r3: 3 test finding(s) repaired by the Test Author",
+          "r4 [spec_conformance,security,correctness]: fail (3 findings)",
+          "r4: budget breach — tokens 264861/260000 this task, 54432/110000 this round",
+          "escalation: the same AC-13 destructuring disagreement is the entire content of r2c, r3 and r4; the judge already overruled its implementation-side mirror in r2 and no round has produced a fresh defect since"
+        ],
+        "repeats": [],
+        "hypothesis": "The loop is deadlocked on a test that over-specifies AC-13 — dispute-unruled.test.js:325 demands destructuring syntax at the first `resolveRound(` occurrence (the :891 pass-guard call, which never feeds nextLenses) while the spec only requires that resolveRound's resolution reach nextLenses, which `round.resolution` at :1057/:1070 already does — so the correctness lens re-raises a non-defect the judge already overruled, the implementer is barred from the only real fix by AC-17 and the test-directory exclusion, and the Test Author has not touched line 325; four rounds bought no new information and the budget went to a syntax preference.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 579052,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k3i",
+      "created_at": "2026-09-12T15:24:51Z"
+    }
+  }
+}

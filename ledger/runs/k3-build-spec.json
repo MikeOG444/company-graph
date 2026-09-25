@@ -1,0 +1,256 @@
+{
+  "entry": {
+    "id": "k3-build-spec",
+    "run_id": "k3",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-12T04:43:52.386Z",
+    "finished_at": "2026-09-12T04:51:58.995Z",
+    "wall_clock_sec": 487,
+    "result_ref": "ledger/runs/k3-build-spec.json",
+    "artifact_count": 3,
+    "escalations": 0,
+    "tokens": 201249,
+    "tokens_by_model": {
+      "claude-opus-5": 112714,
+      "claude-haiku-4-5": 88535
+    },
+    "cost_est_usd": 0.91,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k3",
+      "created_at": "2026-09-12T04:43:22Z"
+    },
+    "trace_ref": ".artifacts/traces/k3-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-a7-test-dispute-unruled",
+          "work_item_id": "wi-a7-test-dispute-unruled",
+          "goal": "Close the pass-by-default hole in the verify→fix loop of `./.claude/workflows/build-implement.js` measured on run k1v: a `target: \"test\"` finding whose Test Author repair returns `DISPUTE:` reaches no judge, sets no entry in the round's `resolution`, and then vanishes the moment a cheap lens stops re-raising it — the panel returns pass and an unfixed HIGH-severity defect integrates with `escalations: 0`.\n\nFive pure decision functions are added inside the existing sentinel block (`// ---- BEGIN fix-loop decisions ----` … `// ---- END fix-loop decisions ----`, lines 150–442 today), and the loop body is rewired onto them:\n\n1. `disputesToJudge(repairs)` — selects disputes for the Dispute Checker WITHOUT looking at which repair path produced them. Today `const disputed = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')` (line 832) is the whole defect: a disputing test repair matches neither `disputed` nor `testRepairs` (line 834). The judge loop and its `ctx.upheld` / `ctx.overruled` pushes then apply to test disputes exactly as they do to code disputes, so `Escalation.disputes_lost` (fed from `ctx.upheld`) can finally see one.\n2. `resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref })` → `{ resolution, carried, tests_ref, needs_rediff }` — one pure function that decides the whole round. It sets `resolution` for EVERY dedupe_key it was given (raised, carried in from earlier rounds, deferred past the fixer cap, or repaired), treats \"nobody resolved it\" as `unresolved`, and returns `carried`: the findings that survive into the next round independently of whether any lens re-raises them.\n3. `roundOutcome({ panel_result, carried })` — a green panel is only green when nothing is carried. This is the guard that makes k1v impossible: with carried findings open the task escalates (existing reason `no_fresh_findings`, carried findings as the open findings) instead of returning `passed: true`.\n4. `testRepairTarget({ finding, tests_ref, artifact_dir, worktree })` — the contributing cause. Both `testfix:` agents are pointed at `ctx.testSet.tests_ref` (`.artifacts/tests/<task>/`, a COPY) while the finding cites the file on the task branch, which is why one k1v agent correctly answered that the finding \"does not apply to the file I am responsible for\". The repair must be pointed at the file the finding actually cites.\n5. `unlandedRepairs({ tests_skipped, repaired_tests })` — the second half of the same cause: integration reported `tests_skipped: [\"ci-workflow.test.js\"]` because the branch already carried that basename, so even a successful repair would have been discarded. A skipped basename the repair path just edited must force the strong-model `integrate:resolve` pass and be named in its prompt, never dropped silently.\n\nThe regression evidence is a TestSet written by the Test Author from this spec alone, using the `./substrate/test/extract-fixloop.js` sentinel idiom (`readWorkflowText` / `extractBlock` + `new Function`) so the round-resolution decision is driven directly, plus source-text wiring assertions on `./.claude/workflows/build-implement.js` in the style already used by `fix-loop-wiring.test.js` and `boundary-wiring.test.js`. Suggested file `./substrate/test/a7-test-dispute-ruling.test.js`; whatever basename is chosen must not already exist under `./substrate/test/`, or the integration lander will skip it — the very trap this work item is about. Existing `substrate/test/*.test.js` must stay green.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the repository's ./.claude/workflows/build-implement.js and the sentinel lines '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----', each still appearing exactly once",
+              "when": "the block between them is read with readWorkflowText()/extractBlock() from ./substrate/test/extract-fixloop.js and evaluated as `new Function(block + 'return { ... }')()`",
+              "then": "evaluation does not throw; the returned object exposes the five new functions disputesToJudge, resolveRound, roundOutcome, testRepairTarget and unlandedRepairs, each typeof 'function'; loadFixLoopDecisions() still returns its seventeen existing functions (scopeOf, scopeTargets, nextLenses, lensesToRun, roundBudget, taskCeiling, emptyDiffAction, shouldEscalate, surfaceRef, withinOwned, boundaryCheck, criteriaScope, citedCriteria, isForeignCriterionFinding, stripForeignFindings, routeFinding, fixOutcome), each still a function; and the extracted block still contains none of the tokens 'args', 'agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.' and no 'await'",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "repairs = [{dedupe_key:'k1',path:'code',notes:'DISPUTE: a'},{dedupe_key:'k2',path:'test',notes:'DISPUTE: b'},{dedupe_key:'k3',path:'test',notes:'repaired the assertion'},{dedupe_key:'k4',path:'code',notes:'TEST-ONLY: c'},{dedupe_key:'k2',path:'test',notes:'DISPUTE: b restated'}]",
+              "when": "disputesToJudge(repairs) is called, and then called again on the same array with every path value flipped between 'code' and 'test'",
+              "then": "both calls return the same dedupe_keys in the same order — exactly ['k1','k2'], first occurrence per dedupe_key, no entry for the applied repair k3 and none for the TEST-ONLY re-route k4 — proving the judge's input never depends on which repair path produced the dispute",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "a round with findings=[f1(dedupe_key 'k1'), f2('k2')], carried_in=[f0('k0')], deferred=[f3('k3')], repairs=[{dedupe_key:'k1',path:'code',notes:undefined}] and rulings=[]",
+              "when": "resolveRound({findings, carried_in, deferred, repairs, rulings, tests_ref:'.artifacts/tests/t1/'}) is called",
+              "then": "Object.keys(resolution) sorted equals ['k0','k1','k2','k3'] — every dedupe_key from every input is present, none absent; resolution.k1==='fixed', resolution.k3==='deferred', resolution.k0==='unresolved', resolution.k2==='unresolved'; and carried contains one finding each for k0, k2 and k3 and none for k1",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a HIGH-severity finding f with dedupe_key 'k1', target 'test' and location 'substrate/test/ci-workflow.test.js:190', repairs=[{dedupe_key:'k1',path:'test',target_source:'tests_ref',notes:'DISPUTE: the finding is real but does not apply to the file I am responsible for'}] and rulings=[{dedupe_key:'k1',ruling:'uphold'}]",
+              "when": "resolveRound({findings:[f], carried_in:[], deferred:[], repairs, rulings, tests_ref:'.artifacts/tests/t1/'}) is called",
+              "then": "resolution.k1==='upheld' and carried contains f; and calling resolveRound again with the repair's path changed to 'code' returns an identical resolution and carried — a Test Author's dispute is ruled on and recorded exactly as a code Fixer's is",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the same finding, test-path dispute and inputs as AC-4 but rulings=[{dedupe_key:'k1',ruling:'overrule'}]",
+              "when": "resolveRound(...) is called",
+              "then": "resolution.k1==='overruled', carried is empty, and the result is identical when the repair's path is 'code' instead of 'test'",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the k1v regression exactly: a HIGH-severity finding f (dedupe_key 'k1', target 'test', location 'substrate/test/ci-workflow.test.js:190') raised by two lenses and deduped to one, repairs=[{dedupe_key:'k1',path:'test',target_source:'tests_ref',notes:'DISPUTE: line 190 is correct as written'}] and rulings=[] because no judge ruled",
+              "when": "resolveRound(...) is called and its carried is passed to roundOutcome({panel_result:'pass', carried})",
+              "then": "'k1' in resolution is true and resolution.k1==='unresolved' — the finding is never absent from the round's resolution; carried contains f; and roundOutcome returns 'escalate', not 'pass', so the change cannot integrate on a green panel whose only support is that a cheap lens stopped re-raising the finding",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "a finding f",
+              "when": "roundOutcome is called as roundOutcome({panel_result:'pass',carried:[]}), roundOutcome({panel_result:'pass',carried:[f]}), roundOutcome({panel_result:'fail',carried:[]}) and roundOutcome({panel_result:'fail',carried:[f]})",
+              "then": "the results are 'pass', 'escalate', 'continue' and 'continue' respectively — 'pass' is returned only when nothing is carried",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "tests_ref='.artifacts/tests/t1/' and repairs=[{dedupe_key:'k1',path:'test',target_source:'tests_ref',tests_ref:'.artifacts/tests/t1/',notes:undefined},{dedupe_key:'k2',path:'test',target_source:'tests_ref',tests_ref:'.artifacts/tests/t1-r2/',notes:undefined},{dedupe_key:'k3',path:'test',target_source:'tests_ref',tests_ref:'.artifacts/tests/ignored/',notes:'DISPUTE: no'},{dedupe_key:'k4',path:'test',target_source:'finding_location',tests_ref:'.artifacts/worktrees/task-t1/substrate/test/ci-workflow.test.js',notes:undefined}]",
+              "when": "resolveRound({findings:[], carried_in:[], deferred:[], repairs, rulings:[], tests_ref}) is called",
+              "then": "the returned tests_ref equals '.artifacts/tests/t1-r2/' — the last non-disputing repair that targeted the artifact TestSet wins, while a disputing repair and a repair that edited a file on the task branch both leave the artifact TestSet path alone; with repairs=[] or only the k3/k4 entries the returned tests_ref equals the input '.artifacts/tests/t1/' unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the repairs sets A=[{dedupe_key:'k1',path:'code',notes:undefined}], B=[{dedupe_key:'k1',path:'test',target_source:'finding_location',notes:undefined}], C=[{dedupe_key:'k1',path:'test',target_source:'tests_ref',notes:undefined}], D=[{dedupe_key:'k1',path:'test',target_source:'finding_location',notes:'DISPUTE: no'}] and E=[]",
+              "when": "resolveRound is called once per set with findings=[], carried_in=[], deferred=[], rulings=[] and any tests_ref",
+              "then": "needs_rediff is true for A and B — a code fix, or a test repair that edited a file on the task branch, changes the branch and the cumulative diff must be re-captured — and false for C, D and E",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "artifact_dir='.artifacts', tests_ref='.artifacts/tests/t1/', worktree='.artifacts/worktrees/task-t1'",
+              "when": "testRepairTarget is called for (a) a finding whose location is 'substrate/test/ci-workflow.test.js:190', (b) a finding whose location is '.artifacts/tests/t1/ac9.test.js:12', and (c) a finding whose location is not a file path at all (e.g. 'the AC-9 assertion')",
+              "then": "(a) returns {ref:'.artifacts/worktrees/task-t1/substrate/test/ci-workflow.test.js', source:'finding_location'} — the file the finding cites, inside the worktree, with any trailing :line[:col] stripped; (b) returns {ref:'.artifacts/tests/t1/ac9.test.js', source:'tests_ref'}; (c) returns {ref:'.artifacts/tests/t1/', source:'tests_ref'}; and when worktree is omitted, case (a) returns the repository-relative path 'substrate/test/ci-workflow.test.js' with source 'finding_location'",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "repaired_tests=[{ref:'.artifacts/tests/t1/ci-workflow.test.js',source:'tests_ref'},{ref:'.artifacts/worktrees/task-t1/substrate/test/branch-only.test.js',source:'finding_location'}]",
+              "when": "unlandedRepairs({tests_skipped:['ci-workflow.test.js','branch-only.test.js','helpers.js'], repaired_tests}) is called, and again with tests_skipped=[] and again with repaired_tests=[]",
+              "then": "the first call returns exactly ['ci-workflow.test.js'] — a basename the repair path edited in the artifact TestSet that integration skipped, matched by basename; 'branch-only.test.js' is excluded because the merge of the task branch already carries that repair; 'helpers.js' is excluded because no repair touched it; and the second and third calls each return []",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the source text of ./.claude/workflows/build-implement.js",
+              "when": "every line containing the substring \"=== 'dispute'\" is inspected",
+              "then": "no such line also contains \"kind === 'code'\" — the pre-fix expression `fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'dispute')` no longer appears anywhere in the file — and the file contains at least one call to `disputesToJudge(`, whose result is what the `dispute:` judge agent is fanned out over and what the loop that pushes to `ctx.upheld` and `ctx.overruled` iterates",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "the source text of ./.claude/workflows/build-implement.js",
+              "when": "it is searched for the round-resolution and pass-guard wiring",
+              "then": "it contains a call to `resolveRound(` whose returned resolution is the value passed as nextLenses' `resolution` argument; it contains a call to `roundOutcome(`; the literal `passed: true` occurs exactly once in the file; and the 500 characters immediately preceding that single occurrence contain `roundOutcome(` — the only route to a passing task runs through the guard",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "the source text of ./.claude/workflows/build-implement.js, which contains exactly two agent call sites labelled `testfix:`",
+              "when": "both testfix prompts are inspected",
+              "then": "the file contains at least one assignment of the form `<name> = testRepairTarget(` and each of the two testfix prompts interpolates `${<name>.ref}` for that same `<name>`; the string \"Repair the test under ${ctx.testSet.tests_ref}\" no longer appears in the file; and each testfix prompt still contains the literal text \"do not read or modify the implementation\", so the Test Author's independence survives being pointed at a file inside the task worktree",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "the source text of ./.claude/workflows/build-implement.js at the Integrate phase",
+              "when": "the guard on the `integrate:resolve` agent and that agent's prompt are inspected",
+              "then": "the file contains a call to `unlandedRepairs(`; the identifier holding its result appears in the condition that decides whether the strong-model `integrate:resolve` agent runs (alongside the existing failed-test, conflict and unaccounted-file terms), so a non-empty result forces that pass; and the same identifier is interpolated into the `integrate:resolve` prompt, so the files whose repairs were skipped are named to the resolver rather than dropped",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "./contracts.schema.json and ./package.json at the repository root",
+              "when": "they are read after the change",
+              "then": "$defs.Escalation.properties.reason.enum equals ['max_rounds','repeat_finding','budget','no_fresh_findings','cannot_repro']; $defs.Finding.required does not include 'target' and $defs.Finding.properties.target.enum equals ['implementation','test']; the inlined Escalation reason enum in ./.claude/workflows/build-implement.js contains no value outside that five-value set; package.json's dependencies are exactly ajv and ajv-formats; and package.json's test script is exactly 'node --test substrate/test/*.test.js'",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "the implementer's diff for this work item (CHANGE-SCOPED: this criterion is an assertion about this diff, not a property a landed test can assert on every future run — it is verified by the verifier panel and must not be assigned to a test file)",
+              "when": "the panel reads the diff",
+              "then": "the only file it modifies is ./.claude/workflows/build-implement.js; no file under ./substrate/test/ appears in it (the regression TestSet is the Test Author's artifact and lands at integration); no file under ./.claude/agents/ is modified; and nothing added to build-implement.js uses Date.now(), Math.random(), import, require, fs or a shell call in the workflow script body",
+              "testable": false
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "./.claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": "./substrate/test/"
+            }
+          ],
+          "out_of_scope": [
+            "The implementer creating or editing ANY file under ./substrate/test/ — the surface is listed only because the Test Author's regression TestSet lands there at integration. Two agents pointed at one job is exactly the A6 failure this work item compounds with; the implementer's diff must be confined to ./.claude/workflows/build-implement.js.",
+            "Any change to ./contracts.schema.json — no new Escalation.reason value (the carried-findings escalation reuses the existing 'no_fresh_findings'), no new Finding, TestSet, ChangeSet or Suite field.",
+            "Any change under ./.claude/agents/ — the Test Author may now be pointed at a file inside the task worktree, and that constraint is stated inline in the workflow prompt, not in the agent definition.",
+            "Changing the behavior or signatures of shouldEscalate, graceRound, stuckLens, lensStreaks, nextLenses or lensesToRun. The pass-by-default hole is closed by the roundOutcome guard, not by feeding carried findings into the re-panel decision.",
+            "Any automatic re-attempt, bounded retry or extra fix round for a finding whose dispute the judge upheld, and any change to MAX_FIXERS, K_ROUNDS or the deferred-findings rule. An upheld or unresolved finding escalates; it is not re-fixed.",
+            "Blindly overwriting a file that already exists under the repository's test directory during integration landing. The never-overwrite rule stays; only the reporting changes — a skipped basename the repair path edited forces the strong-model integrate:resolve pass and is named in its prompt.",
+            "A6 itself: the build-spec lint that forbids a Spec naming a test-directory surface, and the boundary check on what a TestSet may land. Separate work item.",
+            "Any change to ./.claude/workflows/build-spec.js or any other workflow, to substrate/*.js runtime code, or to .github/ CI configuration.",
+            "Adding an npm dependency, changing package.json scripts, or changing the Node engines floor.",
+            "Making the Test Author read the implementation, or letting the code Fixer edit tests.",
+            "Rewriting or renaming the existing sentinel lines, or removing any of the seventeen decision functions loadFixLoopDecisions() already returns."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "**Critical path logic**: The spec modifies the fix-loop resolution logic in build-implement.js that determines whether disputed findings pass verification. The five new decision functions (disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs) are injected into the core loop that gates whether changes integrate, making errors in these functions block or incorrectly permit changes.",
+            "**Venture 0 self-modification**: This repository is the product (venture 0), and the change modifies the build line's own verifier panel. A mistake in the verification gate logic affects the entire product's ability to validate future builds.",
+            "**System-wide impact, not isolated route**: Per the prompt, this is NOT low-risk because a mistake in the resolution logic weakens EVERY future build (not just one route). A single bug in roundOutcome, disputesToJudge, or resolveRound cascades across all future work items, potentially allowing unresolved HIGH-severity findings to integrate repeatedly.",
+            "**Verification gate control**: The spec adds the roundOutcome guard that is the sole route to `passed: true`. If this guard is incorrectly implemented, the verification system can return false positives (pass when findings remain unresolved) or false negatives (escalate when findings are actually resolved), breaking the integrity of the build pipeline.",
+            "**Audit and provenance impact**: The changes feed directly into the Method Ledger (via Escalation.reasons and resolution states). A mistake in how findings are marked 'resolved'/'unresolved'/'upheld'/'overruled' corrupts the provenance record and the measurement basis for the entire graph system.",
+            "**Testability constraint limits verification**: The constraint that this fix cannot execute itself (only the committed copy runs) and is verifiable only via unit tests in substrate/test/, not live observation, means mistakes may not surface until real builds execute the changed logic against production disputes."
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k3",
+            "created_at": "2026-09-12T04:43:22Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-a7-test-dispute-unruled",
+          "tasks": [
+            {
+              "id": "a7-implement-fix-loop",
+              "spec_id": "spec-wi-a7-test-dispute-unruled",
+              "description": "Implement five pure decision functions (disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs) inside the existing fix-loop sentinel block in ./.claude/workflows/build-implement.js. Rewire the loop body onto these functions to close the pass-by-default hole: eliminate the code-only dispute filter, route all disputes to the judge, ensure unresolved findings block task completion, and correct test-repair targeting so Test Author disputes are adjudicated with the same rigor as code disputes.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "./.claude/workflows/build-implement.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k3",
+            "created_at": "2026-09-12T04:43:22Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k3",
+      "created_at": "2026-09-12T04:43:22Z"
+    }
+  }
+}

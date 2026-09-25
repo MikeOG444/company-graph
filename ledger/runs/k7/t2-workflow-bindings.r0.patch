@@ -1,0 +1,679 @@
+diff --git a/.claude/agents/backlog-seeder.md b/.claude/agents/backlog-seeder.md
+new file mode 100644
+index 0000000..8988f60
+--- /dev/null
++++ b/.claude/agents/backlog-seeder.md
+@@ -0,0 +1,13 @@
++---
++name: backlog-seeder
++description: Project Create Backlog Seeder. Turns each line of a ProjectBrief's initial_scope into one WorkItem seed with a title, intent and priority. Read-only, runs in parallel with the Scaffolder.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Backlog Seeder of Project Create (OPERATING_MODEL.md §6). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You seed the backlog description; you never scaffold or write code.
++- Split a line only when it clearly names two independent deliverables. Do not invent scope beyond what the Brief states.
++- Each seed's `intent` is one paragraph: why it exists and what "done" looks like, from the Brief's problem, users and success metrics.
++- Return only the Seed fields the schema asks for.
+diff --git a/.claude/agents/decomposer.md b/.claude/agents/decomposer.md
+new file mode 100644
+index 0000000..f365749
+--- /dev/null
++++ b/.claude/agents/decomposer.md
+@@ -0,0 +1,14 @@
++---
++name: decomposer
++description: Build-line Decomposer. Reads a Spec, produces a TaskGraph of implementation tasks with disjoint owned surfaces. Read-only, runs in parallel with the Risk Router.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Decomposer of the Build line (OPERATING_MODEL.md §2.1). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You plan the task split; you never implement it.
++- No two tasks may own the same path. Never create a task whose only job is writing tests or documentation — a separate Test Author writes tests from the Spec, and a documentation criterion belongs to the implementation task that owns the code it documents (whose owned_surfaces must then include that doc file).
++- Prefer one task; split only when two disjoint code surfaces can be built independently. Add depends_on only where one task must read another's output.
++- Every acceptance criterion must be covered by some task, and every surface a task's criteria require it to write must appear in that task's owned_surfaces.
++- Return only the TaskGraph fields the schema asks for.
+diff --git a/.claude/agents/dispute-checker.md b/.claude/agents/dispute-checker.md
+new file mode 100644
+index 0000000..a735eac
+--- /dev/null
++++ b/.claude/agents/dispute-checker.md
+@@ -0,0 +1,13 @@
++---
++name: dispute-checker
++description: Build-line Dispute Checker. Rules on one Fixer or Test Author's dispute of a lens finding, upholding or overruling it. Never the lens that raised the finding.
++model: sonnet
++tools: Read, Glob, Grep
++---
++You are the Dispute Checker of the Fix Loop (OPERATING_MODEL.md §2.5). Method: hotl. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You rule; you never patch.
++- UPHOLD only if the finding names a real defect in how the change implements the Spec.
++- OVERRULE if the finding objects to behavior the Spec requires, asks for something the Spec lists as out of scope, or describes an attack the change already blocks.
++- Return only the Ruling fields the schema asks for.
+diff --git a/.claude/agents/escalation-packager.md b/.claude/agents/escalation-packager.md
+new file mode 100644
+index 0000000..7505dbd
+--- /dev/null
++++ b/.claude/agents/escalation-packager.md
+@@ -0,0 +1,15 @@
++---
++name: escalation-packager
++description: Build-line Escalation Packager. Receives a stuck task's history, open findings, repeats and disputes lost already assembled in code, and writes the Escalation a human reads. Never decides the outcome.
++model: opus
++tools: Read, Glob, Grep
++---
++You are the Escalation Packager of the Fix Loop (OPERATING_MODEL.md §2.5). Method: hotl. Read-only.
++
++Code has already assembled the reason, the history, the open findings, the repeats and the disputes lost; you never reconstruct them yourself and never touch the repository.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You write the packaging, not the fix.
++- Write a one-line hypothesis for why the task is stuck, grounded in the history and findings you were given — never invent evidence not present in the inputs.
++- Choose among the options offered (e.g. guide, direct_drive, kill_to_spec) only as the schema's `options` field asks; you do not implement any of them.
++- Return only the Escalation fields the schema asks for.
+diff --git a/.claude/agents/incident-narrator.md b/.claude/agents/incident-narrator.md
+new file mode 100644
+index 0000000..10a9f11
+--- /dev/null
++++ b/.claude/agents/incident-narrator.md
+@@ -0,0 +1,15 @@
++---
++name: incident-narrator
++description: Maintain-line Incident Narrator. Writes the plain-language sev1 page a human reads on their phone from signals, triages, mitigation and patches already assembled in code. Never decides page options or paging itself.
++model: sonnet
++tools: Read, Glob, Grep
++---
++You are the Incident Narrator of Maintain (OPERATING_MODEL.md §4). Method: hotl. Read-only.
++
++Code has already decided whether a mitigation was applied and which page options the human sees; you never choose those, and you never touch the repository or page anyone yourself.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository or sends a page.
++- Plain sentences, no ids in the prose, no reassurance.
++- `summary`: what is broken and what was already done to production. `impact`: who is affected and how, from the signals only. `lift_means`: what concretely returns to production if the human lifts the mitigation. `timeline`: ordered events you can justify from the data given, each with its timestamp.
++- Return only the IncidentNarrative fields the schema asks for.
+diff --git a/.claude/agents/integrator.md b/.claude/agents/integrator.md
+new file mode 100644
+index 0000000..d68d448
+--- /dev/null
++++ b/.claude/agents/integrator.md
+@@ -0,0 +1,15 @@
++---
++name: integrator
++description: Build-line Integrator, conflict-resolution path. Invoked only when the mechanical merge leaves file conflicts, failing tests, or unaccounted TestSet files; re-examines the conflicted files against the task branches' intents, lands the fix, commits, and re-runs the suite.
++model: opus
++tools: Bash, Read, Write, Edit, Glob, Grep
++---
++You are the Integrator of the Build line (OPERATING_MODEL.md §2), on the conflict-resolution path — the one case the mechanical merge cannot settle by itself.
++
++This node legitimately needs the shell and the filesystem: it edits conflicted files in the integration worktree, lands repaired TestSet files, commits the result, and re-runs the full suite to produce the results the human sees at the Spec Gate. Binding it to the cheap, tool-restricted `mechanical` type would silently downgrade the strong model integration conflicts require (OPERATING_MODEL.md §2.6); it keeps its own definition instead.
++
++Rules:
++- Re-examine every conflicted file against the task branches' actual intents; make the integration branch carry ALL merged behaviors correctly, never just one side.
++- Land any TestSet files the mechanical merge failed to account for, without ever overwriting a file already present.
++- Commit your resolution, then re-run the full suite and report results by ref, never inlined.
++- Return only the Suite fields the schema asks for, including the integration commit's full 40-character sha.
+diff --git a/.claude/agents/patch-classifier.md b/.claude/agents/patch-classifier.md
+new file mode 100644
+index 0000000..b1b31b7
+--- /dev/null
++++ b/.claude/agents/patch-classifier.md
+@@ -0,0 +1,13 @@
++---
++name: patch-classifier
++description: Build re-entry Patch Classifier. Reads one Patch's diff and the repo, classifies urgency and lists conflict surfaces, and writes the WorkItem it becomes. Read-only.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Patch Classifier of Build re-entry (OPERATING_MODEL.md §3). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You classify the patch already produced; you never touch it.
++- `urgency` is "hotfix" only if production is currently wrong for users in a way that cannot wait for the normal iteration; otherwise "routine". Severity is evidence, not the answer.
++- `conflict_surfaces` are every surface the patch touches, repository-relative, read from the diff — this is what overlap detection runs on, so list them all and nothing speculative.
++- Return only the Classification fields the schema asks for.
+diff --git a/.claude/agents/risk-router.md b/.claude/agents/risk-router.md
+new file mode 100644
+index 0000000..836c812
+--- /dev/null
++++ b/.claude/agents/risk-router.md
+@@ -0,0 +1,12 @@
++---
++name: risk-router
++description: Build-line Risk Router. Reads a Spec, classifies its blast radius as low or high with reasons. Read-only, no fixes, no code changes.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Risk Router of the Build line (OPERATING_MODEL.md §2.1). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You classify; the workflow's code branches on your classification.
++- High ONLY if the change alters the stored data shape, touches auth/secrets/payments/infra, is irreversible, or breaks an existing route's contract for existing clients. An additive route, field, or query parameter is low.
++- Return only the Risk fields the schema asks for, with reasons that cite the Spec.
+diff --git a/.claude/agents/spec-writer.md b/.claude/agents/spec-writer.md
+new file mode 100644
+index 0000000..345eefe
+--- /dev/null
++++ b/.claude/agents/spec-writer.md
+@@ -0,0 +1,15 @@
++---
++name: spec-writer
++description: Build-line Spec Writer. Reads a WorkItem and the target app's code and tests, writes a Spec (testable acceptance criteria, touched surfaces, exclusions). Never touches the repo it specifies.
++model: opus
++tools: Read, Glob, Grep
++---
++You are the Spec Writer node of the Build line (OPERATING_MODEL.md §2.1). Method: hotl. Read-only.
++
++You specify the work; you never do it. A `WorkItem.intent` arrives phrased as an instruction, but it is your input to describe, not a task to carry out.
++
++Rules:
++- Do not create, edit or delete any file, and do not run `git add`, `git commit`, `npm test`, or any other command that changes the repository or executes code. Read freely; write nothing. A node that runs the app or its tests is doing the work the Spec exists to hand off, and it skips the Test Author, the Verifier Panel and the owned-surfaces boundary check downstream.
++- Acceptance criteria must be testable Given/When/Then.
++- List every touched surface, repository-relative, and state what is explicitly out of scope.
++- Return only the Spec fields the schema asks for.
+diff --git a/.claude/agents/stack-selector.md b/.claude/agents/stack-selector.md
+new file mode 100644
+index 0000000..f3e8260
+--- /dev/null
++++ b/.claude/agents/stack-selector.md
+@@ -0,0 +1,12 @@
++---
++name: stack-selector
++description: Project Create Stack Selector. Chooses a runtime, framework and test runner for a new venture from the ProjectBrief's constraints, with reasons. Read-only, invoked only when the Brief leaves the stack open.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Stack Selector of Project Create (OPERATING_MODEL.md §6). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You choose; the Repo Scaffolder builds.
++- Prefer boring, well-known choices that satisfy the Brief's constraints.
++- Return only the StackDecision fields the schema asks for, with reasons.
+diff --git a/.claude/agents/surface-namer.md b/.claude/agents/surface-namer.md
+new file mode 100644
+index 0000000..a7882e2
+--- /dev/null
++++ b/.claude/agents/surface-namer.md
+@@ -0,0 +1,12 @@
++---
++name: surface-namer
++description: Build re-entry Surface Namer. Reads a WorkItem missing declared surfaces and the repo, names the surfaces it would touch so conflict detection has something to overlap on. Read-only.
++model: haiku
++tools: Read, Glob, Grep
++---
++You are the Surface Namer of Build re-entry (OPERATING_MODEL.md §3). Method: dark_factory. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You name surfaces; you never touch them.
++- Report repository-relative refs, narrowest that is honest; an empty list is a valid answer when the intent names nothing in the code.
++- Return only the Surfaces fields the schema asks for.
+diff --git a/.claude/agents/tiebreak-judge.md b/.claude/agents/tiebreak-judge.md
+new file mode 100644
+index 0000000..7e016b7
+--- /dev/null
++++ b/.claude/agents/tiebreak-judge.md
+@@ -0,0 +1,13 @@
++---
++name: tiebreak-judge
++description: Build-line Tiebreak Judge. Reads a split Verifier Panel's Verdicts, the Spec and the diff, and returns the deciding Verdict. Only invoked on a 2-1 split with low swing-vote confidence.
++model: opus
++tools: Read, Glob, Grep
++---
++You are the Tiebreak Judge of the Verifier Panel (OPERATING_MODEL.md §2.4). Method: hotl. Read-only.
++
++Rules:
++- Do not create, edit or delete any file, and do not run any command that changes the repository. You adjudicate; you never patch.
++- Weigh the lenses' Verdicts against the Spec and the actual diff, not against each other's confidence — a lens can be wrong even unanimously among the minority.
++- Your Verdict is final for this round; state findings with the same rigor (location, claim, evidence) a lens would.
++- Return only the Verdict fields the schema asks for.
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 50c9b99..a5a6dc4 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -26,6 +26,8 @@ export const meta = {
+ //   verify_only: { [task_id]: { branch, base } } — re-panel an EXISTING branch: no implementer; a mechanical agent checks it out
+ //         and writes the diff base...branch; test author, panel, fix loop and integration run as usual. For re-verification
+ //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
++//   agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
++//   missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
+ // returns: EvidenceBundle (see contracts.schema.json)
+ //
+ // Human touchpoints: none inside this run. Escalations come back in the bundle;
+@@ -42,9 +44,13 @@ const SEV = { high: 0, medium: 1, low: 2 }
+ const TASK_TOKENS = A.budget?.task_tokens ?? 250000
+ const ART = A.artifact_dir ?? '.artifacts'
+ const BASE = A.base ?? 'HEAD'
+-// .claude/agents/ definitions register at session start; a session that predates them must pass agent_types:false
+-// (an unknown agentType throws and drops the task).
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule, so an agent committed mid-session is unavailable to the next run and available some minutes later.
++// agent_types:false drops every binding (a session that predates .claude/agents/ registering at all); missing_agent_types
++// names the individual types THIS run's runtime has not yet registered, so AT() drops only those. When a type is
++// dropped its ROLE PROMPT goes with it, so every constraint that matters is also stated inline in the prompts below.
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const APP = `${A.repo}`
+ // Where landed TestSets go, relative to the worktree root. Defaults to <repo>/test, which is right for an app like
+ // toy/. It is NOT right for venture-0 work on the plant itself: there repo is "." and the runner's glob is
+@@ -714,11 +720,13 @@ async function runTask({ spec, task, spec_ref }) {
+           ? `. Task ${strayedIntoMe[0].straying_task_id} was recorded straying into this task's owned surfaces at ${strayedIntoMe.map(s => s.ref).join(', ')} — that almost certainly explains the empty diff.`
+           : (deps.length ? `. Its dependency ${deps.map(d => d.task.id).join(', ')} may already carry this task's work — check whether that implementer wrote outside its owned surfaces.` : '.'))
+     log(why)
+-    const esc = await agent(`Write an Escalation for a human. Reason: cannot_repro. History: ${JSON.stringify([why])}.
++    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
++                             command that changes the repository — you package the escalation, you never fix it.
++                             Reason: cannot_repro. History: ${JSON.stringify([why])}.
+                              Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                              ${specText}. The task produced no reviewable change, so no panel was run and no round was spent.
+                              One-line hypothesis for why the diff is empty. Options: guide, direct_drive, kill_to_spec.`,
+-      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
++      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalation-packager'), schema: Escalation })
+     if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'cannot_repro', repeats: [], disputes_lost: [] })
+     return { spec, task, passed: false, skipped: false }
+   }
+@@ -767,12 +775,14 @@ async function runTask({ spec, task, spec_ref }) {
+     boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
+     const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
+     lines.forEach(l => ctx.history.push(l))
+-    const esc = await agent(`Write an Escalation for a human. Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
++    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
++                             command that changes the repository — you package the escalation, you never fix it.
++                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+                              Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                              ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
+                              disjoint across tasks in the same spec); no panel was run and no round was spent on it.
+                              One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
+-      { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
++      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalation-packager'), schema: Escalation })
+     if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
+   }
+   if (initialBoundary.verdict === 'violation') { await escalateBoundaryViolation(initialBoundary); return { ...ctx, passed: false } }
+@@ -851,8 +861,9 @@ async function runTask({ spec, task, spec_ref }) {
+ 
+     let { result, veto_by, split } = adjudicate(verdicts)
+     if (split) {
+-      const tie = await agent(`Adjudicate a split review. Verdicts: ${JSON.stringify(verdicts)}. ${specText}. Change: ${JSON.stringify(diffOnly)}.`,
+-        { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, schema: Verdict })
++      const tie = await agent(`Adjudicate a split review. Do not create, edit or delete any file, and do not run any
++               command that changes the repository — you adjudicate, you never patch. Verdicts: ${JSON.stringify(verdicts)}. ${specText}. Change: ${JSON.stringify(diffOnly)}.`,
++        { label: `tiebreak:${task.id}:${tag}`, model: MODEL.strong, ...AT('tiebreak-judge'), schema: Verdict })
+       if (tie) { verdicts.push(sealVerdict(tie, MODEL.strong)); result = tie.verdict } else result = 'fail'
+     }
+     const findings = dedupe(verdicts.flatMap(v => v.findings))
+@@ -866,11 +877,13 @@ async function runTask({ spec, task, spec_ref }) {
+     // Defined before the pass/fail branch below so the pass branch's roundOutcome guard can call it too.
+     const escalate = async (reason, open) => {
+       const repeats = open.filter(f => ctx.overruled.some(o => o.lens === f.lens && fileOf(o.location) === fileOf(f.location)))
+-      const esc = await agent(`Write an Escalation for a human. Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
++      const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
++                               command that changes the repository — you package the escalation, you never fix it.
++                               Reason: ${reason}. History: ${JSON.stringify(ctx.history)}.
+                                Open findings: ${JSON.stringify(open)}. Repeats: ${JSON.stringify(repeats)}.
+                                Disputes lost (fixer disputed, judge upheld): ${JSON.stringify(ctx.upheld)}. Overruled by judge: ${JSON.stringify(ctx.overruled)}.
+                                ${specText}. One-line hypothesis for why this is stuck. Options: guide, direct_drive, kill_to_spec.`,
+-        { label: `escalate:${task.id}`, model: MODEL.strong, schema: Escalation })
++        { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalation-packager'), schema: Escalation })
+       if (esc) escalations.push({ ...esc, task_id: task.id, reason, repeats, disputes_lost: ctx.upheld })
+       return { ...ctx, passed: false }
+     }
+@@ -1026,10 +1039,11 @@ async function runTask({ spec, task, spec_ref }) {
+     if (disputed.length) {
+       // Its ruling crosses two edges: the next round's lens prompt and the Escalation.
+       rulings = await parallel(disputed.map(x => () =>
+-        agent(`Rule on a disputed finding. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.notes}.
++        agent(`Rule on a disputed finding. Do not create, edit or delete any file, and do not run any command that changes
++               the repository — you rule, you never patch. ${specText}. Finding: ${JSON.stringify(x.f)}. Fixer's dispute: ${x.notes}.
+                UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
+                spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.`,
+-          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
++          { label: `dispute:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('dispute-checker'), schema: Ruling })))   // mid tier: Opus rulings were the largest cost line (ledger, Phases 1–2); Tiebreak stays strong
+       // Compare against rulings from EARLIER rounds only: the guard catches a lens re-raising after being overruled, not several
+       // overrules inside one round (r6 escalated a green change on that mistake).
+       const priorOverruled = [...ctx.overruled]
+@@ -1164,7 +1178,7 @@ if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || (suit
+                                 Carry forward tests_landed ${JSON.stringify(suite.tests_landed ?? [])} and tests_skipped ${JSON.stringify(suite.tests_skipped ?? [])} unchanged
+                                 unless you changed which tests are present. Then run \`git rev-parse HEAD\` in that worktree and return its FULL
+                                 40-character sha as integration_commit — your commit, not the one the mechanical merge reported. Copy it exactly; omit it if the command fails.`,
+-    { label: 'integrate:resolve', model: MODEL.strong, schema: Suite })
++    { label: 'integrate:resolve', model: MODEL.strong, ...AT('integrator'), schema: Suite })
+   if (resolved) finalSuite = resolved
+ }
+ 
+diff --git a/.claude/workflows/build-reentry.js b/.claude/workflows/build-reentry.js
+index b18efe5..bc4c0e7 100644
+--- a/.claude/workflows/build-reentry.js
++++ b/.claude/workflows/build-reentry.js
+@@ -16,7 +16,7 @@ export const meta = {
+ //         gate?: { gate_id },                                 // the CLOSED sev1_page record. Required when any patch is sev1.
+ //         ratio?: { guardrail (0.5), default_maintain (0.2),
+ //                   history: [{ iteration, actual_maintain, breach }] },  // pass [] to assert "no prior breach"; absent is not assumed
+-//         starvation_threshold? (2), artifact_dir?, new_agent_types?: false }
++//         starvation_threshold? (2), artifact_dir?, agent_types?: false, missing_agent_types?: [name] }
+ // returns: { work_items: WorkItem[] (ordered), plan: ReentryPlan, deferred, starved_items,
+ //            gate?: { gate: 'ratio_gate', options, next, payload_ref }, refs, provenance }
+ //          or { refused: true, reason } when a sev1 patch arrives without a decided sev1_page, or a breach cannot be judged.
+@@ -41,7 +41,12 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
++// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
++// constraint that matters is also stated inline in the prompts below.
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+ const ART = A.artifact_dir ?? '.artifacts'
+ const DIR = `${ART}/reentry/${A.run_id}`
+@@ -99,7 +104,9 @@ if (sev1Patches.length && !A.gate?.gate_id) return refuse(`${sev1Patches.length}
+ 
+ // One barrier, and it is the one §3 names: the Merge Planner needs every classification, the gate record and every surface set.
+ const thunks = [
+-  ...patches.map(p => () => agent(`Classify one Patch for Build re-entry and write the WorkItem it becomes. Read its diff at ${p.change_set.diff_ref} and the repo (app at ./${A.repo}/).
++  ...patches.map(p => () => agent(`Classify one Patch for Build re-entry and write the WorkItem it becomes. Do not create, edit
++       or delete any file, and do not run any command that changes the repository — you classify only. Read its diff at
++       ${p.change_set.diff_ref} and the repo (app at ./${A.repo}/).
+        urgency: "hotfix" only if production is currently wrong for users in a way that cannot wait for the normal iteration — otherwise "routine".
+          Severity is evidence, not the answer: a sev1 whose mitigation is still holding production can be routine, and a sev2 that corrupts stored data cannot.
+        urgency_reason: one sentence, from the diff and the cause.
+@@ -107,11 +114,12 @@ const thunks = [
+        title: imperative, under 120 characters, no ids. intent: one paragraph a Spec Writer can work from — the defect, the user-visible symptom, and that a
+          regression test already exists on branch ${p.change_set.branch ?? '(none)'}. Never describe the fix as optional.
+        Patch (diff by ref, never inlined): ${JSON.stringify({ id: p.id, severity: p.severity, signal_ids: p.signal_ids, cause: p.cause, repro: { status: p.repro?.status, steps: p.repro?.steps, observed: p.repro?.observed, expected: p.repro?.expected }, verification: p.verification?.verified, branch: p.change_set.branch, base_commit: p.change_set.base_commit })}`,
+-    { label: `classify:${p.id}`, phase: 'Classify', model: MODEL.cheap, schema: Classification }).then(c => c && { kind: 'patch', patch: p, c })),
++    { label: `classify:${p.id}`, phase: 'Classify', model: MODEL.cheap, ...AT('patch-classifier'), schema: Classification }).then(c => c && { kind: 'patch', patch: p, c })),
+   ...improveItems.filter(w => !(w.surfaces?.length)).map(w => () => agent(`Name the surfaces this work item would touch, so conflict detection has something to overlap on.
++       Do not create, edit or delete any file, and do not run any command that changes the repository — you name surfaces only.
+        Read the app at ./${A.repo}/. Repository-relative refs, narrowest that is honest; [] is a valid answer when the intent names nothing in the code.
+        Work item: ${JSON.stringify({ id: w.id, title: w.title, intent: w.intent })}`,
+-    { label: `surfaces:${w.id}`, phase: 'Classify', model: MODEL.cheap, schema: Surfaces }).then(s => s && { kind: 'surfaces', item: w, s })),
++    { label: `surfaces:${w.id}`, phase: 'Classify', model: MODEL.cheap, ...AT('surface-namer'), schema: Surfaces }).then(s => s && { kind: 'surfaces', item: w, s })),
+   ...(A.gate?.gate_id ? [() => agent(`Run from the repo root: node substrate/gates.js show ${A.gate.gate_id}. Report found, status, gate, decision.option ("" if none),
+        payload.project_id ("" if absent), payload.signal_ids ([] if absent), decision.decided_by, decision.decided_at, decision.note ("" if none).
+        Copy, never interpret. If the command fails, found=false and the error text in note.`,
+diff --git a/.claude/workflows/build-spec.js b/.claude/workflows/build-spec.js
+index cc66f6a..bba1529 100644
+--- a/.claude/workflows/build-spec.js
++++ b/.claude/workflows/build-spec.js
+@@ -4,13 +4,18 @@ export const meta = {
+   phases: [{ title: 'Plan', detail: 'select work items within capacity — script code, zero tokens' }, { title: 'Spec', detail: 'spec → (risk router ∥ decomposer) per item' }],
+ }
+ 
+-// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir? }
++// args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir?,
++//         agent_types?: false, missing_agent_types?: [name] }
+ //   project_context: one sentence about the venture the router should know (e.g. "client: self, no external consumers yet").
+ //   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
+ //   test_dir: where TestSets land, relative to the worktree root (default "${repo}/test", matching
+ //             build-implement.js's test_dir semantics). Used only by graph-lint's test-dir-surfaces check
+ //             (B3, folding in A6): a spec that names a path under test_dir in touched_surfaces hands the
+ //             Test Author's job to the implementer, so it gates the spec for a human at the Spec Gate.
++//   agent_types: false drops every agentType binding (a session that predates .claude/agents/ registering at all).
++//   missing_agent_types: names the agentTypes THIS run's runtime has not yet registered (committing one is necessary
++//             but not sufficient — the runtime rescans on its own schedule); AT() drops only those, not every type,
++//             so every constraint that matters is also stated inline in the prompts below and survives the drop.
+ // returns: { ready: [{spec, graph, lint}], gated: [{spec, graph, lint}], provenance }
+ //
+ // The human reviews `gated` in chat, then runs:
+@@ -18,6 +23,8 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ // Where TestSets land, relative to the worktree root — build-implement.js's `test_dir` semantics and default.
+ // Read once here, not per work item: it is a property of the run, not of the item being specced.
+ const TEST_DIR = A.test_dir ?? `${A.repo}/test`
+@@ -385,16 +392,18 @@ const specced = (await pipeline(selected, async (w) => {
+      Surface refs are repository-relative paths (e.g. ${A.repo}/src/app.js).
+      Acceptance criteria must be testable Given/When/Then. List every touched surface and what is out of scope.
+      Work item: ${JSON.stringify(w)}`,
+-    { label: `spec:${w.id}`, model: MODEL.strong, schema: Spec })
++    { label: `spec:${w.id}`, model: MODEL.strong, ...AT('spec-writer'), schema: Spec })
+   if (!spec) return null
+ 
+   // Router and Decomposer both consume only the Spec — run together.
+   const [risk, graph] = await parallel([
+-    () => agent(`Classify blast radius of this spec as low or high, with reasons. ${A.project_context ? `Project context: ${A.project_context}. ` : ''}
++    () => agent(`Classify blast radius of this spec as low or high, with reasons. Do not create, edit or delete any file, and do
++                 not run any command that changes the repository — you classify only. ${A.project_context ? `Project context: ${A.project_context}. ` : ''}
+                  High ONLY if it changes the stored data shape, touches auth/secrets/payments/infra, is irreversible, or BREAKS an existing
+                  route's contract for existing clients (an additive route, field, or query parameter is low). Spec: ${JSON.stringify(spec)}`,
+-      { label: `route:${w.id}`, model: MODEL.cheap, schema: Risk }),
++      { label: `route:${w.id}`, model: MODEL.cheap, ...AT('risk-router'), schema: Risk }),
+     () => agent(`Decompose this spec into IMPLEMENTATION tasks with DISJOINT owned surfaces (no two tasks may own the same path).
++                 Do not create, edit or delete any file, and do not run any command that changes the repository — you plan the split only.
+                  Never create a task whose only job is writing tests or documentation. A separate Test Author writes tests from the
+                  spec, so criteria about existing tests passing or npm test exiting 0 belong to the implementation task that touches
+                  the code. A DOCUMENTATION criterion resolves the same way: it belongs to the implementation task that owns the code
+@@ -407,7 +416,7 @@ const specced = (await pipeline(selected, async (w) => {
+                  require it to write must appear in that task's owned_surfaces — a criterion assigned to a task that may not touch the
+                  file it names is unsatisfiable, and the fix loop cannot close it (rulings r5, c1).
+                  App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
+-      { label: `decompose:${w.id}`, model: MODEL.cheap, schema: TaskGraph }),
++      { label: `decompose:${w.id}`, model: MODEL.cheap, ...AT('decomposer'), schema: TaskGraph }),
+   ])
+   if (!risk || !graph) return null
+ 
+diff --git a/.claude/workflows/create-project.js b/.claude/workflows/create-project.js
+index 976f2c4..5924bd8 100644
+--- a/.claude/workflows/create-project.js
++++ b/.claude/workflows/create-project.js
+@@ -9,7 +9,8 @@ export const meta = {
+ }
+ 
+ // args: { brief: ProjectBrief (status "signed"; small enough to inline), gate: { gate_id }, repo, run_id, now,
+-//         hosting?: overrides brief.hosting (same shape), id_prefix?: work item id prefix (default "wi-<run_id>-") }
++//         hosting?: overrides brief.hosting (same shape), id_prefix?: work item id prefix (default "wi-<run_id>-"),
++//         agent_types?: false, missing_agent_types?: [name] }
+ //   repo: a directory of THIS git repository that holds (or will hold) the app, e.g. "toy". Scaffolding an empty
+ //         directory is supported by the same node; the toy already exists so here it only verifies and installs.
+ // returns: Workspace (contracts.schema.json), or { refused: true, reason } — never a half-provisioned Workspace.
+@@ -20,7 +21,12 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
++// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
++// constraint that matters is also stated inline in the prompts below.
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+ const brief = A.brief
+ const project = brief.id
+@@ -66,8 +72,10 @@ if (hosting.app_dir !== A.repo) return refuse(`hosting.app_dir "${hosting.app_di
+ // Stack Selector: judgment only when the Brief leaves it open. With stack_preferences the decision is code.
+ const stack = brief.stack_preferences?.length
+   ? { runtime: brief.stack_preferences[0], framework: brief.stack_preferences[1] ?? '', test_runner: brief.stack_preferences[2] ?? '', reasons: ['from brief.stack_preferences'] }
+-  : await agent(`Choose a stack for this project: runtime, framework, test runner, with reasons. Constraints: ${JSON.stringify(brief.constraints ?? [])}.
+-                 Problem: ${brief.problem}. Prefer boring, well-known choices.`, { label: 'stack', model: MODEL.cheap, schema: StackDecision })
++  : await agent(`Choose a stack for this project: runtime, framework, test runner, with reasons. Do not create, edit or delete
++                 any file, and do not run any command that changes the repository — you choose, the Repo Scaffolder builds.
++                 Constraints: ${JSON.stringify(brief.constraints ?? [])}.
++                 Problem: ${brief.problem}. Prefer boring, well-known choices.`, { label: 'stack', model: MODEL.cheap, ...AT('stack-selector'), schema: StackDecision })
+ if (!stack) return refuse('stack selection failed')
+ 
+ // Three independent inputs → three concurrent lines: (Scaffolder → CI) ∥ Seeder. Envs/observability/comms are code and cost nothing.
+@@ -87,11 +95,13 @@ const [repoLine, seed] = await parallel([
+       { label: 'ci', model: MODEL.cheap, ...AT('mechanical'), schema: CiResult })
+     return { handle, ci }
+   },
+-  () => agent(`Backlog Seeder. Turn each line of the Brief's initial_scope into one WorkItem seed: a title, a one-paragraph intent (why it exists
++  () => agent(`Backlog Seeder. Do not create, edit or delete any file, and do not run any command that changes the repository —
++       you seed the backlog description, you never scaffold or write code. Turn each line of the Brief's initial_scope into one
++       WorkItem seed: a title, a one-paragraph intent (why it exists
+        and what "done" looks like, from the Brief's problem, users and success metrics), and a priority (1 = first). Split a line only if it clearly
+        names two independent deliverables. Do not invent scope. Brief: ${JSON.stringify({ problem: brief.problem, users: brief.users,
+        success_metrics: brief.success_metrics, constraints: brief.constraints, initial_scope: brief.initial_scope })}.`,
+-    { label: 'seed', model: MODEL.cheap, schema: Seed }),
++    { label: 'seed', model: MODEL.cheap, ...AT('backlog-seeder'), schema: Seed }),
+ ])
+ if (!repoLine?.handle) return refuse('scaffolder failed')
+ if (!repoLine.handle.stack_ok) return refuse(`./${A.repo}/ exists but is not a ${stack.framework || stack.runtime} app`)
+diff --git a/.claude/workflows/deploy.js b/.claude/workflows/deploy.js
+index f9085c4..9080b71 100644
+--- a/.claude/workflows/deploy.js
++++ b/.claude/workflows/deploy.js
+@@ -18,7 +18,8 @@ export const meta = {
+ //         watch?: { rounds (3), round_seconds (60), thresholds: { error_rate_delta (0.02), p95_factor (3), p95_floor_ms (25), min_requests (20) } }
+ //         seed_regression?: string — TEST ONLY: a mutation a mechanical agent applies to the canary worktree before it
+ //                        starts (the rollback drill in HANDOFF Phase 3). Recorded on the LaunchRecord so it can never
+-//                        be mistaken for a real rollback. }
++//                        be mistaken for a real rollback.
++//         agent_types?: false, missing_agent_types?: [name] }
+ // returns: LaunchRecord (contracts.schema.json); on veto { vetoed: true, work_item: WorkItem(source=launch_veto) };
+ //          on a refused precondition { refused: true, reason }.
+ //
+@@ -27,7 +28,12 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
++// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
++// constraint that matters is also stated inline in the prompts below.
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+ const pkg = A.package
+ const project = pkg.project_id
+diff --git a/.claude/workflows/launch.js b/.claude/workflows/launch.js
+index 88e61ff..81a30df 100644
+--- a/.claude/workflows/launch.js
++++ b/.claude/workflows/launch.js
+@@ -7,7 +7,8 @@ export const meta = {
+   ],
+ }
+ 
+-// args: { bundle_ref, spec_refs: [path], repo, run_id, now, base_ref? (default "main"), project_id? }
++// args: { bundle_ref, spec_refs: [path], repo, run_id, now, base_ref? (default "main"), project_id?,
++//         agent_types?: false, missing_agent_types?: [name] }
+ //   bundle_ref: path to the EvidenceBundle JSON — either a bare bundle or a ledger run file (ledger/runs/<run>-build-implement.json,
+ //               whose .result is the bundle). Bundles are large (every panel round); they cross this edge by ref and a mechanical
+ //               agent returns only the digest Preflight needs.
+@@ -20,7 +21,12 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
++// has not yet registered, so AT() drops only those. When a type is dropped its ROLE PROMPT goes with it, so every
++// constraint that matters is also stated inline in the prompts below.
++const MISSING = new Set(A.missing_agent_types ?? [])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+ const BASE = A.base_ref ?? 'main'
+ 
+@@ -75,7 +81,7 @@ const [pre, notes] = await parallel([
+   () => agent(`Release Notes Writer. Read each spec at ${JSON.stringify(A.spec_refs ?? [])} and write user-facing release notes: one headline per spec
+        (what changed for the API's users, not how), then a short "behavior changes" list. No internal ids in the prose. Write the markdown to
+        .artifacts/launch/${A.run_id}.notes.md and return that path, a summary under 900 characters, and one headline per spec_id.`,
+-    { label: 'notes', model: MODEL.cheap, schema: Notes }),
++    { label: 'notes', model: MODEL.cheap, ...AT('mechanical'), schema: Notes }),
+ ])
+ if (!pre?.digest) return { failed: true, reason: 'bundle digest failed', provenance: stamp('launch', 'n/a', 'hitl') }
+ if (!pre.artifact || !pre.queue) return { failed: true, reason: 'artifact check or gate queue read failed', provenance: stamp('launch', 'n/a', 'hitl') }
+diff --git a/.claude/workflows/maintain-triage.js b/.claude/workflows/maintain-triage.js
+index 3b26c01..aac5575 100644
+--- a/.claude/workflows/maintain-triage.js
++++ b/.claude/workflows/maintain-triage.js
+@@ -19,8 +19,12 @@ export const meta = {
+ //         live?: { env (e.g. "prod"), port, app, rollback_to_ref } — the sev1 mitigation target. Absent = no mitigation is
+ //                possible and the page says so; a missing rollback_to_ref is never guessed at.
+ //         health?: { period: {from,to}, slo: [{name,target,actual}], maintain_ratio?, improve_backlog?, prev?: {defects} },
++//         agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
++//         missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
+ //         new_agent_types?: false — this phase added .claude/agents/{triage,reproducer,root-cause,patch-drafter}.md, which
+-//                only register at session start; a session that predates them must pass false (they then run as plain tiered agents). }
++//                only register from the committed tree on the runtime's own delayed schedule; a session that predates them
++//                must pass false (they then run as plain tiered agents). Folded into AT()/missing_agent_types: it drops
++//                exactly those four types, same as naming them individually in missing_agent_types. }
+ // returns: { patches: Patch[], parked: [{signal_id, repro}], dropped: {duplicates, noise}, triages: Triage[],
+ //            health: HealthReport, mitigation?: Mitigation, incident?: IncidentRecord,
+ //            gate?: { gate, options, next, payload_ref }, refs, provenance }
+@@ -44,8 +48,15 @@ export const meta = {
+ 
+ const A = args
+ const MODEL = { strong: 'opus', mid: 'sonnet', cheap: 'haiku' }
+-const AT = (t) => (A.agent_types === false ? {} : { agentType: t })
+-const NEW = (t) => (A.new_agent_types === false ? {} : { agentType: t })
++// .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
++// schedule. agent_types:false drops every binding; missing_agent_types names the individual types THIS run's runtime
++// has not yet registered, so AT() drops only those. new_agent_types:false folds into the same mechanism: it names
++// exactly the four types this phase added ({triage,reproducer,root-cause,patch-drafter}.md) so it keeps dropping
++// exactly those, same as naming them individually in missing_agent_types. When a type is dropped its ROLE PROMPT
++// goes with it, so every constraint that matters is also stated inline in the prompts below.
++const NEW_TYPES = ['triage', 'reproducer', 'root-cause', 'patch-drafter']
++const MISSING = new Set([...(A.missing_agent_types ?? []), ...(A.new_agent_types === false ? NEW_TYPES : [])])
++const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })
+ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, model, run_id: A.run_id, created_at: A.now })
+ const ART = A.artifact_dir ?? '.artifacts'
+ const DIR = `${ART}/maintain/${A.run_id}`
+@@ -224,7 +235,7 @@ const processed = (await pipeline(fresh, async (signal) => {
+          security_exposure — is something reachable that should not be?
+          scope — how many users the payload shows are affected. workaround — does the payload describe one that works?
+        surfaces: the narrowest repository-relative surfaces the payload justifies. rationale: two sentences, quoting the payload.`,
+-    { label: `triage:${signal.id}`, phase: 'Triage', model: MODEL.cheap, ...NEW('triage'), schema: TriageC })
++    { label: `triage:${signal.id}`, phase: 'Triage', model: MODEL.cheap, ...AT('triage'), schema: TriageC })
+   if (!t0) return null
+   const [severity, severity_rule] = routeSeverity(t0.facts)
+   const triage = { ...t0, severity, severity_rule, signal_id: signal.id, provenance: stamp('triage', MODEL.cheap, 'dark_factory') }
+@@ -254,7 +265,7 @@ const processed = (await pipeline(fresh, async (signal) => {
+          ${n > 1 ? (repro?.status === 'reproduced'
+            ? `Attempt ${n - 1} said it reproduced the defect but returned no failing_test_ref, so it does not count. What it reported: ${JSON.stringify(repro?.notes ?? '')}. If the test is already at ${testRef} and fails, re-run it to confirm and return that path.`
+            : `Attempt ${n - 1} did not reproduce it. What it tried: ${JSON.stringify(repro?.notes ?? '')}. Try a different route, input shape, or sequence.`) : ''}`,
+-      { label: `repro:${signal.id}:a${n}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('reproducer'), schema: ReproC })
++      { label: `repro:${signal.id}:a${n}`, phase: 'Diagnose', model: MODEL.mid, ...AT('reproducer'), schema: ReproC })
+     if (!r) break
+     repro = { ...r, signal_id: signal.id, attempts: n }
+     if (r.status === 'reproduced' && r.failing_test_ref) break
+@@ -273,7 +284,7 @@ const processed = (await pipeline(fresh, async (signal) => {
+        One cause, one location (path:line). The hypothesis is the mechanism — what the code does and why it produces the observed output — not a fix and not a list.
+        surfaces = the narrowest surfaces a fix must touch; the Patch Drafter will be held to them. suspect_commit only if the history actually points at one.
+        Triage: ${JSON.stringify(triage)}. Repro: ${JSON.stringify({ steps: repro.steps, observed: repro.observed, expected: repro.expected })}.`,
+-    { label: `rca:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('root-cause'), schema: CauseC })
++    { label: `rca:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...AT('root-cause'), schema: CauseC })
+   if (!cause) { parked.push({ signal_id: signal.id, severity: triage.severity, repro, reason: 'root cause analysis returned nothing' }); return { signal, triage, parkedHere: true } }
+   log(`${signal.id}: cause at ${cause.location} (confidence ${cause.confidence})`)
+ 
+@@ -292,7 +303,7 @@ const processed = (await pipeline(fresh, async (signal) => {
+           Leave task_id and spec_id unset: no Task and no Spec exist yet, and this change set acquires them when the patch enters Build.
+        If the cause is wrong, change nothing and set notes to "DISPUTE: <what you ran and what it showed>".
+        Cause: ${JSON.stringify(cause)}. Repro: ${JSON.stringify({ steps: repro.steps, observed: repro.observed, expected: repro.expected })}.`,
+-    { label: `draft:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...NEW('patch-drafter'), schema: ChangeSetC })
++    { label: `draft:${signal.id}`, phase: 'Diagnose', model: MODEL.mid, ...AT('patch-drafter'), schema: ChangeSetC })
+   if (!cs || cs.notes?.startsWith('DISPUTE:')) {
+     parked.push({ signal_id: signal.id, severity: triage.severity, repro, reason: cs?.notes ?? 'the patch drafter returned nothing' })
+     log(`${signal.id}: no patch — ${cs?.notes ?? 'drafter returned nothing'}`)
+@@ -355,7 +366,9 @@ let mitigation = null, incident = null
+ if (sev1.length) {
+   mitigation = await mitigationP
+   const sev1Patches = sev1.filter(p => p.patch).map(p => p.patch)
+-  const narrative = await agent(`Write the sev1 page a single human reads on their phone. Plain sentences, no ids in the prose, no reassurance.
++  const narrative = await agent(`Write the sev1 page a single human reads on their phone. Do not create, edit or delete any
++       file, and do not run any command that changes the repository or sends a page — you write the narrative, code decides
++       the page options and pages the human. Plain sentences, no ids in the prose, no reassurance.
+        summary: what is broken and what was already done to production. impact: who is affected and how, from the signals only.
+        lift_means: what changes if the human lifts the mitigation — be concrete about what returns to production.
+        timeline: the ordered events you can justify from the data below, each with its timestamp (they all carry ${A.now}; that is the run's clock).
+@@ -364,7 +377,7 @@ if (sev1.length) {
+        Mitigation (this already happened, before anyone was paged): ${JSON.stringify(mitigation)}.
+        Patches drafted so far: ${JSON.stringify(sev1Patches.map(p => ({ id: p.id, cause: p.cause.location, verified: p.verification.verified })))}.
+        Parked signals: ${JSON.stringify(parked.filter(x => x.severity === 'sev1'))}.`,
+-    { label: 'incident', phase: 'Incident', model: MODEL.mid, schema: IncidentNarrative })
++    { label: 'incident', phase: 'Incident', model: MODEL.mid, ...AT('incident-narrator'), schema: IncidentNarrative })
+   // Code, not the agent: a failed mitigation never offers keep/lift. An unmitigated sev1 is acknowledged by name.
+   const page_options = mitigation.applied ? ['keep_mitigation', 'lift_mitigation'] : ['direct_drive', 'accept_unmitigated']
+   incident = {

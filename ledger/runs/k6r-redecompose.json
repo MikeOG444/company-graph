@@ -1,0 +1,179 @@
+{
+  "entry": {
+    "id": "k6r-redecompose",
+    "run_id": "k6r",
+    "workflow": "redecompose",
+    "status": "ok",
+    "started_at": "2026-09-24T23:59:13.466Z",
+    "finished_at": "2026-09-25T00:00:01.635Z",
+    "wall_clock_sec": 48,
+    "result_ref": "ledger/runs/k6r-redecompose.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "tokens": 40401,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 40401
+    },
+    "cost_est_usd": 0.06,
+    "agents": 1,
+    "provenance": {
+      "node": "decomposer",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "haiku",
+      "run_id": "k6r",
+      "created_at": "2026-09-24T23:59:00Z"
+    },
+    "trace_ref": ".artifacts/traces/k6r-redecompose.jsonl"
+  },
+  "result": {
+    "graph": {
+      "spec_id": "spec-wi-a5-agent-least-privilege",
+      "tasks": [
+        {
+          "id": "t1-agent-definitions",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Create agent type definitions in .claude/agents/ for judgment (read-only) and write-permitted roles. Create files for: spec-writer (strong, read-only), route-selector (mid, read-only), decomposer (cheap, read-only), classify-agent (mid, read-only), surface-analyzer (cheap, read-only), stack-builder (mid, read-only), project-seeder (cheap, read-only), incident-analyzer (mid, read-only), and integrate-resolver (strong, write-permitted with Bash/Write/Edit). Each file must have frontmatter with name, model tier, tools list, and body describing role and constraints. Inline prompts must state read-only constraint for judgment agents.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/agents/"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "AC-2",
+            "AC-9",
+            "AC-10"
+          ]
+        },
+        {
+          "id": "t2-bind-build-spec",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to build-spec.js that binds agent() call sites to agentTypes while handling missing_agent_types. Bind three unbound sites (spec, route, decompose) to their respective read-only agent types. Ensure no agent() option object lacks agentType binding. Update prompts to include inline statements of read-only constraints. Preserve all existing plan-selection logic and agent labels/tiers/schemas.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-5",
+            "AC-9",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t3-bind-build-implement",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to build-implement.js that binds agent() call sites to agentTypes while handling missing_agent_types. Bind six unbound sites: three escalate sites, tiebreak, dispute, and integrate:resolve. Ensure integrate:resolve stays strong tier (not downgraded to haiku mechanical). Every agent() option must name an agentType. Add inline tool constraint statements to prompts. Preserve all existing labels, tiers, schemas, and phase structure.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-6",
+            "AC-9",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t4-bind-build-reentry",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to build-reentry.js that binds agent() call sites to agentTypes while handling missing_agent_types. Bind two unbound sites (classify, surfaces) to their respective read-only agent types. Every agent() option must name an agentType. Add inline read-only constraint statements to prompts. Preserve all existing structure and decision content.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-reentry.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-7",
+            "AC-9",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t5-bind-create-project",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to create-project.js that binds agent() call sites to agentTypes while handling missing_agent_types. Bind two unbound sites (stack, seed) to their respective read-only agent types. Every agent() option must name an agentType. Add inline read-only constraint statements to prompts where agent types might be dropped. Preserve all existing structure and decision logic.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/create-project.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-9",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t6-bind-launch",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to launch.js that binds agent() call sites to agentTypes while handling missing_agent_types. Bind one unbound site (notes) to its write-permitted agent type (release-notes at strong tier). Every agent() option must name an agentType. Add inline constraint statements to prompts. Preserve all existing structure and decision content.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/launch.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-9",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t7-bind-maintain-triage",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Add AT() helper function to maintain-triage.js that properly unifies and extends any existing NEW() helper to handle missing_agent_types per type (not dropping every definition). Bind one unbound site (incident) to its read-only agent type. Ensure AT() reads both A.agent_types and A.missing_agent_types. Every agent() option must name an agentType. Add inline read-only constraint statements to prompts. Preserve all existing structure.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/maintain-triage.js"
+            }
+          ],
+          "depends_on": [
+            "t1-agent-definitions"
+          ],
+          "criteria_ids": [
+            "AC-1",
+            "AC-7",
+            "AC-9",
+            "AC-13"
+          ]
+        }
+      ]
+    },
+    "provenance": {
+      "node": "decomposer",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "haiku",
+      "run_id": "k6r",
+      "created_at": "2026-09-24T23:59:00Z"
+    }
+  }
+}

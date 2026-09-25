@@ -1,0 +1,183 @@
+{
+  "entry": {
+    "id": "k6s-redecompose",
+    "run_id": "k6s",
+    "workflow": "redecompose",
+    "status": "ok",
+    "started_at": "2026-09-25T00:01:47.235Z",
+    "finished_at": "2026-09-25T00:07:27.024Z",
+    "wall_clock_sec": 340,
+    "result_ref": "ledger/runs/k6s-redecompose.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "tokens": 97381,
+    "tokens_by_model": {
+      "claude-sonnet-5": 97381
+    },
+    "cost_est_usd": 0.27,
+    "agents": 1,
+    "provenance": {
+      "node": "decomposer",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "sonnet",
+      "run_id": "k6s",
+      "created_at": "2026-09-24T23:59:00Z"
+    },
+    "trace_ref": ".artifacts/traces/k6s-redecompose.jsonl"
+  },
+  "result": {
+    "graph": {
+      "spec_id": "spec-wi-a5-agent-least-privilege",
+      "tasks": [
+        {
+          "id": "t1-build-spec-binding",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Bind build-spec.js's 3 unbound judgment sites to least-privilege agentTypes and add the AT() helper it currently lacks. Steps: (1) Add `const MISSING = new Set(A.missing_agent_types ?? [])` and `const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })` near the top of build-spec.js, matching the pattern already used in improve-analyze.js/memory-roll.js. (2) Spread `...AT('spec-writer')` into the `spec:${w.id}` call site's option object (~line 388), `...AT('risk-router')` into `route:${w.id}` (~line 396), `...AT('decomposer')` into `decompose:${w.id}` (~line 410) — do not change any label, model (spec stays MODEL.strong, route and decompose stay MODEL.cheap), or schema. (3) The spec prompt already states 'Do not create, edit or delete any file... Read freely; write nothing' — leave it. Add an equivalent inline read-only sentence to the route and decompose prompts (e.g. 'Read-only: do not create, edit or delete any file, and do not run any command that changes the repository') so the constraint survives if the agentType is dropped as missing. (4) Create three new committed definitions, each tools exactly `Read, Glob, Grep` and body stating the role plus that it is read-only: .claude/agents/spec-writer.md (model: opus — matches MODEL.strong), .claude/agents/risk-router.md (model: haiku — matches MODEL.cheap), .claude/agents/decomposer.md (model: haiku — matches MODEL.cheap). Frontmatter `name` must equal the filename stem. Do not touch the existing BEGIN/END plan-selection sentinel block elsewhere in the file, and do not introduce any agent labeled 'planner'. Do not add or remove any agent() call, relabel one, or change its schema/model tier. Do not write to substrate/test/ — a separate Test Author owns the binding test.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/spec-writer.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/risk-router.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/decomposer.md"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "AC-1",
+            "AC-2",
+            "AC-3",
+            "AC-5",
+            "AC-6",
+            "AC-7",
+            "AC-8",
+            "AC-9",
+            "AC-10",
+            "AC-12",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t2-build-implement-binding",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Bind build-implement.js's 6 unbound sites (3 escalate, tiebreak, dispute, integrate:resolve) and extend its existing AT() to honor missing_agent_types. Steps: (1) Change the existing `const AT = (t) => (A.agent_types === false ? {} : { agentType: t })` (~line 47) to also drop per-type via a MISSING set: `const MISSING = new Set(A.missing_agent_types ?? [])` then `const AT = (t) => (A.agent_types === false || MISSING.has(t) ? {} : { agentType: t })`. (2) Spread `...AT('escalation-packager')` into all three `escalate:${task.id}` option objects (~lines 721, 775, 873), `...AT('tiebreak-judge')` into `tiebreak:${task.id}:${tag}` (~line 855), `...AT('dispute-ruling')` into `dispute:${task.id}:${x.f.id}` (~line 1032) — all stay MODEL.strong except dispute which stays MODEL.mid (dispute ruling was moved off Strong in Phase 2; do not re-tier it). Spread `...AT('integrator')` into `integrate:resolve` (~line 1167), staying MODEL.strong. Never bind integrate:resolve to 'mechanical' — mechanical is haiku-tier and would silently downgrade a strong-tier node (AC-6). Do not touch the already-bound `checkout`, `impl`, `tests`, `rediff`, `canary`, `run`, `scope`, `testfix` (x2), `merge`, `integrate` (line 1131) or `gate:spec_gate` sites, or any label/model/schema. (3) Add an inline read-only sentence (e.g. 'Read-only: do not create, edit or delete any file, and do not run any command that changes the repository') to the escalate, tiebreak and dispute prompts — their decision content (what to decide) is unchanged. integrate:resolve's prompt is unchanged; it is genuinely write-permitted. (4) Create four new committed definitions, frontmatter `name` = filename stem: .claude/agents/escalation-packager.md (model: opus, tools: `Read, Glob, Grep`, read-only, role = Escalation Packager), .claude/agents/tiebreak-judge.md (model: opus, tools: `Read, Glob, Grep`, read-only), .claude/agents/dispute-ruling.md (model: sonnet, tools: `Read, Glob, Grep`, read-only), .claude/agents/integrator.md (model: opus, tools: `Bash, Read, Write, Edit, Glob, Grep`, body explicitly states why it needs Bash/Write/Edit — it commits the reconciled integration branch and re-runs the full suite). Do not add/remove/relabel any agent() call or change any schema. Do not write to substrate/test/.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/escalation-packager.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/tiebreak-judge.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/dispute-ruling.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/integrator.md"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "AC-1",
+            "AC-2",
+            "AC-3",
+            "AC-4",
+            "AC-6",
+            "AC-7",
+            "AC-8",
+            "AC-9",
+            "AC-10",
+            "AC-12",
+            "AC-13"
+          ]
+        },
+        {
+          "id": "t3-remaining-workflows-binding",
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "description": "Bind the remaining 6 unbound sites across build-reentry.js (classify, surfaces), create-project.js (stack, seed), launch.js (notes), maintain-triage.js (incident), and unify missing_agent_types support into every one of these five workflows' AT() helpers, including deploy.js which has zero unbound sites but whose AT() currently lacks missing_agent_types support. Steps per file: (a) build-reentry.js and create-project.js: extend their existing `AT = (t) => (A.agent_types === false ? {} : { agentType: t })` with a `MISSING` set exactly as in improve-analyze.js (`const MISSING = new Set(A.missing_agent_types ?? [])`, then check `MISSING.has(t)` too). Spread `...AT('reentry-classifier')` into build-reentry's `classify:${p.id}` site and `...AT('surface-namer')` into its `surfaces:${w.id}` site (both stay MODEL.cheap). Spread `...AT('stack-selector')` into create-project's `stack` site and `...AT('backlog-seeder')` into its `seed` site (both stay MODEL.cheap). Add an inline read-only sentence to all four prompts. (b) launch.js: extend its AT() with the same MISSING-set pattern. Bind the `notes` site to the EXISTING `AT('mechanical')` type (not a new definition) — notes needs Write to create the release-notes markdown file and is MODEL.cheap, which matches mechanical's haiku tier exactly, so this introduces no tier mismatch and keeps this work item's new write-permitted definitions at exactly one (integrator, owned by the build-implement task). Do not touch launch.js's other already-bound sites (digest, artifact, gate-queue). (c) maintain-triage.js: fold its `NEW()` helper into `AT()` so one helper honors both hatches: `const NEW_TYPES = new Set(['triage','reproducer','root-cause','patch-drafter'])`, `const MISSING = new Set(A.missing_agent_types ?? [])`, `const AT = (t) => (A.agent_types === false || MISSING.has(t) || (A.new_agent_types === false && NEW_TYPES.has(t)) ? {} : { agentType: t })` — this preserves `new_agent_types:false` dropping exactly those four pre-existing types while adding general per-type missing_agent_types support. Replace the four `NEW('triage')`, `NEW('reproducer')`, `NEW('root-cause')`, `NEW('patch-drafter')` call sites with `AT(...)` of the same type name and delete the now-dead NEW() function. Bind the `incident` site to `...AT('incident-commander')` (stays MODEL.mid) and add an inline read-only sentence to its prompt (it only returns a narrative; the incident record itself is assembled by code). Leave `intake:signals`, `intake`, `mitigate:rollback`, `verify:${signal.id}`, `persist:seen` untouched. (d) deploy.js: extend its `AT = (t) => (A.agent_types === false ? {} : { agentType: t })` with the same MISSING-set pattern; no call site changes, since every deploy.js site already uses `AT('mechanical')`. Create five new committed definitions, frontmatter `name` = filename stem, each tools exactly `Read, Glob, Grep`, model matching MODEL.cheap→haiku or MODEL.mid→sonnet, body stating the role and that it is read-only: .claude/agents/reentry-classifier.md (haiku), .claude/agents/surface-namer.md (haiku), .claude/agents/stack-selector.md (haiku), .claude/agents/backlog-seeder.md (haiku), .claude/agents/incident-commander.md (sonnet). Do not add/remove/relabel any agent() call, change any schema, or alter any already-bound AT('mechanical') site's label/model. Do not write to substrate/test/.",
+          "owned_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-reentry.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/create-project.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/launch.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/maintain-triage.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/deploy.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/reentry-classifier.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/surface-namer.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/stack-selector.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/backlog-seeder.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/incident-commander.md"
+            }
+          ],
+          "depends_on": [],
+          "criteria_ids": [
+            "AC-1",
+            "AC-2",
+            "AC-3",
+            "AC-4",
+            "AC-6",
+            "AC-7",
+            "AC-8",
+            "AC-9",
+            "AC-10",
+            "AC-12",
+            "AC-13"
+          ]
+        }
+      ]
+    },
+    "provenance": {
+      "node": "decomposer",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "sonnet",
+      "run_id": "k6s",
+      "created_at": "2026-09-24T23:59:00Z"
+    }
+  }
+}

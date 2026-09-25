@@ -1,0 +1,102 @@
+{
+  "entry": {
+    "id": "k7d-build-implement",
+    "run_id": "k7d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-25T21:58:08Z",
+    "finished_at": "2026-09-25T22:46:13Z",
+    "wall_clock_sec": 2885,
+    "result_ref": "ledger/runs/k7d-build-implement.json",
+    "artifact_count": 35,
+    "escalations": 0,
+    "agents": 0,
+    "tokens": 0,
+    "human_min": 2,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "k7d",
+      "created_at": "2026-09-25T22:46:13Z"
+    }
+  },
+  "result": {
+    "resolves": "k7 escalations: t2-workflow-bindings (no_fresh_findings, 12 sibling_owner strays) and t1-agent-definitions (budget)",
+    "gate": "k7-escalation",
+    "option_taken": "direct_drive",
+    "decided_by": "human_employee",
+    "why_direct_drive": "Chosen over kill_to_spec so the intervention stays on the record. Naming the agentType strings in the spec would have hidden the defect: the coupled value did not exist until implementation, so no spec writer could reliably have named it.",
+    "landed": {
+      "commits": [
+        "c88074a"
+      ],
+      "definitions_kept": "t1 (owner of .claude/agents/)",
+      "strays_discarded": 12,
+      "bindings_rebound": 12,
+      "tests_landed": 42,
+      "test_files": "substrate/test/a5-*.test.js"
+    },
+    "a3_boundary_check": {
+      "first_live_sibling": true,
+      "strays": 12,
+      "sibling_owner": {
+        "t1-agent-definitions": 12
+      },
+      "unowned": 0,
+      "detected_correctly": true,
+      "repaired": false
+    },
+    "test_assertion_defects_corrected": [
+      "helper REPO climbed from .artifacts/tests/<task>/ to the main checkout (same class as t7d: a reader not pointed at the worktree)",
+      "AC-6 compared a label with its closing quote still attached",
+      "scanner did not count a computed AT(`lens-${...}`) spread as a binding"
+    ],
+    "build_line_defects_observed": [
+      "decomposition split a value one task defines and a sibling consumes, with no edge and nothing to carry it",
+      "integrate:resolve ran at the strong tier with zero passing tasks (165k tokens resolving nothing)",
+      "integration reported the 24 pre-existing substrate/test files as unaccounted TestSet files",
+      "claude-opus-5-5 has no rate in substrate/lib/pricing.json, so k7 cost_est_usd omits it"
+    ],
+    "verification": {
+      "unbound_sites": {
+        "before": 15,
+        "after": 0
+      },
+      "sites_label_tier_schema_identical": "all nine workflows",
+      "structure_calls_identical": true,
+      "prompt_sentences_preserved": true,
+      "mutations": [
+        {
+          "mutation": "unbind build-spec route",
+          "red_tests": 5
+        },
+        {
+          "mutation": "grant spec.md Bash",
+          "red_tests": 6
+        }
+      ],
+      "root": "216/216",
+      "toy": "60/60",
+      "re_panelled": false
+    },
+    "human_actions_this_phase": {
+      "count": 2,
+      "items": [
+        "k6h-spec_gate approve",
+        "k7-escalation direct_drive"
+      ],
+      "design_calls_for": "1 (the spec gate); the escalation decision is the unplanned one"
+    },
+    "tokens_note": "The in-session work is unmetered by the ledger; recorded as 0.",
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "k7d",
+      "created_at": "2026-09-25T22:46:13Z"
+    }
+  }
+}
