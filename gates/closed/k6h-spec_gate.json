@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k6h",
   "workflow": "build-spec-direct",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-25T00:12:18.657Z",
   "options": [
     "approve",
@@ -74,5 +74,11 @@
     "provenance_note": "Spec and TaskGraph both carry executor human_employee / method direct_driver. A human authored the decomposition; the line did not.",
     "durable_ref": "ledger/runs/k6h-build-spec-direct.json",
     "estimate": "2 tasks. k3i was $5.54 for one task; expect roughly $6-12 and 1-2 hours wall clock."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-25T21:34:19.000Z",
+    "note": "Approved by the human in chat, session 2026-09-25: build A5 as the two-task hand graph in ledger/runs/k6h-build-spec-direct.json. Next: /build-implement run k7."
   }
 }
