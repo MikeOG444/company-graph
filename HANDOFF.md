@@ -195,7 +195,10 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 ### Current order of work
 
-`C8 → A7 → A5 → B3 (absorbing A6) → C5 → A1 → B1+B2`. `backlog/venture0.json` carries all of them as WorkItems.
+`C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. `backlog/venture0.json` carries all of them as
+WorkItems. **C4, C8, A7 and B3 are landed** (PR #9, branch `claude/company-graph-carry-list-e2z510`); B3 moved ahead
+of A5 mid-flight for the reason recorded under B3 below, and A5 is in progress — specced twice (`k4`, `k6`),
+decomposed by hand at `k6h` after four agent decompositions failed the lint, awaiting `/build-implement`.
 
 C8 leads because CI is red until it lands, and a red baseline makes "did my change break CI?" unanswerable for every
 item after it. A7, A5 and A6 then come before the originally-planned work because **they are defects in the machine
@@ -253,6 +256,12 @@ fifteen criteria, so `sibling_owner` was empty and `stripForeignFindings` droppe
 a spec that decomposes to two or more tasks**, which none of the remaining carry items is guaranteed to produce.
 Keep A3 open until a multi-task spec runs, and prefer one deliberately.
 
+*A deliberate one now exists and has not yet run.* `k6h`'s graph is two tasks with disjoint surfaces and no edge
+between them — `.claude/agents/` against the nine workflow `.js` files — so the next `/build-implement` is the first
+run where `boundaryCheck` has a sibling to compare against and `stripForeignFindings` has foreign findings to strip.
+Watch `strays`, `unowned` and `sibling_owner` deliberately; if they are empty again, A3 stays open and the reason
+will be worth recording.
+
 **A4 — Escalation rate and the hitl/hotl question.**
 10 escalations across 31 `hotl` runs, carrying most of the spend. Open design question: should some escalation reasons be `hotl` (proceed, land in the review queue) rather than `hitl` (stop the world)? `repeat_finding` on findings a fixer provably cannot close is the candidate.
 
@@ -307,6 +316,33 @@ judgment never holds a tool that produces a commit**, enforced at the call site 
 It refused this session's own attempts to widen `.claude/settings.json` (`[Self-Modification]`) and to `git reset --hard`
 (`[Irreversible Local Destruction]`), while a Haiku subagent wrote `.github/` and committed without challenge. The
 allow-list in `.claude/settings.json` is therefore not the control surface for agent writes; `agentType` is.
+
+*Specced twice, and the count is 15, not 14.* `k4` and `k6` each produced a Spec for this item. Both are sound and
+they disagree only in scope: `k6` enumerates **15** unbound call sites, verified independently by scanning the nine
+workflows for an `agent()` options object naming no `agentType` and no `AT(...)`/`NEW(...)` spread — build-implement 6
+(three `escalate`, `tiebreak`, `dispute`, `integrate:resolve`), build-spec 3 (`spec`, `route`, `decompose`),
+build-reentry 2 (`classify`, `surfaces`), create-project 2 (`stack`, `seed`), launch 1 (`notes`), maintain-triage 1
+(`incident`); `deploy.js`, `improve-analyze.js` and `memory-roll.js` are already fully bound. `k6` also decides two
+sites explicitly against reflex rather than by rule: the spec writer becomes read-only at the strong tier, and
+`integrate:resolve` keeps write permission through its own strong-tier definition, because binding it to the existing
+haiku-tier `mechanical` type would silently re-tier a node.
+
+*Spec-writer variance is real and it runs both ways.* Same model, same tier, same work item: `k6`'s spec is **better**
+on the audit (15 sites against `k4`'s 14) and **worse** on the A6 trap. `k4` kept `substrate/test/` out of
+`touched_surfaces` and said why in `out_of_scope`, citing A6 by name. `k6` named
+`substrate/test/agent-binding.test.js` and its helper, and the decomposer duly built a test-only task from them.
+The WorkItem's own `surfaces` list includes `substrate/test/`, so the trap is in the input. Lint check 5 caught it.
+The practical lesson for picking up this work cold: *"the preserved spec is good"* is not a property that survives a
+re-run, so re-read a fresh spec against the traps rather than assuming the line has learned them.
+
+*Ready for `/build-implement` as of `k6h`.* The Spec Gate `k6-spec_gate` was decided `revise`; the Spec was then
+corrected by hand (`direct_driver`) to drop the two test surfaces and restate test authorship in `out_of_scope` in
+`k4`'s form, which left its `touched_surfaces` byte-identical to `k4`'s ten. Four decompositions of that corrected
+Spec failed the lint (see the table under B3), so the graph is hand-authored and lint-clean: `t1-agent-definitions`
+owns `.claude/agents/` with AC-2, AC-3 and AC-10; `t2-workflow-bindings` owns all nine workflow `.js` files with the
+other ten criteria; no edge joins them, so they run in parallel. The durable copy is
+`ledger/runs/k6h-build-spec-direct.json` — **not** the gate payload's `spec_ref`/`graph_ref`, which point into
+`.artifacts/` and are dead on the next container (the C1 class, in a second place).
 
 **A6 — A spec can hand the Test Author's job to the implementer, and the TestSet then dies in `.artifacts/`.**
 Found on run `k1i`. `spec-wi-c4-ci` listed `substrate/test/ci-workflow.test.js` in `touched_surfaces`, the decomposer
@@ -435,6 +471,77 @@ a coverage gap by the correctness lens, and must never be assigned to a test fil
 classification on the criterion so the lens prompt can be told which criteria it may demand tests for. Getting this
 wrong is not a cosmetic scoping error: it manufactures an unsatisfiable fix loop out of a change that was already
 correct and green.
+
+*Landed on run `k5i`, and first exercised live on `k6`.* Five checks between the `// ---- BEGIN/END graph-lint ----`
+sentinels in `build-spec.js`, pure script code, zero tokens. `k6` is the first run where the lint gated a spec: the
+risk router returned **low** and the code rule found nothing, so the Spec Gate exists only because the lint reported
+nine violations. That is the line catching a bad decomposition instead of a human reading the task graph, which is
+what B3 was for. Against `k4`'s decomposition of the same work item, replayed through the same committed block:
+30 violations over 10 tasks became 9 over 3; orphans 4 → 0, duplicates 9 → 2, reachability 17 → 2.
+
+**Four defects in the lint itself, all found by running it on real data rather than fixtures.** None changed a gate
+outcome, which is why they are carried rather than hotfixed — but three of the four are false negatives, and the
+design note above promises the opposite bias.
+
+- **`criterion_reachability` cannot tell a read from a write** (two false positives on `k6`). The rule the decomposer
+  prompt states is *"every surface a task's criteria require it to **write**"*. The check flags any criterion naming a
+  path outside the task's `owned_surfaces`. `k6`'s AC-2 (*"the test **resolves** each name against `.claude/agents/`"*)
+  and AC-10 (*"the test **reads** its frontmatter"*) name a path they only read, and were reported as violations.
+  AC-10 also names a **directory** whose individual files its task did own, so containment was tested in the wrong
+  direction. A false positive here stops legitimate work, which the block's own header says it must not do.
+- **Check 4 classifies on a regex over prose, and a hypothetical inside a test scenario reads the same as a
+  change-scoped assertion.** Replayed over `k4`, AC-11 was classed `panel` because its THEN clause contains *"a new
+  `agent()` call site **is added**"* — describing a case the invariant test must catch, not an assertion about a diff.
+  AC-11 *was* that spec's invariant test, the entire regression guarantee of the item. Inert today, because
+  classification never creates or erases a coverage gap. The moment a lens prompt consumes the classification — which
+  is the stated purpose — it inverts the `k2i` failure: instead of demanding an impossible test, it silently excuses
+  a required one.
+- **Nothing checks that every touched surface is owned by some task.** Check 1 maps criteria → surfaces and check 3
+  maps criteria → tasks; no check maps surfaces → tasks. On `k6r`, `deploy.js`, `improve-analyze.js` and
+  `memory-roll.js` were in `Spec.touched_surfaces` and owned by no task, while AC-7 requires all nine workflows to
+  change. Three files would have gone silently unbuilt.
+- **Nothing checks for a test-only task**, though the decomposer prompt forbids one outright. `k6` built
+  `t3-agent-binding-test`, owning only `substrate/test/agent-binding.test.js` and its helper. Check 5 caught the
+  upstream cause (the Spec naming those surfaces) and so the gate fired, but a decomposer can invent a test-only task
+  from a clean spec and nothing would object.
+
+**B4 — the lint gates a bad decomposition and nothing re-decomposes it.** Every violation costs a human turn.
+`k4` and `k6` both ended there, and the only route from a violation back to a usable `TaskGraph` was a person.
+*Proposed:* on `gate_required`, feed the violations back to the decomposer with a retry cap of two and gate only if it
+still fails — the seen-set-and-round-cap shape of rule 6, applied to decomposition. Carried, not built; decide its
+place on evidence. Note the measurement below before costing it.
+
+**The decomposer failed four times on one spec, and tier is not the lever.** Same work item, same prompt, judged by
+the same committed lint:
+
+| roll | model | tasks | violations | false edges | duplicates | orphans | cost |
+|---|---|---|---|---|---|---|---|
+| `k4` | haiku | 10 | 30 | 0 | 9 | 4 | in `k4`'s $1.02 |
+| `k6` | haiku | 3 | 9 | 3 | 2 | 0 | in `k6`'s $0.92 |
+| `k6r` | haiku | 7 | 15 | 6 | 4 | 5 | $0.06 |
+| `k6s` | **sonnet** | 3 | **18** | **0** | **11** | 1 | **$0.27** |
+| `k6h` | **script (human)** | 2 | **0** | 0 | 0 | 0 | **$0** |
+
+Raising the tier cost 4.5× and produced *more* violations, but of an inverted kind: sonnet got the **dependency
+graph exactly right** (zero false edges, the thing haiku failed three times out of four) and the **criterion
+assignment badly wrong** (11 of 13 criteria claimed by all three tasks). That inversion is the diagnosis.
+
+**The root cause is a property of the Spec, not of the model.** A5's acceptance criteria are *global invariants over
+the whole tree* — "every option object names an `agentType`", "`npm test` passes", "no call site is re-labelled or
+re-tiered". A global criterion cannot be partitioned across a per-file decomposition: split the files and each one
+must be either duplicated into every task or orphaned. Sonnet chose duplicate, haiku chose orphan, and the lint
+correctly reported both. The decomposer prompt already carries the right rule — *"Prefer ONE task; split only when
+two disjoint code surfaces can be built independently"* — and **all four rolls ignored it**. The clean graph stops
+splitting: one task owns all nine workflow files, one owns the agent definitions, and no edge joins them.
+
+*So the sixth check worth more than B4's retry loop:* when a Spec's criteria are predominantly global (a criterion
+naming no single path, or naming several of the Spec's surfaces at once), a decomposition into more than one task
+that owns code is itself the violation. That check is free, and on this evidence it would have caught all four rolls.
+
+*What this does and does not say about tier.* It corroborates the tier table above rather than overturning it: the
+failures are structural. It is one work item and one roll per tier, so it is not a rate — but it is the first
+controlled comparison in the ledger (identical prompt, identical Spec, identical judge, one variable), and it says
+the cheap decomposer's weakness is dependency reasoning while the mid tier's is scope. Neither is fixed by paying more.
 
 ### C. Durability and substrate
 

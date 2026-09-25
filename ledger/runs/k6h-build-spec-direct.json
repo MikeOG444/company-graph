@@ -1,0 +1,463 @@
+{
+  "entry": {
+    "id": "k6h-build-spec-direct",
+    "run_id": "k6h",
+    "workflow": "build-spec-direct",
+    "status": "ok",
+    "started_at": "2026-09-24T23:57:10.000Z",
+    "finished_at": "2026-09-25T00:12:00.000Z",
+    "wall_clock_sec": 890,
+    "result_ref": "ledger/runs/k6h-build-spec-direct.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 0,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "k6h",
+      "created_at": "2026-09-25T00:12:00Z"
+    }
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-a5-agent-least-privilege",
+          "work_item_id": "wi-a5-agent-least-privilege",
+          "goal": "Make the toolset, not a prompt sentence, be what stops a judgment agent from writing. Audit every agent() call site in .claude/workflows/*.js, classify each as judgment (reads and reasons; must hold no Bash, Write or Edit) or write-permitted (legitimately needs shell/filesystem), bind every site to an agentType whose committed .claude/agents/*.md definition carries exactly the tools its class allows, add the read-only definitions that do not yet exist, unify the AT() helper across all nine workflows so it honors missing_agent_types per type rather than dropping every definition, and land a test that fails the moment a judgment call site regains an unbound (default workflow-subagent) toolset. The audit found 15 unbound sites: build-spec.js 3 (spec, route, decompose), build-implement.js 6 (three escalate, tiebreak, dispute, integrate:resolve), build-reentry.js 2 (classify, surfaces), create-project.js 2 (stack, seed), launch.js 1 (notes), maintain-triage.js 1 (incident); deploy.js, improve-analyze.js and memory-roll.js are already fully bound. Two sites are decided explicitly against reflex: build-spec's spec writer becomes read-only (Read/Glob/Grep, strong tier) because a node that runs npm test is doing the work rather than specifying it, and build-implement's integrate:resolve stays write-permitted at the strong tier via its own definition because binding it to the haiku-tier 'mechanical' type would silently downgrade the model. What each agent is asked to decide does not change: prompts gain only inline statements of the tool constraint (a dropped agentType takes its role prompt with it), and no label, model tier, schema or edge changes.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the nine workflow scripts in .claude/workflows/ and the landed test",
+              "when": "the test scans each file for agent() option objects",
+              "then": "every option object names an agentType — literally, or through the workflow's AT()/NEW() helper — and the test fails with the file and the site's label for any option object that names none, so a site reverting to the default workflow-subagent toolset is a red test",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the set of agentType names referenced by all workflow call sites",
+              "when": "the test resolves each name against .claude/agents/",
+              "then": "every referenced name has a committed <name>.md whose frontmatter 'name' field equals its filename stem, and an unresolvable name fails the test naming the missing file",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "each call site's resolved agent definition and its frontmatter 'tools' list",
+              "when": "the test checks whether that list contains Bash, Write or Edit",
+              "then": "the site passes only if it appears in an explicit WRITE_PERMITTED allowlist declared in the test file and keyed by workflow filename plus label pattern; any other site holding a write-capable type fails, so granting a judgment node a commit tool cannot land without editing the allowlist",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "the WRITE_PERMITTED allowlist",
+              "when": "the test compares it against the sites actually present in the workflows",
+              "then": "it contains exactly the mechanical and write-legitimate sites — every AT('mechanical') site, the implementer, test-author, fixer, reproducer and patch-drafter sites, build-implement's integrate:resolve, and launch.js's release-notes 'notes' site — each carrying a one-line reason string; an allowlist entry that matches no site in any workflow also fails, so the list cannot rot",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "build-spec.js, which today has no AT() helper and three unbound sites",
+              "when": "the test inspects its spec, route and decompose sites",
+              "then": "all three are bound through an AT() helper to agentTypes whose definitions carry exactly 'Read, Glob, Grep', the spec writer's definition is at the strong tier and grants no Bash, and no agent label 'planner' reappears (the plan-selection block between the existing sentinels is untouched)",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "each call site's model option and its bound definition's frontmatter model",
+              "when": "the test maps MODEL.strong/mid/cheap to opus/sonnet/haiku and compares them",
+              "then": "the two agree at every site, so no binding silently re-tiers a node — in particular integrate:resolve is bound to a strong-tier write-capable definition rather than to the haiku-tier 'mechanical' type",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "any workflow script and args carrying missing_agent_types: ['x'] for a type its runtime has not yet registered",
+              "when": "the workflow builds its agent options through AT()",
+              "then": "AT('x') yields {} while AT of every other type still yields { agentType: ... }, in all nine workflows including maintain-triage.js (whose NEW() helper folds into AT() while 'new_agent_types: false' keeps dropping exactly the four types it covered), and the test asserts each workflow's helper reads both A.agent_types and A.missing_agent_types",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "a run whose args set agent_types: false",
+              "when": "any workflow builds its agent options",
+              "then": "every site's options object omits agentType, preserving the existing blunt hatch for a session that predates the definitions",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a judgment call site bound to a read-only type, whose role prompt disappears if the runtime has not yet registered that type",
+              "when": "the test reads the prompt text of each read-only-bound site",
+              "then": "the prompt itself states the read-only constraint inline (it must not create, edit or delete files, or run commands that change the repository), so the constraint survives a dropped agentType, and the existing instruction sentences describing WHAT to decide are preserved verbatim",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "each new .claude/agents/*.md definition this work item adds",
+              "when": "the test reads its frontmatter",
+              "then": "a judgment definition lists tools exactly 'Read, Glob, Grep', names its model as one of opus/sonnet/haiku, and its body states the node's role and that it is read-only; the one new write-permitted definition (for integrate:resolve) states why it holds Bash, Write and Edit",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the historical pre-fix text of build-spec.js, in which the spec, route and decompose option objects carry no agentType, supplied as a string fixture",
+              "when": "the test's scanner — a pure function of workflow text plus a definitions map, reading nothing from disk at call time — is run over it",
+              "then": "it reports all three sites as unbound violations, demonstrating the guard failing on the shape that actually shipped rather than only passing on the fixed one, and the same scanner run over the fixed tree reports zero violations",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the repository after the change",
+              "when": "npm test is run from the repository root (node --test substrate/test/*.test.js)",
+              "then": "the whole suite passes, including the pre-existing plan-selection.test.js assertions that build-spec still spawns its judgment agents and spawns no 'planner'",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "the workflow scripts before and after the change",
+              "when": "the set of agent() sites is compared by label pattern, model tier and schema name in each file",
+              "then": "the sets are identical — no agent() call is added, removed, re-labelled, re-tiered or given a different schema, and no pipeline/parallel/phase structure changes — so this work item alters only what each node is permitted to touch",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-reentry.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/create-project.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/launch.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/maintain-triage.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/deploy.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/improve-analyze.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/memory-roll.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/"
+            }
+          ],
+          "out_of_scope": [
+            "Writing or editing any file under substrate/test/. The Test Author owns the new binding test and its helper, from AC-2, AC-3, AC-4 and AC-11. Run k1i's lesson (HANDOFF.md A6) is that a spec naming a test file as a touched surface hands the Test Author's job to the implementer and voids the independence the Test Author exists to preserve; run k6's decomposer then built t3-agent-binding-test, a test-only task its own prompt forbids. The test files are therefore deliberately absent from touched_surfaces.",
+            "Changing what any agent is asked to decide: no prompt's decision content, rubric, schema, label, model tier or phase is altered; prompts gain only inline restatements of the tool constraint.",
+            "Converting any further agent into script code. The Iteration Planner is already replaced between the existing BEGIN/END plan-selection sentinels and that block is not touched here.",
+            "Re-tiering any node for cost (the dispute ruling stays mid, the Tiebreak Judge stays strong).",
+            "Path-level or directory-level sandboxing of a write-permitted agent: the granularity available is the frontmatter tools list, and narrowing writes to a directory is not attempted.",
+            "Edits to CLAUDE.md, COMPANY.md, OPERATING_MODEL.md, HANDOFF.md or backlog/venture0.json.",
+            "contracts.schema.json: no new or amended contract; this changes no edge shape.",
+            "substrate CLIs (artifacts.js, gates.js, ledger.js, validator.js, deploy.js) and every existing test file under substrate/test/ other than the new one.",
+            ".github/workflows/ci.yml and the toy/ application.",
+            "The graph-lint and fix-loop blocks in build-spec.js and build-implement.js, beyond the option objects of their agent() calls.",
+            "Any runtime or harness change that would make an unknown agentType non-fatal; the missing_agent_types mechanism already in improve-analyze.js and memory-roll.js is the pattern to spread, not to redesign."
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "rule: no high-risk surface kind and no sensitive ref among the ten touched surfaces",
+            "router k6 (haiku): low — no stored data shape, no auth/secrets/payments/infra, reversible, no external consumer",
+            "graph lint k6h: 0 violations, 15 warnings (all undecidable: a criterion naming no path, or a path outside touched_surfaces)"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "human_employee",
+            "method": "direct_driver",
+            "model": "n/a",
+            "run_id": "k6r",
+            "created_at": "2026-09-24T23:57:10Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-a5-agent-least-privilege",
+          "tasks": [
+            {
+              "id": "t1-agent-definitions",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Add the read-only agent definitions the bindings name, plus the one write-permitted definition for integrate:resolve. Each .md declares name, model tier and an explicit tools list; a judgment definition lists exactly Read, Glob, Grep.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-2",
+                "AC-3",
+                "AC-10"
+              ]
+            },
+            {
+              "id": "t2-workflow-bindings",
+              "spec_id": "spec-wi-a5-agent-least-privilege",
+              "description": "Bind all 15 unbound agent() call sites across the nine workflows to least-privilege agentTypes through a unified AT() helper honouring missing_agent_types per type, and restate each read-only constraint inline in the prompt so it survives a dropped type. No label, tier, schema or edge changes.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-spec.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-reentry.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/create-project.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/launch.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/maintain-triage.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/deploy.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/improve-analyze.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/memory-roll.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-11",
+                "AC-12",
+                "AC-13"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "human_employee",
+            "method": "direct_driver",
+            "model": "n/a",
+            "run_id": "k6h",
+            "created_at": "2026-09-25T00:12:00Z"
+          }
+        },
+        "lint": {
+          "violations": [],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1-agent-definitions",
+              "criterion": "AC-3"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1-agent-definitions",
+              "criterion": "AC-10",
+              "path": "opus/sonnet/haiku"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-1",
+              "path": ".claude/workflows"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-4",
+              "path": "launch.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-5",
+              "path": "build-spec.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-6",
+              "path": "MODEL.strong/mid/cheap"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-6",
+              "path": "opus/sonnet/haiku"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-7",
+              "path": "maintain-triage.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-8"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-9"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-11",
+              "path": "build-spec.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-12",
+              "path": "substrate/test"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-12",
+              "path": "test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-12",
+              "path": "plan-selection.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-workflow-bindings",
+              "criterion": "AC-13",
+              "path": "pipeline/parallel/phase"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "test"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "test"
+            },
+            {
+              "id": "AC-9",
+              "verification": "test"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "test"
+            },
+            {
+              "id": "AC-12",
+              "verification": "test"
+            },
+            {
+              "id": "AC-13",
+              "verification": "panel",
+              "matched": "call is added"
+            }
+          ],
+          "gate_required": false
+        },
+        "provenance": {
+          "node": "build-spec",
+          "executor": "human_employee",
+          "method": "direct_driver",
+          "model": "n/a",
+          "run_id": "k6h",
+          "created_at": "2026-09-25T00:12:00Z"
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "model": "n/a",
+      "run_id": "k6h",
+      "created_at": "2026-09-25T00:12:00Z"
+    }
+  }
+}
