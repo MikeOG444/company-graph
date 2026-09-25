@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k6",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-24T23:51:58.713Z",
   "options": [
     "approve",
@@ -228,5 +228,11 @@
     ],
     "spec_ref": ".artifacts/build-spec/k6/specs/spec-wi-a5-agent-least-privilege.json",
     "graph_ref": ".artifacts/build-spec/k6/graphs/spec-wi-a5-agent-least-privilege.json"
+  },
+  "decision": {
+    "option": "revise",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-24T23:57:10.000Z",
+    "note": "HC decision. The spec's audit is accurate and independently verified: 15 unbound call sites, per-file breakdown exact. Its one defect is naming substrate/test/agent-binding.test.js and -helpers.js in touched_surfaces, which is the A6 failure k4's spec explicitly avoided; every graph defect follows from it (t3-agent-binding-test is a test-only task the decomposer prompt forbids, and all three false edges terminate at it or at t1). Revising by hand (direct_driver): drop the two test surfaces, restate test authorship in out_of_scope in k4's form, then re-run the decomposer alone against the revised spec and re-lint with the committed block. Two of the nine violations are false positives (criterion_reachability on AC-2 and AC-10, which only READ the path they name); the gate stands on the other seven."
   }
 }
