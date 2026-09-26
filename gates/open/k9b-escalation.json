@@ -1,0 +1,50 @@
+{
+  "id": "k9b-escalation",
+  "gate": "escalation",
+  "run_id": "k9b",
+  "workflow": "build-implement",
+  "status": "open",
+  "opened_at": "2026-09-26T04:10:37.000Z",
+  "options": [
+    "guide",
+    "direct_drive",
+    "kill_to_spec"
+  ],
+  "provenance": {
+    "node": "escalation",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k9b",
+    "created_at": "2026-09-26T04:10:37.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "task_id": "t1",
+    "spec_id": "spec-wi-b5-sibling-value-repair",
+    "reason": "no_fresh_findings",
+    "packager_hypothesis": "The loop is stuck because neither leftover finding can be closed by the fixer inside the spec. Both went past the fixer cap in r1 and were never fixed, disputed or overruled. AC-17-19's \"checkCriterionCoupling is not defined\" failure sits in substrate/test/graph-lint-helpers.js. The spec excludes that file as the Test Author's surface, so the bug is in the test loader, not in build-spec.js. The repeated AC-13 finding (medium, correctness, still open) comes from ambiguous spec wording. AC-13 lists \"wait\" as a kind of repair attempt, but its outcome enum has no value for a wait on its own. That leaves open whether a wait that leads to a rerun should add its own boundary_repairs entry. It also matches the fact that the only pushes happen on rerun and escalate. Both lenses in the r2c confirmation round were silent on these two findings, and silence is not evidence that they are resolved.",
+    "branch": "task/t1 @ cffd110 (local only; cumulative diff committed)",
+    "patch_ref": "ledger/runs/k9b/t1-cumulative-804c24e..cffd110.patch",
+    "tests_ref": "ledger/runs/k9b/tests-t1/",
+    "main_session_reading": {
+      "run_locally": "b5 TestSet against cffd110: 240 pass, 7 fail",
+      "test_defects": [
+        "AC-16 test indexes the first boundaryRepair( in the file, which is the fix-loop DEFINITION, and requires it to precede the emptyDiffAction DEFINITION: unsatisfiable by call order",
+        "AC-13 test requires the literal boundary_repairs.push( / boundary_repairs = []; impl uses boundaryRepairs and returns boundary_repairs: boundaryRepairs",
+        "AC-9 test requires the literal depends_on within 4000 chars; impl uses depIds (tiebreak already overruled the matching finding as target test)",
+        "AC-11 test requires boundaryCheck( textually after the repair label; impl re-checks in resolveBoundaryDecision, declared above repairRerun"
+      ],
+      "real_gaps": [
+        "a5-bind-AC-13 (pre-existing invariant) freezes the agent() site set; the new impl:${task.id}:repair site legitimately breaks it and no one owned updating it",
+        "dependents of a REPAIRED task still branch from task/<dep> (const base / extraMerges / originalDepBranches), i.e. the abandoned stray branch; must use the dependency result branch",
+        "after a rerun AC-11 wants boundaryRepair consulted with repair_used true; impl checks boundaryCheck directly and escalates strayed_again (same behaviour, spec deviation)",
+        "a rerun that returns no ChangeSet is logged outcome owner_failed (mislabel)",
+        "packager hypothesis that AC-17..19 fail on checkCriterionCoupling not defined does not reproduce: they pass on cffd110"
+      ],
+      "cascade": [
+        "ci-workflow AC-15 fresh-checkout suite fails only because the above fail"
+      ]
+    }
+  }
+}

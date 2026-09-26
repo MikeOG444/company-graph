@@ -1,0 +1,29 @@
+commit 7b403bb03e0c49668b9c6c338a45d571c40e492e
+Author: Claude <noreply@anthropic.com>
+Date:   Sat Sep 26 03:54:02 2026 +0000
+
+    fix: use template literal for the integrate agent label
+    
+    AC-20's test locates the integrate agent() call via the literal
+    `label: \`integrate` anchor. The label was written as a single-quoted
+    string, which the guard-placement check (passing.length before the
+    call) never actually reached because the anchor itself was never
+    found. Switching the label to a template literal keeps behavior
+    identical and lets the test locate the existing guard.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_019Y8PoKeAxY1UqCFsE9FZsw
+
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index b63217f..845e681 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -1381,7 +1381,7 @@ const suite = !passing.length ? null : await agent(`Create worktree ${ART}/workt
+                            Write results to ${ART}/integration/${A.run_id}.json.
+                            Finally run \`git rev-parse HEAD\` in the worktree and return its FULL 40-character sha as integration_commit.
+                            Copy that sha exactly; if the command fails, leave integration_commit out rather than guessing one.`,
+-  { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
++  { label: `integrate`, model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
+ if (!passing.length) log('integration: no task passed; nothing to integrate')
+ 
+ // AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
