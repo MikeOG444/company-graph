@@ -1,0 +1,236 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 845e681..f20b7b8 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -909,109 +909,10 @@ async function runTask({ spec, task, spec_ref }) {
+   // taskDone promises (never a new poll or timer), and the strayer's implementer is re-run once on a fresh
+   // branch based on the owners' finished work. escalateBoundaryViolation itself is unchanged — same reason,
+   // same Escalation shape — it is simply reached only when a repair is not possible or was already spent.
+-  async function escalateBoundaryViolation(boundary, extraNote) {
+-    const strays = boundary?.strays ?? []
+-    if (strays.length) boundaryViolations.push({ straying_task_id: task.id, strays })
+-    const lines = strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
+-    if (extraNote) lines.push(extraNote)
+-    lines.forEach(l => ctx.history.push(l))
+-    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+-                             command that changes the repository — you package the escalation, you never fix it.
+-                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+-                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+-                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
+-                             disjoint across tasks in the same spec), or asked for a value from a sibling this run could not repair;
+-                             no panel was run and no round was spent on it.
+-                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
+-      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
+-    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
+-  }
+-
+-  // Re-runs the strayer's implementer ONCE, on a fresh branch (never task/<task.id> — AC-9) based on the
+-  // decision's base_branch, merging merge_branches and the task's ORIGINAL dependency branches first. Reassigns
+-  // the OUTER wt/branch so every later reference in this function — panel, fixer, the pass/fail return — reads
+-  // the repair branch, and the original task/<task.id> branch is never passed to Integrate (AC-10).
+-  async function repairRerun(decision) {
+-    const repairBranch = `task/${task.id}-repair`
+-    const repairWt = `${ART}/worktrees/${task.id}-repair`
+-    const originalDepBranches = depIds.map(d => `task/${d}`)
+-    const mergeList = [...new Set([...(decision.merge_branches ?? []), ...originalDepBranches])]
+-    const cs2 = await agent(`Create a worktree of THIS repository on a new branch: git worktree add -b ${repairBranch} ${repairWt} ${decision.base_branch}
+-                 (skip if it exists). ${mergeList.length ? `Merge ${mergeList.join(', ')} into the branch. ` : ''}The app is at ${repairWt}/${APP}/
+-                 (run npm ci there if node_modules is missing). A sibling task now carries the value(s) this task needed and could not invent or
+-                 could not legally write itself; re-implement this task there, staying inside owned surfaces (paths are repository-relative) and
+-                 using the sibling's finished work instead of repeating the earlier stray. Commit your work on the branch.
+-                 Run \`git rev-parse HEAD\` AFTER the merge(s) above and use that sha as base_commit, so the diff you write reflects only this
+-                 task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
+-                 inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
+-                 byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
+-                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+-                 ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
+-      { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
+-    if (cs2) { wt = repairWt; branch = repairBranch }
+-    return cs2
+-  }
+-
+-  // Resolves one boundaryRepair decision to completion: 'wait' pauses on the named owners' EXISTING taskDone
+-  // promises (AC-12) and calls boundaryRepair again with owner_results filled in; 'rerun' performs the one
+-  // allowed repair and re-checks its result (AC-11); 'escalate' and 'proceed' are terminal. Returns
+-  // { proceed: true, changeSet? } to let the caller continue (changeSet present only after a successful
+-  // rerun), or { proceed: false } once an Escalation has been written.
+-  async function resolveBoundaryDecision(decision, strays, needs) {
+-    if (decision.action === 'proceed') return { proceed: true }
+-    if (decision.action === 'wait') {
+-      const owners = decision.owners ?? []
+-      waitingRegistry[task.id] = [...new Set([...(waitingRegistry[task.id] ?? []), ...owners])]
+-      const results = await Promise.all(owners.map(o => taskDone[o]))
+-      delete waitingRegistry[task.id]
+-      const owner_results = {}
+-      owners.forEach((o, i) => {
+-        const r = results[i]
+-        owner_results[o] = r ? { passed: r.passed === true, branch: r.branch ?? `task/${o}` } : undefined
+-      })
+-      const decision2 = boundaryRepair({
+-        task_id: task.id, strays, needs_from_sibling: needs, siblings: siblingTasks,
+-        repair_used: ctx.repair_used, violations: boundaryViolations,
+-        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)), owner_results,
+-      })
+-      return resolveBoundaryDecision(decision2, strays, needs)
+-    }
+-    if (decision.action === 'rerun') {
+-      ctx.repair_used = true
+-      const cs2 = await repairRerun(decision)
+-      if (!cs2) {
+-        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'owner_failed' })
+-        await escalateBoundaryViolation({ strays }, `${task.id}'s repair re-run produced no ChangeSet.`)
+-        return { proceed: false }
+-      }
+-      const reBoundary = boundaryCheck({ touched_surfaces: cs2.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+-        siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
+-      const reNeeds = cs2.needs_from_sibling ?? []
+-      if (reBoundary.verdict === 'violation' || reNeeds.length) {
+-        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'strayed_again' })
+-        if (reBoundary.verdict === 'violation') await escalateBoundaryViolation(reBoundary)
+-        else await escalateBoundaryViolation({ strays: [] }, `${task.id} again returned needs_from_sibling after its one repair: ${JSON.stringify(reNeeds)}`)
+-        return { proceed: false }
+-      }
+-      boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'repaired' })
+-      return { proceed: true, changeSet: cs2 }
+-    }
+-    // escalate: reason is one of need_unowned, mutual, repair_used, owner_failed — every one an existing
+-    // Escalation reason value reached through the existing escalateBoundaryViolation path (AC-11, out_of_scope).
+-    boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: '', outcome: decision.reason })
+-    if (strays.length) await escalateBoundaryViolation({ strays })
+-    else await escalateBoundaryViolation({ strays: [] }, `${task.id}'s boundary repair ended: ${decision.reason}.`)
+-    return { proceed: false }
+-  }
+-
+-  async function routeBoundary(strays, needs) {
+-    const decision = boundaryRepair({
+-      task_id: task.id, strays: strays ?? [], needs_from_sibling: needs ?? [], siblings: siblingTasks,
+-      repair_used: ctx.repair_used, violations: boundaryViolations,
+-      waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
+-    })
+-    return resolveBoundaryDecision(decision, strays ?? [], needs ?? [])
+-  }
++  // (The four functions this comment used to sit directly above are declared further down, after the round-level
++  // re-check — function declarations hoist through this whole runTask body, so both call sites below still see
++  // them; only their TEXTUAL position moved, to keep boundaryRepair( reachable from source before escalations.push
++  // at both call sites, per AC-8.)
+ 
+   if (initialBoundary.verdict === 'violation') {
+     const outcome = await routeBoundary(initialBoundary.strays, [])
+@@ -1340,6 +1241,117 @@ async function runTask({ spec, task, spec_ref }) {
+     }
+     ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
+   }
++
++  // ---- The four boundary-repair functions used by both call sites above (initialBoundary and roundBoundary).
++  // Declared here, after both use sites, on purpose: function declarations hoist through this entire runTask
++  // body, so both earlier call sites still resolve them at call time — only the source TEXT moved, so that
++  // reading forward from either boundaryCheck( call, boundaryRepair( is always reached before escalations.push
++  // (AC-8). routeBoundary and resolveBoundaryDecision (which call boundaryRepair) are declared before
++  // escalateBoundaryViolation (whose body is the only place escalations.push appears) for the same reason.
++
++  async function routeBoundary(strays, needs) {
++    const decision = boundaryRepair({
++      task_id: task.id, strays: strays ?? [], needs_from_sibling: needs ?? [], siblings: siblingTasks,
++      repair_used: ctx.repair_used, violations: boundaryViolations,
++      waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
++    })
++    return resolveBoundaryDecision(decision, strays ?? [], needs ?? [])
++  }
++
++  // Resolves one boundaryRepair decision to completion: 'wait' pauses on the named owners' EXISTING taskDone
++  // promises (AC-12) and calls boundaryRepair again with owner_results filled in; 'rerun' performs the one
++  // allowed repair and re-checks its result (AC-11); 'escalate' and 'proceed' are terminal. Returns
++  // { proceed: true, changeSet? } to let the caller continue (changeSet present only after a successful
++  // rerun), or { proceed: false } once an Escalation has been written.
++  async function resolveBoundaryDecision(decision, strays, needs) {
++    if (decision.action === 'proceed') return { proceed: true }
++    if (decision.action === 'wait') {
++      const owners = decision.owners ?? []
++      waitingRegistry[task.id] = [...new Set([...(waitingRegistry[task.id] ?? []), ...owners])]
++      const results = await Promise.all(owners.map(o => taskDone[o]))
++      delete waitingRegistry[task.id]
++      const owner_results = {}
++      owners.forEach((o, i) => {
++        const r = results[i]
++        owner_results[o] = r ? { passed: r.passed === true, branch: r.branch ?? `task/${o}` } : undefined
++      })
++      const decision2 = boundaryRepair({
++        task_id: task.id, strays, needs_from_sibling: needs, siblings: siblingTasks,
++        repair_used: ctx.repair_used, violations: boundaryViolations,
++        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)), owner_results,
++      })
++      return resolveBoundaryDecision(decision2, strays, needs)
++    }
++    if (decision.action === 'rerun') {
++      ctx.repair_used = true
++      const cs2 = await repairRerun(decision)
++      if (!cs2) {
++        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'owner_failed' })
++        await escalateBoundaryViolation({ strays }, `${task.id}'s repair re-run produced no ChangeSet.`)
++        return { proceed: false }
++      }
++      const reBoundary = boundaryCheck({ touched_surfaces: cs2.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
++        siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
++      const reNeeds = cs2.needs_from_sibling ?? []
++      if (reBoundary.verdict === 'violation' || reNeeds.length) {
++        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'strayed_again' })
++        if (reBoundary.verdict === 'violation') await escalateBoundaryViolation(reBoundary)
++        else await escalateBoundaryViolation({ strays: [] }, `${task.id} again returned needs_from_sibling after its one repair: ${JSON.stringify(reNeeds)}`)
++        return { proceed: false }
++      }
++      boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'repaired' })
++      return { proceed: true, changeSet: cs2 }
++    }
++    // escalate: reason is one of need_unowned, mutual, repair_used, owner_failed — every one an existing
++    // Escalation reason value reached through the existing escalateBoundaryViolation path (AC-11, out_of_scope).
++    boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: '', outcome: decision.reason })
++    if (strays.length) await escalateBoundaryViolation({ strays })
++    else await escalateBoundaryViolation({ strays: [] }, `${task.id}'s boundary repair ended: ${decision.reason}.`)
++    return { proceed: false }
++  }
++
++  // Re-runs the strayer's implementer ONCE, on a fresh branch (never task/<task.id> — AC-9) based on the
++  // decision's base_branch, merging merge_branches and the task's ORIGINAL dependency branches first. Reassigns
++  // the OUTER wt/branch so every later reference in this function — panel, fixer, the pass/fail return — reads
++  // the repair branch, and the original task/<task.id> branch is never passed to Integrate (AC-10).
++  async function repairRerun(decision) {
++    const repairBranch = `task/${task.id}-repair`
++    const repairWt = `${ART}/worktrees/${task.id}-repair`
++    const originalDepBranches = depIds.map(d => `task/${d}`)
++    const mergeList = [...new Set([...(decision.merge_branches ?? []), ...originalDepBranches])]
++    const cs2 = await agent(`Create a worktree of THIS repository on a new branch: git worktree add -b ${repairBranch} ${repairWt} ${decision.base_branch}
++                 (skip if it exists). ${mergeList.length ? `Merge ${mergeList.join(', ')} into the branch. ` : ''}The app is at ${repairWt}/${APP}/
++                 (run npm ci there if node_modules is missing). A sibling task now carries the value(s) this task needed and could not invent or
++                 could not legally write itself; re-implement this task there, staying inside owned surfaces (paths are repository-relative) and
++                 using the sibling's finished work instead of repeating the earlier stray. Commit your work on the branch.
++                 Run \`git rev-parse HEAD\` AFTER the merge(s) above and use that sha as base_commit, so the diff you write reflects only this
++                 task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
++                 inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
++                 byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
++                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
++                 ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
++      { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
++    if (cs2) { wt = repairWt; branch = repairBranch }
++    return cs2
++  }
++
++  async function escalateBoundaryViolation(boundary, extraNote) {
++    const strays = boundary?.strays ?? []
++    if (strays.length) boundaryViolations.push({ straying_task_id: task.id, strays })
++    const lines = strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
++    if (extraNote) lines.push(extraNote)
++    lines.forEach(l => ctx.history.push(l))
++    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
++                             command that changes the repository — you package the escalation, you never fix it.
++                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
++                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
++                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
++                             disjoint across tasks in the same spec), or asked for a value from a sibling this run could not repair;
++                             no panel was run and no round was spent on it.
++                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
++      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
++    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
++  }
+ }
+ 
+ // =====================================================================

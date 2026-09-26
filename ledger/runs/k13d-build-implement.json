@@ -1,0 +1,51 @@
+{
+  "entry": {
+    "id": "k13d-build-implement",
+    "run_id": "k13d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-26T19:00:00.000Z",
+    "finished_at": "2026-09-26T19:08:45.000Z",
+    "wall_clock_sec": 525,
+    "result_ref": "ledger/runs/k13d-build-implement.json",
+    "artifact_count": 25,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k13d",
+      "created_at": "2026-09-26T19:08:45.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k13: t1-gate-delivery escalated repeat_finding; 0 tasks passed",
+    "gate": "k13 escalation was packaged but no gate opened; decided by the main session under the operating rule (HANDOFF §6)",
+    "option_taken": "direct_drive",
+    "decided_by": "ai_agent (main session)",
+    "why_direct_drive": "The implementation (notify.js, gates.js, schema, README) was correct as built; every failure came from the test harness, and one from a build-line bug. A respec could not have fixed either.",
+    "landed": {
+      "commits": [
+        "76b5382"
+      ],
+      "base_patch": "ledger/runs/k13/t1-cumulative-f7abbfc..1ebf047.patch",
+      "implementation_changed_by_main_session": false
+    },
+    "root_causes": [
+      "build line: after a Test Author repair, tests_ref was replaced by the single repaired file, so the runner ran 3 of 14 criteria's tests for every round after r1 (B6 path and resolveRound path); fixed as widenTestsRef",
+      "C10: the TestSet imported helpers via ../../../substrate/test/, i.e. the MAIN checkout's helpers, whose cli() ran the main checkout's gates.js; helpers.js REPO now resolves from cwd",
+      "test harness: helpers.cli() uses spawnSync, which blocks the in-process fake server; every send timed out, success tests failed and failure tests passed vacuously"
+    ],
+    "b6_first_live_run": "The validity detector ran and classified 1 test_defect and several unclear; it did not identify the harness causes above (they are not properties of a single test's assertions). fails_on_base_same_reason was true for almost every test because the tests really were running base code.",
+    "verification": {
+      "root": "313/313",
+      "toy": "60/60",
+      "notifier_mutations": "8/8 caught (2 survived until a GITHUB_TOKEN test and a CLI kill timer were added)",
+      "widen_regressions": "2/2 caught"
+    }
+  }
+}

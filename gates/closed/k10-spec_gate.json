@@ -1,0 +1,79 @@
+{
+  "id": "k10-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "k10",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-26T04:30:57.000Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k10",
+    "created_at": "2026-09-26T04:30:57.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec_id": "spec-wi-b6-test-validity-before-blame",
+    "work_item_id": "wi-b6-test-validity-before-blame",
+    "risk": "high",
+    "high_by_rule": [
+      "rule: surface ref names a sensitive term: .claude/agents/test-author.md",
+      "rule: surface kind schema: contracts.schema.json"
+    ],
+    "what_changed": "k10h: main session removed substrate/test/ from touched_surfaces and the task owned_surfaces (k10 lint: spec_names_test_surface). Re-linted in code: 0 violations, 20 warnings (criterion_reachability read/prose noise).",
+    "lint": {
+      "gate_required": false,
+      "violations": 0,
+      "warnings": 20
+    },
+    "criteria_count": 17,
+    "tasks": [
+      {
+        "id": "implement-test-validity-classification",
+        "owned": [
+          ".claude/workflows/build-implement.js",
+          "contracts.schema.json",
+          ".claude/agents/fixer.md",
+          ".claude/agents/test-author.md"
+        ],
+        "depends_on": [],
+        "criteria_ids": [
+          "AC-1",
+          "AC-2",
+          "AC-3",
+          "AC-4",
+          "AC-5",
+          "AC-6",
+          "AC-7",
+          "AC-8",
+          "AC-9",
+          "AC-10",
+          "AC-11",
+          "AC-12",
+          "AC-13",
+          "AC-14",
+          "AC-15",
+          "AC-16",
+          "AC-17"
+        ]
+      }
+    ],
+    "spec_ref": "ledger/runs/k10/spec-wi-b6-test-validity-before-blame.json",
+    "graph_ref": "ledger/runs/k10/graph-wi-b6-test-validity-before-blame.json",
+    "durable_ref": "ledger/runs/k10-build-spec.json",
+    "estimate": "1 task; B5 (22 criteria) cost $2.83 at k9b; expect $2-4."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T04:49:05.000Z",
+    "note": "Approved by the human in chat. Spec as revised at k10h (substrate/test removed from surfaces)."
+  }
+}

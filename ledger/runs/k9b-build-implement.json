@@ -1,0 +1,434 @@
+{
+  "entry": {
+    "id": "k9b-build-implement",
+    "run_id": "k9b",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T03:20:12.841Z",
+    "finished_at": "2026-09-26T04:10:17.000Z",
+    "wall_clock_sec": 3004,
+    "result_ref": "ledger/runs/k9b-build-implement.json",
+    "artifact_count": 8,
+    "escalations": 1,
+    "tokens": 1282387,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 617838,
+      "claude-sonnet-5": 628161,
+      "claude-opus-5-5": 36388
+    },
+    "cost_est_usd": 2.83,
+    "agents": 22,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k9b",
+      "created_at": "2026-09-26T03:19:28Z"
+    },
+    "trace_ref": ".artifacts/traces/k9b-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k9b",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "integration/k9b",
+    "integration_commit": "804c24ec7bb90951d1e1b75760a0a145d8a59be5",
+    "specs": [
+      "spec-wi-b5-sibling-value-repair"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "cs-t1-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified fix-loop-decisions block (lines 160–659) contains all existing functions (scopeOf, fixOutcome, disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs) plus four new pure functions (repairOwners, isMutualWait, boundaryRepair, unaccountedTestFiles) with no forbidden runtime symbols (agent, log, args, A., phase, parallel, pipeline, budget, Date.now, Math.random, require, import, fs, shell)",
+              "Verified needs_from_sibling routing at lines 828–833 executes BEFORE the empty-diff gate (line 835), and both boundary violation call sites (lines 1016–1022 for settled ChangeSet, lines 1336–1340 for round-level) call routeBoundary before escalateBoundaryViolation can be reached, satisfying AC-8 and AC-16",
+              "Verified Integrate phase skips when passing.length===0 (line 1377: suite is null when !passing.length), finalSuite is set to {artifact_ref:'no task passed',...} on line 1430, and unaccountedTestFiles correctly returns [] when requested_paths is empty per line 655, satisfying AC-20 and AC-21"
+            ],
+            "findings": [],
+            "confidence": 1,
+            "change_set_id": "cs-t1-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal via needs_from_sibling: attacker returns {surface: '../../../etc/passwd', what: 'config'} but repairOwners checks withinOwned and escalates with reason need_unowned if surface is unowned by any sibling, blocking the escape attempt before any repair proceeds",
+              "Repair bypass via repair_used flag: attacker returns empty needs_from_sibling initially to skip repair, then returns boundary violation in a later round, but boundaryRepair checks repair_used at line 640 before any wait or rerun, escalating on a second attempt without granting a second repair",
+              "Deadlock via mutual waits: tasks t1 and t2 both stray into each other's owned_surfaces, but isMutualWait detects when an owner has itself strayed into the task_id or is already waiting on it, causing boundaryRepair to escalate with reason mutual before any taskDone promise wait is entered"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "cs-t1-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempted to verify AC-8: searched for boundaryRepair appearing before escalations.push at the settled-ChangeSet site by reading source text order. Found that escalateBoundaryViolation function definition (line 912, containing escalations.push at line 927) appears BEFORE routeBoundary definition (line 1007, containing boundaryRepair call at line 1008), causing the text-based assertion to fail when searching for 'boundaryRepair(' after 'boundaryCheck(' and expecting it before 'escalations.push'.",
+              "Attempted to verify AC-16: searched for boundaryRepair appearing before emptyDiffAction in source order to confirm needs_from_sibling routing happens before empty-diff gate. Found emptyDiffAction function definition at line 277 appears BEFORE boundaryRepair function definition at line 632 in the same fix-loop decisions block, causing the indexOf search to find emptyDiffAction before boundaryRepair despite the actual routing code being correctly ordered.",
+              "Attempted to verify AC-9 and AC-11: traced the repair rerun wiring to confirm it merges task's original dependency branches and calls boundaryRepair with repair_used: true on the second check. Examined repairRerun function (lines 934-953) and resolveBoundaryDecision (lines 960-1005) to verify the decision2 boundaryRepair call at line 972 passes repair_used: ctx.repair_used which was set to true at line 981. Found that all these calls should work correctly, but source text ordering issues in AC-8 prevent the wiring from being validated by the text-based tests."
+            ],
+            "findings": [
+              {
+                "id": "finding-ac8-source-order",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:912",
+                "claim": "Function escalateBoundaryViolation containing escalations.push is defined before routeBoundary containing the boundaryRepair call, violating AC-8's requirement that boundaryRepair appears before escalations.push in source text for the settled-ChangeSet site.",
+                "evidence": "escalateBoundaryViolation async function defined at line 912 with escalations.push at line 927; routeBoundary defined at line 1007 with boundaryRepair call at line 1008. Test AC-8 expects boundaryRepair call to textually appear before escalations.push can be reached, but the function definitions are in reverse order.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:912|escalateBoundaryViolation defined before routeBoundary causes source text order failure for AC-8"
+              },
+              {
+                "id": "finding-ac16-source-order",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:277",
+                "claim": "Function emptyDiffAction is defined before boundaryRepair in the fix-loop decisions block, causing text-based AC-16 test to fail when checking that boundaryRepair appears before emptyDiffAction in source order.",
+                "evidence": "emptyDiffAction function defined at line 277, boundaryRepair defined at line 632, both within fix-loop decisions block (lines 160-659). Text search via indexOf('boundaryRepair(') finds line 632 after indexOf('emptyDiffAction(') finds line 277, failing the assertion that needs_from_sibling routing's boundaryRepair appears before the empty-diff gate's emptyDiffAction in source.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:277|emptyDiffAction defined before boundaryRepair causes AC-16 source order failure"
+              },
+              {
+                "id": "finding-ac20-integrate-guard",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1375",
+                "claim": "The zero-passing-tasks guard for the integrate agent call is missing the guard check directly before the agent() call, preventing AC-20 test from finding the expected guard on passing.length.",
+                "evidence": "Test AC-20 searches for 'passing.length' between the 'integrate' agent label and the agent() call, expecting the guard to sit before the call. Line 1375 has const suite = !passing.length ? null : await agent(...) which does have the guard, but the test failure 'expected the existing integrate agent label' suggests the guard may not be positioned correctly relative to the test's search anchors.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1375|AC-20 guard for zero-passing-tasks may have incorrect source positioning"
+              },
+              {
+                "id": "finding-ac22-test-landing",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/t1/b5-suite-hygiene.test.js:1",
+                "claim": "Test file AC-22 reports 'expected at least one landed b5-*.test.js file to inspect', indicating test files are not being landed into substrate/test/ where they are expected to run.",
+                "evidence": "Test result for test_id 30 (AC-22 path resolution check) shows error: 'expected at least one landed b5-*.test.js file to inspect (this file lands alongside its siblings)'. The b5-*.test.js files exist in .artifacts/tests/t1/ but substrate/test/ contains no b5-*.test.js files. This prevents AC-22 from validating that new test files use process.cwd() or imported helpers for path resolution.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/tests/t1/b5-suite-hygiene.test.js:1|AC-22 test files not landing in substrate/test/"
+              },
+              {
+                "id": "finding-ac17-criterion-coupling",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-spec.js:430",
+                "claim": "The checkCriterionCoupling function is called within lintGraph but the graph-lint-helpers.js helper does not export it, causing AC-17/AC-18/AC-19 tests to fail with 'checkCriterionCoupling is not defined'.",
+                "evidence": "build-spec.js line 430 calls checkCriterionCoupling within lintGraph function. checkCriterionCoupling is defined at line 393 within the graph-lint block (lines 107-436). However, substrate/test/graph-lint-helpers.js loadGraphLint() function (lines 62-72) does not include checkCriterionCoupling in its return statement, only returning the nine pre-existing functions. The b5-criterion-coupling.test.js test defines its own loadGraphLintWithCoupling but still fails because the helper needs updating.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-spec.js:430|checkCriterionCoupling not exported from graph-lint-helpers for AC-17-19"
+              },
+              {
+                "id": "finding-ac-boundary-repairs-tracking",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958",
+                "claim": "The boundaryRepairs.push calls in resolveBoundaryDecision may not properly track all repair attempt outcomes, particularly for the 'wait' action which is not pushed to boundaryRepairs.",
+                "evidence": "AC-13 specifies that boundary_repairs array should have one entry per repair attempt with outcome 'repaired', 'strayed_again', 'owner_failed', 'mutual', 'repair_used', or 'need_unowned'. Examining resolveBoundaryDecision (lines 960-1005), only the 'rerun' and 'escalate' paths push to boundaryRepairs (lines 981, 1001), but the 'wait' action (line 962) which waits on owners returns without pushing, missing the attempt record.",
+                "target": "implementation",
+                "status": "open",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958|boundary_repairs not tracking wait action outcomes for AC-13"
+              }
+            ],
+            "confidence": 0.72,
+            "change_set_id": "cs-t1-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-ac8-source-order",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:912",
+            "claim": "Function escalateBoundaryViolation containing escalations.push is defined before routeBoundary containing the boundaryRepair call, violating AC-8's requirement that boundaryRepair appears before escalations.push in source text for the settled-ChangeSet site.",
+            "evidence": "escalateBoundaryViolation async function defined at line 912 with escalations.push at line 927; routeBoundary defined at line 1007 with boundaryRepair call at line 1008. Test AC-8 expects boundaryRepair call to textually appear before escalations.push can be reached, but the function definitions are in reverse order.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:912|escalateBoundaryViolation defined before routeBoundary causes source text order failure for AC-8"
+          },
+          {
+            "id": "finding-ac16-source-order",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:277",
+            "claim": "Function emptyDiffAction is defined before boundaryRepair in the fix-loop decisions block, causing text-based AC-16 test to fail when checking that boundaryRepair appears before emptyDiffAction in source order.",
+            "evidence": "emptyDiffAction function defined at line 277, boundaryRepair defined at line 632, both within fix-loop decisions block (lines 160-659). Text search via indexOf('boundaryRepair(') finds line 632 after indexOf('emptyDiffAction(') finds line 277, failing the assertion that needs_from_sibling routing's boundaryRepair appears before the empty-diff gate's emptyDiffAction in source.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:277|emptyDiffAction defined before boundaryRepair causes AC-16 source order failure"
+          },
+          {
+            "id": "finding-ac20-integrate-guard",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1375",
+            "claim": "The zero-passing-tasks guard for the integrate agent call is missing the guard check directly before the agent() call, preventing AC-20 test from finding the expected guard on passing.length.",
+            "evidence": "Test AC-20 searches for 'passing.length' between the 'integrate' agent label and the agent() call, expecting the guard to sit before the call. Line 1375 has const suite = !passing.length ? null : await agent(...) which does have the guard, but the test failure 'expected the existing integrate agent label' suggests the guard may not be positioned correctly relative to the test's search anchors.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1375|AC-20 guard for zero-passing-tasks may have incorrect source positioning"
+          },
+          {
+            "id": "finding-ac22-test-landing",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/t1/b5-suite-hygiene.test.js:1",
+            "claim": "Test file AC-22 reports 'expected at least one landed b5-*.test.js file to inspect', indicating test files are not being landed into substrate/test/ where they are expected to run.",
+            "evidence": "Test result for test_id 30 (AC-22 path resolution check) shows error: 'expected at least one landed b5-*.test.js file to inspect (this file lands alongside its siblings)'. The b5-*.test.js files exist in .artifacts/tests/t1/ but substrate/test/ contains no b5-*.test.js files. This prevents AC-22 from validating that new test files use process.cwd() or imported helpers for path resolution.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/tests/t1/b5-suite-hygiene.test.js:1|AC-22 test files not landing in substrate/test/"
+          },
+          {
+            "id": "finding-ac17-criterion-coupling",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-spec.js:430",
+            "claim": "The checkCriterionCoupling function is called within lintGraph but the graph-lint-helpers.js helper does not export it, causing AC-17/AC-18/AC-19 tests to fail with 'checkCriterionCoupling is not defined'.",
+            "evidence": "build-spec.js line 430 calls checkCriterionCoupling within lintGraph function. checkCriterionCoupling is defined at line 393 within the graph-lint block (lines 107-436). However, substrate/test/graph-lint-helpers.js loadGraphLint() function (lines 62-72) does not include checkCriterionCoupling in its return statement, only returning the nine pre-existing functions. The b5-criterion-coupling.test.js test defines its own loadGraphLintWithCoupling but still fails because the helper needs updating.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-spec.js:430|checkCriterionCoupling not exported from graph-lint-helpers for AC-17-19"
+          },
+          {
+            "id": "finding-ac-boundary-repairs-tracking",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958",
+            "claim": "The boundaryRepairs.push calls in resolveBoundaryDecision may not properly track all repair attempt outcomes, particularly for the 'wait' action which is not pushed to boundaryRepairs.",
+            "evidence": "AC-13 specifies that boundary_repairs array should have one entry per repair attempt with outcome 'repaired', 'strayed_again', 'owner_failed', 'mutual', 'repair_used', or 'need_unowned'. Examining resolveBoundaryDecision (lines 960-1005), only the 'rerun' and 'escalate' paths push to boundaryRepairs (lines 981, 1001), but the 'wait' action (line 962) which waits on owners returns without pushing, missing the attempt record.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958|boundary_repairs not tracking wait action outcomes for AC-13"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "cs-t1-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Searched for the pattern /depends_on/ in the 4000 characters before the repair agent call (as test AC-9 does) to verify the code shows it's merging original dependency branches. The code at line 1320 uses the closure variable depIds but doesn't mention depends_on in the local context, so the test's pattern matching fails even though the functionality is present through the closure.",
+              "Attempt 2: Checked if the test assertions for AC-13 and AC-16 about source code structure are causing test failures. Found that AC-16 test looks for first occurrence of boundaryRepair( which matches the function definition at line 632, and first occurrence of emptyDiffAction( at line 277, making the assertion fail on source position even though routing is functionally correct at runtime.",
+              "Attempt 3: Examined whether checkCriterionCoupling is accessible to the criterion-coupling tests by checking if it's properly included in the graph-lint block. Confirmed the function is defined at line 393 in build-spec.js within the graph-lint block (lines 107-436), so it should be extractable, but the test loader would need graph-lint-helpers.js updated to include it in the return statement (which is Test Author's surface, not implementer's)."
+            ],
+            "findings": [
+              {
+                "id": "f1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320",
+                "claim": "The repairRerun function uses closure variable depIds to construct originalDepBranches but does not explicitly reference task.depends_on or dependencies in its local scope, making the source-text check for /depends_on/ pattern (AC-9 test) fail even though the functionality is correct.",
+                "evidence": "Line 1320 shows `const originalDepBranches = depIds.map(d => 'task/${d}')` but depIds is defined at line 761. The test reads 4000 characters before the agent call and cannot find /depends_on/ pattern because it's not mentioned locally in repairRerun function.",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320|depIds closure variable not showing depends_on in local scope",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.35,
+            "change_set_id": "cs-t1-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          },
+          {
+            "lens": "tiebreak",
+            "verdict": "pass",
+            "attempts": [
+              "Read AC-9, AC-13 and AC-16 in ledger/runs/k8/spec-wi-b5-sibling-value-repair.json. AC-9 requires the re-run to merge merge_branches and the task's original dependency branches before implementing. It does not require the literal token 'depends_on' in any fixed window of source text.",
+              "Read repairRerun at .artifacts/worktrees/t1/.claude/workflows/build-implement.js:1313-1336. depIds (line 761) is derived from task.depends_on, and mergeList unions decision.merge_branches with task/<dep> for each depId. The label is impl:${task.id}:repair, the new branch task/<id>-repair is based on decision.base_branch, base_commit is taken after the merges, and wt/branch are reassigned so the original branch never reaches Integrate. That satisfies AC-9 and AC-10 in behavior. The correctness lens also says the functionality is present.",
+              "Checked the ordering the lens raised for AC-16. In runTask, needs_from_sibling routing (lines 824-828) comes before the emptyDiffAction( call at line 841. Lines 277 and 632 are function definitions, not call sites, so there is no real ordering defect. The one open finding is about how a hypothetical test regex is written, which is the Test Author's surface under the spec's exclusions, not an implementation defect."
+            ],
+            "findings": [
+              {
+                "id": "f1",
+                "lens": "correctness",
+                "severity": "low",
+                "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320",
+                "claim": "The finding says the AC-9 source-text test cannot find /depends_on/ near the repair agent() call because repairRerun uses the closure variable depIds.",
+                "evidence": "AC-9 requires the behavior (merge the original dependency branches). It does not require the literal word depends_on. depIds = (task.depends_on ?? []).filter(...) at line 761 feeds originalDepBranches at line 1320, which is merged via mergeList. The lens itself says the functionality is correct. A test regex that is too strict is the Test Author's surface (spec exclusions), so it is not grounds to fail the implementation.",
+                "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320|depIds closure variable not showing depends_on in local scope",
+                "status": "overruled",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.8,
+            "change_set_id": "cs-t1-r1",
+            "provenance": {
+              "node": "lens:tiebreak",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "opus",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1",
+            "lens": "correctness",
+            "severity": "low",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320",
+            "claim": "The finding says the AC-9 source-text test cannot find /depends_on/ near the repair agent() call because repairRerun uses the closure variable depIds.",
+            "evidence": "AC-9 requires the behavior (merge the original dependency branches). It does not require the literal word depends_on. depIds = (task.depends_on ?? []).filter(...) at line 761 feeds originalDepBranches at line 1320, which is merged via mergeList. The lens itself says the functionality is correct. A test regex that is too strict is the Test Author's surface (spec exclusions), so it is not grounds to fail the implementation.",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:1320|depIds closure variable not showing depends_on in local scope",
+            "status": "overruled",
+            "target": "test"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "cs-t1-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified boundaryRepair function is called at both boundary violation detection sites (initialBoundary and roundBoundary) before escalateBoundaryViolation can be reached, satisfying AC-8's requirement that repair is consulted before escalation at both sites.",
+              "Verified needs_from_sibling routing (lines 824-833) executes before emptyDiffAction loop begins (line 841), allowing implementers to return empty diffs when asking for sibling values per AC-16.",
+              "Verified unaccountedTestFiles correctly returns empty array when requested_paths is empty, matching AC-21's requirement that pre-existing repo test files are not treated as unaccounted for when no TestSet path was ever requested."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "cs-t1-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt: Create circular wait deadlock by making task A need from B while B strays into A, blocked by isMutualWait() check at line 610 that escalates 'mutual' reason before returning wait action",
+              "Attempt: Bypass one-repair limit by having repaired task stray again, blocked by repair_used flag set at line 1286 and checked at line 640 before any wait/rerun decision",
+              "Attempt: Inject malicious branch name with shell metacharacters into git command in agent prompt at line 1322, prevented by git refname validation rules that reject invalid characters and agent-level shell escaping"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "cs-t1-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k9b",
+              "created_at": "2026-09-26T03:19:28Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      }
+    ],
+    "suite": {
+      "passed": 216,
+      "failed": 0,
+      "results_ref": ".artifacts/integration/k9b.json"
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "escalations": [
+      {
+        "task_id": "t1",
+        "reason": "no_fresh_findings",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (6 findings)",
+          "r1: deferred 2 findings past the fixer cap: finding-ac17-criterion-coupling,finding-ac-boundary-repairs-tracking",
+          "r1: overruled correctness at .artifacts/worktrees/t1/.claude/workflows/build-implement.js:277: AC-16 requires that needs_from_sibling routing to boundaryRepair happen BEFORE the emptyDiffAction loop runs (execution order), not that the function declarations appear in that textual order. Both emptyDiffAction and boundaryRepair are ordinary `function` declarations, which are hoisted in JavaScript, so their position in the source text has no effect on execution order. The fixer's dispute correctly shows the actual call sites (boundaryRepair consulted via routing at line 830, emptyDiffAction called at line 841) satisfy the spec's real, execution-order requirement. No test in substrate/test (checked boundary-wiring.test.js and others) asserts a source-declaration-order constraint between these two names, and the finding's own evidence is a textual indexOf comparison of function declarations, not a check of invocation order. This finding checks an irrelevant property and does not name a real defect in the implementation.",
+          "r1: overruled correctness at .artifacts/tests/t1/b5-suite-hygiene.test.js:1: AC-22's full-suite pass is scoped as a post-landing check, and substrate/test/ landing happens only at the Integrate barrier via the existing mechanical landing step once a workflow run with passing tasks reaches that point — no Integrate run has executed for t1, so substrate/test/ correctly lacking b5-*.test.js files at this stage in the fix loop is expected pre-integration state, not a defect in the implementation. Additionally, the spec's exclusions explicitly place substrate/test/ contents (\"The tests under substrate/test/ ... are the Test Author's surface, not the implementer's, and are deliberately left out of touched_surfaces\") outside the implementer's owned surfaces, so demanding the implementer land files there would itself exceed scope. The finding faults expected, spec-required sequencing/scope rather than a real defect in build-implement.js, build-spec.js, contracts.schema.json, or implementer.md.",
+          "r2 [correctness]: pass (1 findings)",
+          "r2: confirming spec_conformance,security",
+          "r2c [spec_conformance,security]: pass (0 findings)",
+          "r2c: panel is green but 2 earlier finding(s) were never fixed or overruled (.artifacts/worktrees/t1/.claude/workflows/build-spec.js:430|checkCriterionCoupling not exported from graph-lint-helpers for AC-17-19,.artifacts/worktrees/t1/.claude/workflows/build-implement.js:958|boundary_repairs not tracking wait action outcomes for AC-13) — escalating instead of passing on a lens's silence"
+        ],
+        "repeats": [
+          {
+            "id": "finding-ac-boundary-repairs-tracking",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958",
+            "claim": "The boundaryRepairs.push calls in resolveBoundaryDecision may not properly track all repair attempt outcomes, particularly for the 'wait' action which is not pushed to boundaryRepairs.",
+            "evidence": "AC-13 specifies that boundary_repairs array should have one entry per repair attempt with outcome 'repaired', 'strayed_again', 'owner_failed', 'mutual', 'repair_used', or 'need_unowned'. Examining resolveBoundaryDecision (lines 960-1005), only the 'rerun' and 'escalate' paths push to boundaryRepairs (lines 981, 1001), but the 'wait' action (line 962) which waits on owners returns without pushing, missing the attempt record.",
+            "target": "implementation",
+            "status": "open",
+            "dedupe_key": ".artifacts/worktrees/t1/.claude/workflows/build-implement.js:958|boundary_repairs not tracking wait action outcomes for AC-13"
+          }
+        ],
+        "hypothesis": "The loop is stuck because neither leftover finding can be closed by the fixer inside the spec. Both went past the fixer cap in r1 and were never fixed, disputed or overruled. AC-17-19's \"checkCriterionCoupling is not defined\" failure sits in substrate/test/graph-lint-helpers.js. The spec excludes that file as the Test Author's surface, so the bug is in the test loader, not in build-spec.js. The repeated AC-13 finding (medium, correctness, still open) comes from ambiguous spec wording. AC-13 lists \"wait\" as a kind of repair attempt, but its outcome enum has no value for a wait on its own. That leaves open whether a wait that leads to a rerun should add its own boundary_repairs entry. It also matches the fact that the only pushes happen on rerun and escalate. Both lenses in the r2c confirmation round were silent on these two findings, and silence is not evidence that they are resolved.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 343055,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k9b",
+      "created_at": "2026-09-26T03:19:28Z"
+    }
+  }
+}

@@ -78,6 +78,44 @@ pages nobody.
 
 `gates/` and `ledger/` are committed. They are the plant's memory of every human decision and every run's cost; `.artifacts/` is not committed.
 
+### Gate delivery
+
+`gates open` writes the `GateRecord` to `gates/open/<id>.json` first — that file is always the source of truth —
+then makes one best-effort attempt to notify a human, through `substrate/notify.js`, and stamps the outcome back
+onto the same record as a `delivery` object: `{attempted, ok, channel, at, error?}`. A delivery that fails, times
+out, or has no driver configured never changes the gate's exit code (always 0) or stdout (always the bare gate
+id), and never stops the record from being written. `gates decide` carries the `delivery` object unchanged when it
+moves the record to `gates/closed/`; it makes no notification attempt of its own.
+
+Routing is a literal table in `substrate/notify.js` (`channelFor`), not read from env or config: `sev1_page`,
+`ratio_gate`, and any gate name ending in `_budget_breach` route to the `phone` channel; every other gate
+(`spec_gate`, `launch_approval`, `escalation`, `roadmap_gate`, `brief_approval`, `venture_verdict`,
+`portfolio_gate`, `machine_release_gate`, and anything unrecognized) routes to `queue`.
+
+The transport is chosen by `NOTIFY_DRIVER` (`github` | `webhook`; unset means no driver, so delivery is never
+attempted and `delivery.ok` is `false` with an explanatory error):
+
+| Env var | Meaning |
+|---|---|
+| `NOTIFY_DRIVER` | `github` or `webhook`. Unset = no delivery attempted. |
+| `NOTIFY_GITHUB_TOKEN` | Token sent as the GitHub REST API `Authorization` header. Never `GITHUB_TOKEN` — that ambient var is never read, so its mere presence in the environment can't turn delivery on by accident. |
+| `NOTIFY_GITHUB_REPO` | `owner/repo` the issue is opened in. |
+| `NOTIFY_GITHUB_API` | Base URL override, default `https://api.github.com` (tests point this at a local `127.0.0.1` server). |
+| `NOTIFY_WEBHOOK_URL` | URL the webhook driver POSTs a small JSON body to. |
+| `NOTIFY_TIMEOUT_MS` | Per-attempt timeout in ms, default `5000`. Applies to either driver. |
+
+**The GitHub issue driver is the only transport verified from this container.** It opens an issue labelled `gate`
+plus `channel:phone` or `channel:queue` via `POST /repos/<owner>/<repo>/issues`. This repo's egress policy answers
+`403` at `CONNECT` for `ntfy.sh`, `hooks.slack.com`, `api.pushover.net`, `api.telegram.org` and `api.twilio.com`, so
+none of those are reachable, let alone verified, from CI or from a maintain/build run; only `api.github.com` is
+reachable. A generic webhook driver also ships (`NOTIFY_WEBHOOK_URL`) but it is **UNVERIFIED FROM CI**: nothing in
+this repo's test suite, or in this README, exercises it against a real external endpoint — every webhook test
+targets a local `127.0.0.1` stand-in. Treat it as unproven until it has been run against a real receiver by hand.
+
+The token never appears anywhere but the outbound `Authorization` header: not in the `GateRecord` on disk, not in
+stdout or stderr, not in an issue title or body, and not in `delivery.error` even when the far end echoes the
+request back at us (a driver error never repeats the response body).
+
 ### Stale gates
 
 The runtime has no timers, so "a gate timeout escalates, never auto-approves" is a check, not an event: `node substrate/gates.js list --stale 24` lists gates open longer than 24 hours. A scheduled session can run it.
@@ -86,7 +124,7 @@ The runtime has no timers, so "a gate timeout escalates, never auto-approves" is
 
 Both are `$def`s in `contracts.schema.json` and are validated on every write.
 
-- `GateRecord`: `id, gate, run_id, workflow, status (open|decided), opened_at, options[], payload | payload_ref, next_workflow, decision {option, note, decided_by, decided_at}, provenance`.
+- `GateRecord`: `id, gate, run_id, workflow, status (open|decided), opened_at, options[], payload | payload_ref, next_workflow, decision {option, note, decided_by, decided_at}, delivery {attempted, ok, channel, at, error?}, provenance`.
 - `LedgerEntry`: `id, run_id, workflow, status, started_at, finished_at, wall_clock_sec, tokens, agents, human_min, artifact_count, escalations, result_ref, trace_ref, wall_clock_unknown, provenance`. `wall_clock_unknown` is optional and only set (by hand, on the one row it fixes) when a row's `started_at` is known to be fabricated; it keeps the row's tokens and cost in the Method Ledger while `ledger summary` excludes its `wall_clock_sec` from the aggregate and counts it in `wall_unknown_runs`, and `ledger list` renders its wall clock as `?s`.
 
 `ledger summary --by method` groups run-level tokens, wall clock, human minutes and escalations by the run's `provenance.method`. `--by node` walks every nested artifact in every stored result and groups by `provenance.node`, using `provenance.tokens` where a script stamped it. Per-agent token attribution is the runtime's to expose; until it does, node rows show artifact counts and run rows carry the real cost.

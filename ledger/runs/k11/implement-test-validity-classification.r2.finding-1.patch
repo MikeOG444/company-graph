@@ -1,0 +1,68 @@
+From 16e90479282d06218f895bcb98ae3a5ea93466d7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 26 Sep 2026 05:26:49 +0000
+Subject: [PATCH] Rename ctx param to state in graceRound/shouldEscalate to
+ satisfy fix-loop purity check
+
+The fix-loop decisions sentinel block must not reference a runtime "ctx."
+handle (b6-fix-refusal-function.test.js's shared purity check, also used
+by testValidity). graceRound and shouldEscalate already took a plain data
+object positionally with no runtime calls, but the parameter was literally
+named ctx, so the block's text tripped the substring check. Renaming the
+parameter to state (and its internal references) keeps behavior identical
+while making both functions unambiguously plain-data pure.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019Y8PoKeAxY1UqCFsE9FZsw
+---
+ .claude/workflows/build-implement.js | 20 ++++++++++----------
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 8c5c098..f0b4bab 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -280,13 +280,13 @@ function stuckLens(streaks, cap) {
+ // escalated on the round that FIRST raised its open finding, with zero fix attempts on it. One grace round is
+ // granted for that case: once per task, only when every open finding is brand new, and never to a lens already on a
+ // failure streak (that lens is stuck, not unlucky). Bounded at one, or a renaming defect would extend forever.
+-function graceRound(ctx, findings) {
+-  if (ctx.grace_used) return false
++function graceRound(state, findings) {
++  if (state.grace_used) return false
+   const open = findings ?? []
+   if (!open.length) return false
+-  const seen = ctx.seen ?? new Set()
++  const seen = state.seen ?? new Set()
+   if (!open.every(f => !seen.has(f.dedupe_key))) return false
+-  return !stuckLens(ctx.lens_streaks, ctx.k_rounds)
++  return !stuckLens(state.lens_streaks, state.k_rounds)
+ }
+ 
+ // What to do when the captured diff measures empty. Run t5i deadlocked here: task t2 depended on t1, t1's
+@@ -311,16 +311,16 @@ function emptyDiffAction({ diff_bytes, touched_surfaces_count, has_deps, recaptu
+ // Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
+ // overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
+ // count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
+-function shouldEscalate(ctx, findings) {
+-  if (ctx.tokens >= ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
++function shouldEscalate(state, findings) {
++  if (state.tokens >= state.task_tokens || state.last_round_tokens > state.round_tokens) return 'budget'
+   // A stuck lens reports as repeat_finding — the existing enum value, because the contract's reason list is fixed
+   // and this IS a repeat, just one the dedupe_key could not see.
+-  if (stuckLens(ctx.lens_streaks, ctx.k_rounds)) return 'repeat_finding'
+-  if (ctx.round >= ctx.k_rounds) return graceRound(ctx, findings) ? null : 'max_rounds'
++  if (stuckLens(state.lens_streaks, state.k_rounds)) return 'repeat_finding'
++  if (state.round >= state.k_rounds) return graceRound(state, findings) ? null : 'max_rounds'
+   const keys = (findings ?? []).map(f => f.dedupe_key)
+-  const seenKeys = ctx.seen ?? new Set()
++  const seenKeys = state.seen ?? new Set()
+   const overlap = keys.filter(k => seenKeys.has(k))
+-  if (ctx.round > 1 && keys.length && overlap.length === keys.length && overlap.length === seenKeys.size) return 'repeat_finding'
++  if (state.round > 1 && keys.length && overlap.length === keys.length && overlap.length === seenKeys.size) return 'repeat_finding'
+   if (!keys.length || keys.every(k => seenKeys.has(k))) return 'no_fresh_findings'
+   return null
+ }
+-- 
+2.43.0
+

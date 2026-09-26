@@ -195,7 +195,19 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 ### Current order of work
 
-`C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. `backlog/venture0.json` carries all of them as
+`C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). **Next: B8 (small, and it
+is why the last three builds needed a hand), then B1+B2 → C10's remainder.** B6 moved to the
+front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
+B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
+
+**Operating rule (set by the human after `k9b`).** Option menus and escalation choices are evaluated and decided by
+the main session, not handed to the human. The decision is still recorded exactly as before: the gate is closed with
+the reasoning, the ledger row carries the method (`direct_driver` when the main session drives), and HANDOFF names
+what the line could not do. The human is asked only for: spend beyond roughly twice a WorkItem's budget, anything
+irreversible or outward-facing (merge, delete, publish), a change of strategy or order of work, or a pricing figure
+that cannot be looked up. A clean lint or a green panel is still not consent, and a human gate a workflow requires
+(Spec Gate on high risk) is still opened — the rule changes who picks among options, not what is recorded. `backlog/venture0.json` carries all of them as
 WorkItems. **C4, C8, A7 and B3 are landed** (PR #9, branch `claude/company-graph-carry-list-e2z510`); B3 moved ahead
 of A5 mid-flight for the reason recorded under B3 below, and A5 is in progress — specced twice (`k4`, `k6`),
 decomposed by hand at `k6h` after four agent decompositions failed the lint, and **landed at `k7d` by direct drive**
@@ -600,6 +612,79 @@ Options, not yet decided — cheapest and most general first:
 strong tier with **zero** passing tasks (165k tokens resolving nothing), and integration then reported the 24
 pre-existing `substrate/test/*.test.js` files as "unaccounted TestSet files" — a false alarm when no task landed.
 
+*Landed at `k9d`, by direct drive of `k9b`* (spec `k8`, gate `k8-spec_gate` approved by the human; `k9` refused on
+C12; `k9b` escalated; choice made by the main session under the operating rule above). All three options plus both
+integrate fixes: `boundaryRepair`, `repairOwners`, `isMutualWait`, `unaccountedTestFiles` in the fix-loop block;
+`routeBoundary` / `resolveBoundaryDecision` / `repairRerun` wired at both boundary sites and ahead of the empty-diff
+gate; `ChangeSet.needs_from_sibling` and `EvidenceBundle.boundary_repairs` in the contract; `criterion_coupling` as
+graph-lint check 6. `k9b` cost $2.83 (sonnet $1.76, haiku $0.86, opus-5-5 $0.20); B5 total with `k8` and `k9`
+$3.32. **What the line could not do:** its Test Author wrote six wiring tests that located code by its first
+*textual* occurrence (a definition rather than a call, a variable name rather than the output field, a backtick the
+source never used), and a fixer bent correct code to satisfy two of them. The panel missed two real defects the main
+session then found by reading the diff: dependents branched from `task/<dep>` — the stray branch a repair abandons —
+and `criterion_coupling` used undirected connectivity, so two tasks sharing a parent read as ordered while running in
+parallel. Both fixed with tests; nine planted defects each turn a test red. **Not yet exercised live:** B5 changes
+`build-implement.js`, so the repair first engages on the next multi-task run. Watch the first `boundary_repairs`.
+
+**B6 — A failing test counts against the implementation before anyone has checked the test is valid.**
+Found on `k9b`. Of seven failures, four were test defects and one more was hidden by a fixer rewriting code to
+match a test; `k9b` escalated a correct implementation after 1.28M tokens, and the escalation packager reported a
+failure that did not reproduce. Every failing test currently reaches the correctness lens as evidence against the
+code, and the lens files it `target: implementation` by default; `testRepairTarget` only routes a finding to the
+Test Author when the lens already said `target: test`. Nothing in the line asks the question first. *Design, cheapest
+first, all derived in code from facts a detector reports:*
+1. **Validity facts before blame.** For each failing test, a cheap detector reports facts only — does the assertion
+   locate code by first textual occurrence or a declaration; does it require a literal the Spec does not quote;
+   does it fail on the base commit for the same reason; does the failure message name the criterion's behaviour.
+   Script code derives `test_defect` vs `code_defect`. A `test_defect` goes to the Test Author (existing
+   `testfix:` path) and never to a fixer; only `code_defect` counts toward the panel verdict.
+2. **The fixer may not change code only to satisfy a test's textual form.** A fix whose diff touches no behaviour
+   the finding names (a relabel, a declaration moved) is refused in code, and the finding is re-routed as 1.
+3. **Test Author guidance with a tool, not a sentence:** source-text wiring tests assert calls and their order
+   inside a named function using `substrate/test/b5-wiring-helpers.js`; a literal only when the Spec quotes it.
+4. **Mutation sanity on new tests (optional, cheap):** a mechanical agent plants one defect in the criterion's code
+   path; a test that stays green is reported as vacuous before it is trusted.
+
+*Landed at `k11d`, by direct drive of `k11`* (spec `k10`, revised `k10h`, gate `k10-spec_gate` approved by the
+human; decided and recorded by the main session under the operating rule). `testValidity`, `citesFailingTest`,
+`fixRefused` in the fix-loop block; a `validity:` detector (read-only `lens-correctness`, cheap, only when a round
+has `failed > 0`) whose facts classify each failing test before any lens or fixer sees it; a `test_defect` goes to
+the Test Author's `testfix:` path and is subtracted from what the correctness lens is shown; a fixer reporting
+`behaviour_changed:false` for a finding citing a failing test is refused and re-routed; `ChangeSet.behaviour_changed`
+/ `behaviour_rationale` and `EvidenceBundle.test_validity` in the contract; Test Author and fixer docs carry the
+rules. `k11` cost $3.21 (sonnet $1.87, haiku $1.07, opus-5-5 $0.28); B6 total with `k10` $3.57. **What the line
+could not do:** the task passed its panel, but integration landed 11 failing tests — six were earlier specs'
+invariant tests freezing exact shapes (B7), two were B6's own tests over-reaching (a purity ban on `ctx.` across the
+whole block, which a fixer satisfied by renaming parameters in unrelated functions — reverted; a guessed call
+shape), and the panel missed that the "read-only" detector was bound to the write-capable `mechanical` type. Three
+of eight planted defects survived the k11 TestSet until `callSites` learned to skip comments and two tests were
+added; now 8/8, and the B5 set re-run 8/8. **Known weakness:** `fails_on_base_same_reason` is reasoned by the
+detector, not measured — it is told not to check out the base. Measure it if a misclassification shows up.
+
+**B7 — Tests that freeze an earlier spec's exact shape turn every later legitimate change red.**
+Seen on `k9b` (`a5-bind-AC-13`'s agent-site list) and on `k11` (six tests: A5's site list and call counts, A5's
+write allowlist, B5's ChangeSet property list, A3's label-prefix list, two exact-text checks). Each was written for
+a change-scoped criterion — "no other agent() site is added", "every other property is unchanged" — which B3's check
+4 already classifies as **panel-verified at build time**, yet the Test Author lands it as a permanent test. Every
+later spec then pays a fix-up that no criterion of its own names, and a fixer may bend code to satisfy it.
+*Proposed:* (1) the Test Author prompt forbids a permanent test for a criterion graph-lint classified `panel`;
+(2) the existing freeze tests are converted to *extension lists with a named reason per entry* (the form `k9d` and
+`k11d` used), so adding a site is a one-line, reviewed edit rather than a red suite; (3) consider retiring the
+A5/A3 freezes once their work items are a few runs old.
+
+**B8 — Three builds in a row ran their tests against the wrong code, and nothing in the line can tell.**
+`k7` (a TestSet helper resolved REPO to the main checkout), `k11` (the same, via `fixloop-helpers.js`), `k13` (the
+TestSet imported `../../../substrate/test/helpers.js` — the MAIN checkout's — whose `cli()` ran the main checkout's
+`gates.js`; plus `spawnSync` blocking the in-process fake server so every send timed out). In each, the panel was
+judging the pre-task code or a harness artefact, and B6's validity detector cannot see it: these are properties of
+the harness, not of any single assertion. `k13` also exposed a line bug, now fixed (`widenTestsRef`): a repair of
+one test file replaced `tests_ref` with that file, so 13 of 14 criteria went unrun for the rest of the loop.
+*Proposed, small:* (1) the Test Runner step first runs a one-line probe from the TestSet's own directory —
+import the helpers the TestSet imports and print `REPO` — and the script refuses the round if it is not the task
+worktree; (2) the Test Author prompt forbids any relative import that climbs out of the TestSet directory (the
+landed location is `substrate/test/`, so `./helpers.js` is always right); (3) `helpers.js` gains the async CLI runner
+(`c5-cli.js` today) so no test needs `spawnSync` against an in-process server.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -623,6 +708,16 @@ The model already assumes a delivery channel and none exists:
 - Severity should route: a sev1 page and a budget breach reach a phone; a Spec Gate can reach a queue.
 - Configuration belongs in `/create-project`'s Comms Setup (`OPERATING_MODEL.md:326`) so a venture gets a channel at creation rather than by hand.
 - Whatever the transport, the gate record should record that delivery was attempted and whether it succeeded, so an unopened page is distinguishable from an undelivered one — which is exactly what could not be told apart for `m1`.
+
+*C5 landed at `k13d`, by direct drive of `k13`* (spec `k12`, revised `k12h`, interface pinned `k12h2`, gate
+`k12-spec_gate` approved by the human). `substrate/notify.js` — `channelFor` (sev1_page, ratio_gate, `*_budget_breach`
+→ phone; everything else → queue), `notify` (never rejects), a GitHub-issue driver and an UNVERIFIED-FROM-CI webhook
+driver, selected by `NOTIFY_DRIVER`; `gates open` writes the record first, then stamps `delivery`
+`{attempted, ok, channel, at, error?}`; the token is only ever in the Authorization header. The implementation
+landed exactly as the Implementer wrote it. `k13` cost $2.18 (haiku $1.14, sonnet $0.80, opus-5-5 $0.24); C5 total
+with `k12` $2.43. **What the line could not do:** every failure was harness or line, not code — see B8. **Not
+yet done:** nothing is configured to deliver. Setting `NOTIFY_DRIVER=github`, `NOTIFY_GITHUB_TOKEN`,
+`NOTIFY_GITHUB_REPO` for real is an outward-facing act (it opens issues on a repo) and is the human's call.
 
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
 
@@ -684,6 +779,42 @@ wrong answer. It was **not** merged with C4 — unused, and outside that spec's 
 `.artifacts/salvage/repo-root.js`. **That path is gitignored and dies with the container**, so read it or reproduce it.
 Carried as `wi-c10-repo-root-resolution`. The test that matters resolves the root from a file at a *different* depth;
 a resolver only ever exercised from its birthplace proves exactly what the hardcoded version already proved.
+
+**C11 — `ledger recost` clobbers run files and re-serialises the whole index.** Found adding the `claude-opus-5-5`
+rate ($4 / $20 per MTok, same claude-api reference the file already cites; cache reads $0.20 ignored by the blend).
+`substrate/ledger.js` `recost` writes each index row back over `ledger/runs/<id>.json`'s `entry`, so any run file
+corrected after append loses the correction: a full recost set `k1`'s tokens from 3,410,972 back to the index's
+122,328 (and priced it $0.56 instead of $15.83), dropped `m2`'s `wall_clock_unknown`, and rewrote 49 index lines only
+to change their key spacing. The index and the run files had already drifted apart; `recost` picks the index as truth
+without saying so. Reverted; the `k7` row alone was re-priced by hand ($1.38 → $2.31; Opus 5.5 is $0.93 of that),
+ledger total $84.89 → $85.82. *Fix:* recost only `cost_est_usd` in both places, surgically, and have a check that
+fails when `index.jsonl` and `runs/<id>.json` disagree on anything but that field.
+
+**C12 — The spec-gate check's mechanical reader copied the gate's `id` into `gate`, and the build refused.**
+Run `k9` (build-implement, B5): `gates/closed/k8-spec_gate.json` says `id: "k8-spec_gate"`, `gate: "spec_gate"`,
+`status: "decided"`, `decision.option: "approve"`. The haiku `gate:spec_gate` agent returned `gate: "k8-spec_gate"`,
+so `ok` was false and the run refused at 12k tokens before any task started. Failing closed is correct; the defect is
+that the `GateCheck` schema has no `id` field, so the one value on the record that looks most like "the gate" has
+nowhere to go but `gate`. *Fix:* add `id` to `GateCheck` and check `g.id === A.gate.gate_id` as well, so a miscopy
+fails on a named field instead of a plausible-looking one. Re-run unchanged as `k9b`.
+
+**C13 — The risk router's code rule reads `test-author.md` as an auth surface.** `build-spec.js` `HIGH_REF` is
+`/\bauth|.../i`; `\bauth` matches "**auth**or" after the hyphen, so `k10` routed B6 high with the reason
+"surface ref names a sensitive term: .claude/agents/test-author.md". Harmless on `k10` (its `contracts.schema.json`
+surface is high by kind anyway) but any spec touching only the Test Author definition would gate for no reason.
+*Fix:* `\bauth(?:[nz]|entic|oriz)?\b` or an explicit word list, with a test naming `test-author.md`.
+
+**C14 — Fix-loop agents run tests from the main checkout and leave files there.** On `k11` a `fix:` agent, a
+`testfix:` agent and `integrate:resolve` each `cp`'d TestSet files into the MAIN checkout's `substrate/test/` to run
+them (their shell starts at the repository root). Seven untracked `b6-*.test.js` files appeared mid-run and tripped
+the session's stop hook; a stray copy there can also shadow what a later landing sees. *Fix:* every fix-loop prompt
+that runs tests names the worktree as the directory to run from, and the Test Runner runs a TestSet in place with
+`process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
+`.artifacts/`.
+
+*C10 mostly landed:* `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
+`process.cwd()` to the repo markers (fallback: from their own directory). `ci-workflow.test.js`,
+`node-support-floor-and-test-glob.test.js` and `t2-doc-paths.js` still count `..`.
 
 ### D. Measurement gaps
 

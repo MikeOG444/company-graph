@@ -1,0 +1,26 @@
+commit 1ebf0470dedf8bb7186cdde5aefb7bb16796e0f3
+Author: Claude <noreply@anthropic.com>
+Date:   Sat Sep 26 18:47:22 2026 +0000
+
+    Fix notify.js safeErrorMessage returning empty string for falsy throws
+    
+    A driver that throws a falsy value (e.g. throw '') produced
+    delivery.error === '', violating AC-6/AC-8/AC-9's non-empty error
+    requirement. Fall back to 'unknown error' when no message is derivable.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_019Y8PoKeAxY1UqCFsE9FZsw
+
+diff --git a/substrate/notify.js b/substrate/notify.js
+index 390734e..9f0dc28 100644
+--- a/substrate/notify.js
++++ b/substrate/notify.js
+@@ -102,7 +102,7 @@ const DRIVERS = { github: githubDriver, webhook: webhookDriver }
+ 
+ function safeErrorMessage(err) {
+   const msg = err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || String(err)
+-  return msg
++  return msg || 'unknown error'
+ }
+ 
+ // Never rejects. Returns a delivery object: {attempted, ok, channel, at, error?}.
