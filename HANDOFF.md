@@ -196,8 +196,8 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 ### Current order of work
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
-that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). **Next: B8 (small, and it
-is why the last three builds needed a hand), then B1+B2 → C10's remainder.** B6 moved to the
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`.
+**Next: C13 + B7 (small; both keep costing a hand on every build), then B1+B2 → C10's remainder.** B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -684,6 +684,17 @@ import the helpers the TestSet imports and print `REPO` — and the script refus
 worktree; (2) the Test Author prompt forbids any relative import that climbs out of the TestSet directory (the
 landed location is `substrate/test/`, so `./helpers.js` is always right); (3) `helpers.js` gains the async CLI runner
 (`c5-cli.js` today) so no test needs `spawnSync` against an in-process server.
+
+*B8 landed at `k15d`* (spec `k14`, gate `k14-spec_gate` approved by the human — gated only by C13's false
+positive). The Test Runner reports every relative import in the TestSet; the pure `escapingImports` decides which
+climb out of the TestSet directory; if any do, that round is invalid — the files go to the Test Author and the
+correctness lens is told so. `k15` was **the first clean panel pass of this stretch**: real findings in round 1,
+fixed in round 2, 0 escalations, and B6's detector routed 4 test defects away from the fixers live. The main
+session still found one defect nobody tested: `tests_ref` arrived both absolute and relative on `k15`, and a raw
+string compare would have declared every round invalid — both sides are now anchored at the artifact dir. Cost
+`k15` $2.84 (sonnet $1.51, haiku $1.10, opus-5-5 $0.23); B8 total with `k14` $3.14. Also seen: the lander reported
+skipped helpers as "x.js (already exists)", so reconciliation counted them unaccounted and pulled in the
+strong-tier `integrate:resolve` for nothing — carried under B7's clean-up.
 
 ### C. Durability and substrate
 

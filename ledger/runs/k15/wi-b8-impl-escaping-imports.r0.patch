@@ -1,0 +1,206 @@
+diff --git a/.claude/agents/test-author.md b/.claude/agents/test-author.md
+index d2039a7..8e11ecb 100644
+--- a/.claude/agents/test-author.md
++++ b/.claude/agents/test-author.md
+@@ -14,5 +14,7 @@ Rules:
+ - Tests must be runnable by the repo's existing test runner without manual steps.
+ - **A source-text wiring test asserts CALLS, and their order, inside a named function — never the first textual occurrence of a name in the file.** Use `substrate/test/b5-wiring-helpers.js` (`functionNamed`, `enclosingFunction`, `callSites`, `reachersOf`, `firstCallOf`) to find the call sites you are checking. A test built on `indexOf` or a similar whole-file first-occurrence search finds a declaration or an unrelated mention just as easily as the call the test means to check — that is a test defect, not a correctness finding, and it is what run k9d's wiring fix replaced.
+ - **Require an exact literal only when the Spec quotes it.** Assert an identifier, string, or other literal exactly only when the Spec text itself quotes that literal; otherwise assert the behaviour, not incidental wording.
++- **Never use a relative import or require that climbs out of the TestSet directory you were given** (no `../` path that leaves it). A test whose import escapes that directory can end up running against the wrong code entirely, and the run is marked invalid. A TestSet lands in `substrate/test/` beside the repo's own `helpers.js`, `fixloop-helpers.js` and `extract-fixloop.js`, so import them as `./helpers.js`, `./fixloop-helpers.js` and `./extract-fixloop.js`.
++- **A test that starts a local HTTP server in-process must drive the CLI with an async child process, never `spawnSync`.**
+ - Write them under the directory you were given and return that path as `tests_ref`.
+ - Return only the TestSet fields the schema asks for.
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 2d05920..72998fa 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -90,7 +90,12 @@ const TestSet = { type: 'object', additionalProperties: false, required: ['id',
+     criteria_coverage: { type: 'array', items: { type: 'string' } } } }
+ const TestResults = { type: 'object', additionalProperties: false, required: ['passed', 'failed', 'results_ref', 'criteria_covered'],
+   properties: { passed: { type: 'integer' }, failed: { type: 'integer' }, results_ref: { type: 'string' },
+-    criteria_covered: { type: 'array', items: { type: 'string' } } } }
++    criteria_covered: { type: 'array', items: { type: 'string' } },
++    // wi-b8: every relative import/require specifier the runner found in every file under the TestSet it ran,
++    // reported without judging — escapingImports (fix-loop decisions, below) decides which of these escape the
++    // TestSet directory. Optional/additive: an older runner result that never set it still validates.
++    imports: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'specifier'],
++      properties: { file: { type: 'string' }, specifier: { type: 'string' } } } } } }
+ const Finding = { type: 'object', additionalProperties: false,
+   required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
+   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
+@@ -740,6 +745,62 @@ function citesFailingTest(finding, failingTestNames) {
+ function fixRefused({ behaviour_changed, cites_test_failure }) {
+   return behaviour_changed === false && cites_test_failure === true
+ }
++
++// ---- wi-b8: tests that escape the TestSet directory ----
++// Runs k7, k11 and k13 all hit the same hole: a test at .artifacts/tests/<task>/ imported
++// '../../../substrate/test/helpers.js', a relative path that climbs OUT of the TestSet directory and loads the
++// main checkout's PRE-TASK code instead of the change under review — a green (or red) result that proves nothing
++// about the task. No node path module, no fs: pure string logic, exactly like scopeOf/testRepairTarget above.
++
++// The TestSet directory for containment purposes. tests_ref is sometimes a directory ('.artifacts/tests/t1') and
++// sometimes a single file ('.artifacts/tests/t1/x.test.js', AC-5) — a file's last path segment carries a '.'
++// (an extension), a directory's does not, so that is the only signal used to tell them apart.
++function testSetDirOf(tests_ref) {
++  const s = String(tests_ref ?? '').replace(/\/+$/, '')
++  const last = s.split('/').pop() ?? ''
++  if (!last.includes('.')) return s
++  const idx = s.lastIndexOf('/')
++  return idx === -1 ? '' : s.slice(0, idx)
++}
++
++// Everything before the last '/' in a path — the directory a file sits in. '' when there is none.
++function dirOf(p) {
++  const s = String(p ?? '')
++  const idx = s.lastIndexOf('/')
++  return idx === -1 ? '' : s.slice(0, idx)
++}
++
++// A relative specifier resolved against the IMPORTING FILE's own directory (AC-3), never against tests_ref
++// directly — a sibling file one level down resolving './helpers.js' or '../helpers.js' must land beside itself,
++// not beside the TestSet root. '..' pops the last collected segment; a '..' with nothing left to pop is kept
++// literally, which only ever shows up when a specifier climbs above the combined path entirely.
++function resolveSpecifier(fileDir, specifier) {
++  const segs = [...String(fileDir ?? '').split('/'), ...String(specifier ?? '').split('/')]
++  const out = []
++  for (const seg of segs) {
++    if (seg === '' || seg === '.') continue
++    if (seg === '..') { if (out.length && out[out.length - 1] !== '..') out.pop(); else out.push('..'); continue }
++    out.push(seg)
++  }
++  return out.join('/')
++}
++
++// Every { file, specifier } entry whose specifier is a RELATIVE import ('./' or '../' — a bare package name or a
++// node: builtin never escapes, AC-4) that resolves outside the TestSet directory. Missing/empty imports, or an
++// entry with no specifier, return [] without throwing (AC-6).
++function escapingImports({ tests_ref, imports }) {
++  const dir = testSetDirOf(tests_ref)
++  const out = []
++  for (const imp of imports ?? []) {
++    const specifier = imp?.specifier
++    if (typeof specifier !== 'string' || !specifier) continue
++    if (!(specifier.startsWith('./') || specifier.startsWith('../'))) continue
++    const resolved = resolveSpecifier(dirOf(imp?.file), specifier)
++    const within = resolved === dir || (dir && resolved.startsWith(`${dir}/`))
++    if (!within) out.push({ file: imp.file, specifier })
++  }
++  return out
++}
+ // ---- END fix-loop decisions ----
+ 
+ // =====================================================================
+@@ -889,6 +950,11 @@ async function runTask({ spec, task, spec_ref }) {
+                  which finds a declaration or an unrelated mention just as easily as the call the test means to check, and a test built on
+                  it is a test defect, not a correctness finding. Require an exact literal (an identifier or string match) only when the
+                  Spec itself quotes that literal — never invent one merely because it makes the assertion easier to write.
++                 NEVER use a relative import or require that climbs out of the TestSet directory you were given (no './..' path that
++                 leaves it) — a test whose import escapes that directory can end up running against the wrong code entirely and the
++                 run is marked invalid. This TestSet lands in substrate/test/ beside the repo's own helpers.js, fixloop-helpers.js and
++                 extract-fixloop.js, so import them as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that
++                 starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync.
+                  Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
+   ])
+@@ -917,6 +983,9 @@ async function runTask({ spec, task, spec_ref }) {
+                 // AC-11), from the detector's facts or a refused fixer's behaviour_changed:false. Emitted in the
+                 // run output as-is; [] when nothing was ever classified.
+                 testValidity: [],
++                // importEscapes: one { round, file, specifier } entry per escaping import recorded across this
++                // task's rounds (wi-b8, AC-10). Emitted in the run output as import_escapes; [] when no round saw one.
++                importEscapes: [],
+                 // testDefectRecheckUsed: this task's one forced extra confirm round after a test_defect repair
+                 // (AC-9) — the task must not pass in the very round a test_defect was found and routed to the Test
+                 // Author, before the Test Runner has re-run against the repair. Bounded at one, exactly like
+@@ -1047,7 +1116,11 @@ async function runTask({ spec, task, spec_ref }) {
+     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
+     const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
+                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
+-                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
++                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.
++                        ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
++                        file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
++                        WITHOUT judging whether any of them is correct; that decision is made elsewhere. Omit a package name or a
++                        node: builtin; report only relative paths.`,
+       { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
+ 
+     const overruledNote = ctx.overruled.length
+@@ -1091,11 +1164,55 @@ async function runTask({ spec, task, spec_ref }) {
+       correctness: async () => {
+         const r = await runP
+         if (!r) return null
++        // ---- Tests that escape the TestSet directory (wi-b8, AC-8/AC-9/AC-10): checked BEFORE anything else this
++        // round touches — before the validity detector, before any fix: agent — because a test that ran against
++        // code outside this task's change (k7, k11, k13) makes every OTHER fact this round reported about it
++        // meaningless. escapingImports is pure string logic (fix-loop decisions, above); nothing here reads a file
++        // or resolves a path itself.
++        const escapes = escapingImports({ tests_ref: ctx.testSet.tests_ref, imports: r.imports })
++        let escapeNote = ''
++        if (escapes.length) {
++          escapes.forEach(e => ctx.importEscapes.push({ round: ctx.round, file: e.file, specifier: e.specifier }))
++          const escapingFiles = [...new Set(escapes.map(e => e.file))]
++          const specifiersOf = (file) => escapes.filter(e => e.file === file).map(e => e.specifier)
++          // Existing testfix: path, reused exactly (testRepairTarget, label beginning testfix:${task.id}:,
++          // AT('test-author'), TestRepair schema) — same repair path a test_defect uses below.
++          const repairs = (await parallel(escapingFiles.map(file => () => {
++            const target = testRepairTarget({ finding: { location: file }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
++            const targetNote = target.source === 'finding_location'
++              ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
++              : `Write it under the TestSet directory (create the file there if it does not exist yet).`
++            return agent(`The test file "${file}" imports through a relative path that ESCAPES the TestSet directory
++                   ${ctx.testSet.tests_ref} (specifier(s): ${JSON.stringify(specifiersOf(file))}) — it may have run against code outside
++                   this task's own change rather than testing it. Repair the test at ${target.ref} so every relative import/require stays
++                   inside the TestSet directory: never use a relative path that climbs out of it; do not read or modify the implementation.
++                   A TestSet lands in substrate/test/ at run time, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
++                   those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that starts a local HTTP server
++                   in-process must drive the CLI with an async child process, never spawnSync. ${targetNote} If the import is correct and
++                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and
++                   the criteria the tests now cover.`,
++              { label: `testfix:${task.id}:escape:${file}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
++              .then(p => p && { p, target })
++          }))).filter(Boolean)
++          repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
++          const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
++          if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef) }
++          ctx.history.push(`${tag}: ${escapingFiles.length} TestSet file(s) imported outside ${ctx.testSet.tests_ref}; routed to the Test Author and this round's run marked invalid`)
++          // The correctness lens is told the run was INVALID instead of being given this round's failures as
++          // evidence (AC-9) — an escaping import can make a real defect look fixed, or an unrelated failure look
++          // like this task's fault, so neither this round's pass nor its fail is trustworthy evidence either way.
++          // Recorded in escapeNote and folded into the one correctness-lens call below, rather than a second
++          // call site, so the round's failing-test facts (which may be nonsense) are never even read.
++          escapeNote = `This round's test run is INVALID: ${escapingFiles.length} TestSet file(s) imported a relative path that
++             escapes the TestSet directory (${JSON.stringify(escapingFiles)}), so the results may not reflect this task's own change
++             at all. Do NOT treat this round's pass or fail results as evidence for or against the implementation — the escaping
++             file(s) are already being repaired by the Test Author.`
++        }
+         // ---- Test validity before blame (wi-b6, AC-8/AC-9): before correctness gets to blame the implementation
+         // for ANY failing test, one cheap read-only detector runs ONCE, only because this round's Test Runner
+-        // reported failed > 0. It reports facts only; testValidity (the pure function, called next) derives the
+-        // class in script code.
+-        if (r.failed > 0) {
++        // reported failed > 0 AND no import already escaped this round (wi-b8: an escaping import already makes
++        // every fact this round reported about a failing test meaningless, so the detector never runs on it).
++        if (!escapes.length && r.failed > 0) {
+           const detected = (await agent(`Report FACTS ONLY about each currently FAILING test from this round's run — never a verdict, never
+                  a fix. Test results are at ${r.results_ref} (${r.failed} failing, ${r.passed} passing). The change under review is committed
+                  on branch ${branch} in worktree ${wt} (app at ${wt}/${APP}/); its BASE commit (before this task's change) is ${base}.
+@@ -1152,7 +1269,7 @@ async function runTask({ spec, task, spec_ref }) {
+              implementation: ${JSON.stringify(testDefectNames)}. They are not evidence against this change — do not raise a finding citing them.`
+           : ''
+         return lens('correctness', 'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
+-          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote}`)
++          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote} ${escapeNote}`)
+       },
+     }
+     const rawVerdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean)
+@@ -1689,6 +1806,9 @@ return {
+   // One entry per failing-test classification made across every task this run (wi-b6, AC-11): { test, criterion,
+   // facts, class }. [] when nothing was ever classified — no round ever saw failed > 0, or every task was skipped.
+   test_validity: finished.flatMap(f => f.testValidity ?? []),
++  // One { round, file, specifier } entry per escaping import recorded across every task this run (wi-b8, AC-10).
++  // [] when no round saw a TestSet file import a relative path outside its own TestSet directory.
++  import_escapes: finished.flatMap(f => f.importEscapes ?? []),
+   // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+   // [] when no task strayed.
+   boundary_repairs: boundaryRepairs,

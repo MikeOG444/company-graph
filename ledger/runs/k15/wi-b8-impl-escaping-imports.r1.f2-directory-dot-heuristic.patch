@@ -1,0 +1,23 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 72998fa..555a1f7 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -753,12 +753,15 @@ function fixRefused({ behaviour_changed, cites_test_failure }) {
+ // about the task. No node path module, no fs: pure string logic, exactly like scopeOf/testRepairTarget above.
+ 
+ // The TestSet directory for containment purposes. tests_ref is sometimes a directory ('.artifacts/tests/t1') and
+-// sometimes a single file ('.artifacts/tests/t1/x.test.js', AC-5) — a file's last path segment carries a '.'
+-// (an extension), a directory's does not, so that is the only signal used to tell them apart.
++// sometimes a single file ('.artifacts/tests/t1/x.test.js', AC-5) — a file's last path segment ends with a known
++// JS/TS source extension, a directory's does not. A generic "contains a dot" check would misidentify a directory
++// whose own name happens to carry a dot (e.g. 't1.backup') as a file, so the signal is narrowed to the actual
++// extensions test files are written with.
++const TEST_FILE_EXT_RE = /\.[mc]?[jt]sx?$/
+ function testSetDirOf(tests_ref) {
+   const s = String(tests_ref ?? '').replace(/\/+$/, '')
+   const last = s.split('/').pop() ?? ''
+-  if (!last.includes('.')) return s
++  if (!TEST_FILE_EXT_RE.test(last)) return s
+   const idx = s.lastIndexOf('/')
+   return idx === -1 ? '' : s.slice(0, idx)
+ }
