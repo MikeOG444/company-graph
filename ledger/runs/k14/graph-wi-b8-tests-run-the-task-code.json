@@ -1,0 +1,43 @@
+{
+  "spec_id": "spec-wi-b8-tests-run-the-task-code",
+  "tasks": [
+    {
+      "id": "wi-b8-impl-escaping-imports",
+      "spec_id": "spec-wi-b8-tests-run-the-task-code",
+      "description": "Detect test imports that escape the TestSet directory. Add escapingImports() pure function to fix-loop decisions sentinel block in build-implement.js (AC-1–AC-6). Add imports property to TestResults schema and update Test Runner agent to report relative imports/requires (AC-7). Integrate escapingImports() call into runTask before correctness lens, route escaping files to Test Author, mark run invalid, record import_escapes in output (AC-8–AC-10). Update tests: prompt in build-implement.js and test-author.md guidance with constraints on relative paths and HTTP server tests (AC-11). Verify no changes to other workflows or verdict derivation (AC-12).",
+      "owned_surfaces": [
+        {
+          "kind": "path",
+          "ref": ".claude/workflows/build-implement.js"
+        },
+        {
+          "kind": "path",
+          "ref": ".claude/agents/test-author.md"
+        }
+      ],
+      "depends_on": [],
+      "criteria_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8",
+        "AC-9",
+        "AC-10",
+        "AC-11",
+        "AC-12"
+      ]
+    }
+  ],
+  "provenance": {
+    "node": "decomposer",
+    "executor": "ai_agent",
+    "method": "dark_factory",
+    "model": "haiku",
+    "run_id": "k14",
+    "created_at": "2026-09-26T19:09:38Z"
+  }
+}
