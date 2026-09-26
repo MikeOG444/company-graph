@@ -326,5 +326,47 @@
       "run_id": "carry-seed-b5",
       "created_at": "2026-09-26T03:08:03Z"
     }
+  },
+  {
+    "id": "wi-b6-test-validity-before-blame",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "A failing test counts against the implementation only after the test is shown valid",
+    "intent": "Found on run k9b (build-implement, wi-b5). Seven tests failed; four were TEST defects (each located code by its first textual occurrence in the file: indexOf('boundaryRepair(') found the fix-loop DEFINITION rather than a call; a test required the literal boundary_repairs.push( rather than the output field; one required the word depends_on rather than the dependency branches; one required a backtick label the source never used), and a fixer then changed correct code (relabelled 'integrate', moved function declarations below their call sites) purely to satisfy the test text. The panel escalated a correct implementation after 1.28M tokens. Root cause in .claude/workflows/build-implement.js: every failing test reaches the correctness lens as evidence against the code, the lens files it target:'implementation' by default, and testRepairTarget / the testfix: path only engage when a lens already said target:'test'. Nothing asks whether the TEST is valid before the implementation is blamed. The goal: a failing test counts against the implementation only after its validity is established, decided in script code from facts an agent reports (agents are detectors, never voters). Build, as ONE implementation task (this edits build-implement.js, whose committed copy runs the build — a split exposes the building run to the defect):\n(1) VALIDITY FACTS BEFORE BLAME. After the run: test step reports failures, and before any lens or fixer spends on them, a cheap detector agent (read-only, AT('lens-correctness') or a mechanical read) reports per failing test FACTS only: locates_by_first_occurrence (the assertion finds code via indexOf/search/first match over the whole file rather than inside a named function or at a call site), requires_unquoted_literal (it requires an exact identifier/string the Spec does not quote), fails_on_base_same_reason (it fails on the task's base commit with the same message — i.e. it asserts something the task was never asked to change), names_criterion_behaviour (its failure message is about the behaviour the cited criterion describes). A PURE function in the fix-loop sentinel block (testValidity) derives 'test_defect' | 'code_defect' | 'unclear' from those facts. test_defect goes to the Test Author via the EXISTING testfix: path (reuse testRepairTarget), never to a fixer, and is not counted toward the panel's fail verdict; code_defect proceeds as today; unclear proceeds as today but is recorded. Record every classification in the run output (test_validity: [{test, criterion, facts, class}]).\n(2) THE FIXER MAY NOT BEND CODE TO A TEST'S TEXT. A fixer ChangeSet whose diff only renames/relabels or moves declarations without changing any behaviour the finding names is refused in code: extend the fixer's ChangeSet with an optional behaviour_changed: boolean plus rationale, state the rule in the fixer prompt and .claude/agents/fixer.md, and route a behaviour_changed:false fix for a finding that cites a test failure back as (1) instead of accepting it.\n(3) TEST AUTHOR GUIDANCE WITH A TOOL. State in the Test Author prompt in build-implement.js and in .claude/agents/test-author.md: a source-text wiring test must assert CALLS and their order inside a named function, using the existing substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf), never the first textual occurrence of a name in the file; it may require an exact literal only when the Spec quotes it.\nTests in the sentinel idiom (substrate/test/extract-fixloop.js): testValidity driven over plain fact objects for each class; a wiring test that the test-failure path consults testValidity before any fix: label and that test_defect routes to a testfix: label; source-text checks on both agent docs. Resolve paths from process.cwd() or the existing extractors, never '..' from the test file; no test shells out to npm test. Do not change lens verdict derivation for non-test findings, the dispute/tiebreak judges, or any other workflow.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 600000,
+      "wall_clock_min": 70
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/agents/fixer.md"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/agents/test-author.md"
+      },
+      {
+        "kind": "schema",
+        "ref": "contracts.schema.json"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "run_id": "carry-seed-b6",
+      "created_at": "2026-09-26T04:26:44Z"
+    }
   }
 ]
