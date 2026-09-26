@@ -747,6 +747,12 @@ that the `GateCheck` schema has no `id` field, so the one value on the record th
 nowhere to go but `gate`. *Fix:* add `id` to `GateCheck` and check `g.id === A.gate.gate_id` as well, so a miscopy
 fails on a named field instead of a plausible-looking one. Re-run unchanged as `k9b`.
 
+**C13 — The risk router's code rule reads `test-author.md` as an auth surface.** `build-spec.js` `HIGH_REF` is
+`/\bauth|.../i`; `\bauth` matches "**auth**or" after the hyphen, so `k10` routed B6 high with the reason
+"surface ref names a sensitive term: .claude/agents/test-author.md". Harmless on `k10` (its `contracts.schema.json`
+surface is high by kind anyway) but any spec touching only the Test Author definition would gate for no reason.
+*Fix:* `\bauth(?:[nz]|entic|oriz)?\b` or an explicit word list, with a test naming `test-author.md`.
+
 ### D. Measurement gaps
 
 **D1 — The Lens Calibrator has no honest sample.** `ledger/runs/mr2-memory-roll.json` → `roll.lens_catch_rates`: `catch_rate: null`, `unavailable_reason: "no escaped-defect denominator exists"`. 30 panels, 39 findings raised, 39 upheld, 0 attributable escapes. **Phase 4's planted defects are not lens misses and must never be counted as any.** Covered by `opp-p5-7`.
