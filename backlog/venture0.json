@@ -368,5 +368,35 @@
       "run_id": "carry-seed-b6",
       "created_at": "2026-09-26T04:26:44Z"
     }
+  },
+  {
+    "id": "wi-b8-tests-run-the-task-code",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "A TestSet whose imports climb out of its own directory is not evidence against the implementation",
+    "intent": "Three builds in a row (k7, k11, k13) ran their TestSet against the WRONG code and the line could not tell: on k13 every C5 test file imported '../../../substrate/test/helpers.js', which from the TestSet's directory .artifacts/tests/<task>/ resolves to the MAIN checkout's helpers, whose cli() then ran the main checkout's substrate/gates.js — the pre-task code. The panel judged that, the B6 validity detector reported 'fails_on_base_same_reason' for nearly every test (true: they were running base code) but could not name the cause, and a correct implementation escalated. k7 and k11 were the same class through helpers that counted '..' from their own file (C10; helpers.js and fixloop-helpers.js now resolve from cwd, landed k11d/k13d). Build, as ONE task in .claude/workflows/build-implement.js plus .claude/agents/test-author.md:\n(1) THE RUNNER REPORTS WHAT IT IMPORTED, CODE DECIDES. The Test Runner agent (label run:${task.id}:${tag}) additionally returns imports: [{ file, specifier }] — every relative import/require specifier in every file under the TestSet it ran (a mechanical read; it reports, never judges). A PURE function escapingImports({ tests_ref, imports }) in the '// ---- BEGIN/END fix-loop decisions ----' block returns the entries whose specifier, resolved against the importing file's directory, lands OUTSIDE the TestSet directory (tests_ref, or its directory when tests_ref is a file). Specifiers that are package names or node: builtins never escape. When the list is non-empty, that round's test results are NOT evidence against the implementation: the escaping files are routed to the Test Author on the existing testfix: path (testRepairTarget reused) with the instruction that a TestSet lands in substrate/test/ beside helpers.js, so helpers are imported as './helpers.js'; the correctness lens is told the run was invalid rather than given its failures; the round is recorded in the run output as import_escapes: [{ round, file, specifier }].\n(2) THE TEST AUTHOR IS TOLD, in the tests: prompt in build-implement.js and in .claude/agents/test-author.md: never import with a relative path that climbs out of the TestSet directory; import repo test helpers as './helpers.js', './fixloop-helpers.js', './extract-fixloop.js' (they land beside them); and a test that starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync, which blocks the event loop the server needs.\nTests in the sentinel idiom via substrate/test/extract-fixloop.js and substrate/test/b5-wiring-helpers.js: escapingImports driven over plain objects (a '../../../substrate/test/helpers.js' from .artifacts/tests/t1/x.test.js escapes; './helpers.js' and './sub/y.js' do not; 'node:fs' and 'assert' do not; tests_ref given as a file uses its directory); a wiring test that the runner result's imports reach escapingImports before the correctness lens call inside runTask. Resolve paths from process.cwd(); no test shells out to npm test. Do not change lens verdict derivation, judges, or any other workflow.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 600000,
+      "wall_clock_min": 60
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/agents/test-author.md"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "run_id": "carry-seed-b8",
+      "created_at": "2026-09-26T19:09:38Z"
+    }
   }
 ]
