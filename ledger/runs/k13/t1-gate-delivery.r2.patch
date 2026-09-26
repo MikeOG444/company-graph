@@ -1,0 +1,230 @@
+diff --git a/contracts.schema.json b/contracts.schema.json
+index 31885d3..5cc5f7d 100644
+--- a/contracts.schema.json
++++ b/contracts.schema.json
+@@ -855,6 +855,12 @@
+                                              "description": "Ids the human picked when the decision is more than one word - e.g. the approved Opportunity ids at the roadmap_gate, where decision.option carries the VentureVerdict recommendation. Structured, so the next workflow reads a list instead of parsing note." },
+                                            "decided_by": { "$ref": "#/$defs/Executor" }, "decided_at": {"type":"string","format":"date-time"} },
+                            "required": ["option", "decided_by", "decided_at"] },
++        "delivery":      { "type": "object", "additionalProperties": false,
++                           "description": "Best-effort notification outcome stamped by `gates open` after the record is written (substrate/notify.js). Never affects the gate itself; the record on disk remains the source of truth.",
++                           "properties": { "attempted": {"type":"boolean"}, "ok": {"type":"boolean"},
++                                           "channel": {"type":"string"}, "at": {"type":"string","format":"date-time"},
++                                           "error": {"type":"string"} },
++                           "required": ["attempted", "ok", "channel", "at"] },
+         "provenance":    { "$ref": "#/$defs/Provenance" }
+       },
+       "required": ["id", "gate", "run_id", "workflow", "status", "opened_at", "options", "provenance"]
+diff --git a/substrate/README.md b/substrate/README.md
+index 4d19dea..e9d5062 100644
+--- a/substrate/README.md
++++ b/substrate/README.md
+@@ -78,6 +78,44 @@ pages nobody.
+
+ `gates/` and `ledger/` are committed. They are the plant's memory of every human decision and every run's cost; `.artifacts/` is not committed.
+
++### Gate delivery
++
++`gates open` writes the `GateRecord` to `gates/open/<id>.json` first — that file is always the source of truth —
++then makes one best-effort attempt to notify a human, through `substrate/notify.js`, and stamps the outcome back
++onto the same record as a `delivery` object: `{attempted, ok, channel, at, error?}`. A delivery that fails, times
++out, or has no driver configured never changes the gate's exit code (always 0) or stdout (always the bare gate
++id), and never stops the record from being written. `gates decide` carries the `delivery` object unchanged when it
++moves the record to `gates/closed/`; it makes no notification attempt of its own.
++
++Routing is a literal table in `substrate/notify.js` (`channelFor`), not read from env or config: `sev1_page`,
++`ratio_gate`, and any gate name ending in `_budget_breach` route to the `phone` channel; every other gate
++(`spec_gate`, `launch_approval`, `escalation`, `roadmap_gate`, `brief_approval`, `venture_verdict`,
++`portfolio_gate`, `machine_release_gate`, and anything unrecognized) routes to `queue`.
++
++The transport is chosen by `NOTIFY_DRIVER` (`github` | `webhook`; unset means no driver, so delivery is never
++attempted and `delivery.ok` is `false` with an explanatory error):
++
++| Env var | Meaning |
++|---|---|
++| `NOTIFY_DRIVER` | `github` or `webhook`. Unset = no delivery attempted. |
++| `NOTIFY_GITHUB_TOKEN` | Token sent as the GitHub REST API `Authorization` header. Never `GITHUB_TOKEN` — that ambient var is never read, so its mere presence in the environment can't turn delivery on by accident. |
++| `NOTIFY_GITHUB_REPO` | `owner/repo` the issue is opened in. |
++| `NOTIFY_GITHUB_API` | Base URL override, default `https://api.github.com` (tests point this at a local `127.0.0.1` server). |
++| `NOTIFY_WEBHOOK_URL` | URL the webhook driver POSTs a small JSON body to. |
++| `NOTIFY_TIMEOUT_MS` | Per-attempt timeout in ms, default `5000`. Applies to either driver. |
++
++**The GitHub issue driver is the only transport verified from this container.** It opens an issue labelled `gate`
++plus `channel:phone` or `channel:queue` via `POST /repos/<owner>/<repo>/issues`. This repo's egress policy answers
++`403` at `CONNECT` for `ntfy.sh`, `hooks.slack.com`, `api.pushover.net`, `api.telegram.org` and `api.twilio.com`, so
++none of those are reachable, let alone verified, from CI or from a maintain/build run; only `api.github.com` is
++reachable. A generic webhook driver also ships (`NOTIFY_WEBHOOK_URL`) but it is **UNVERIFIED FROM CI**: nothing in
++this repo's test suite, or in this README, exercises it against a real external endpoint — every webhook test
++targets a local `127.0.0.1` stand-in. Treat it as unproven until it has been run against a real receiver by hand.
++
++The token never appears anywhere but the outbound `Authorization` header: not in the `GateRecord` on disk, not in
++stdout or stderr, not in an issue title or body, and not in `delivery.error` even when the far end echoes the
++request back at us (a driver error never repeats the response body).
++
+ ### Stale gates
+
+ The runtime has no timers, so "a gate timeout escalates, never auto-approves" is a check, not an event: `node substrate/gates.js list --stale 24` lists gates open longer than 24 hours. A scheduled session can run it.
+@@ -86,7 +124,7 @@ The runtime has no timers, so "a gate timeout escalates, never auto-approves" is
+
+ Both are `$def`s in `contracts.schema.json` and are validated on every write.
+
+-- `GateRecord`: `id, gate, run_id, workflow, status (open|decided), opened_at, options[], payload | payload_ref, next_workflow, decision {option, note, decided_by, decided_at}, provenance`.
++- `GateRecord`: `id, gate, run_id, workflow, status (open|decided), opened_at, options[], payload | payload_ref, next_workflow, decision {option, note, decided_by, decided_at}, delivery {attempted, ok, channel, at, error?}, provenance`.
+ - `LedgerEntry`: `id, run_id, workflow, status, started_at, finished_at, wall_clock_sec, tokens, agents, human_min, artifact_count, escalations, result_ref, trace_ref, wall_clock_unknown, provenance`. `wall_clock_unknown` is optional and only set (by hand, on the one row it fixes) when a row's `started_at` is known to be fabricated; it keeps the row's tokens and cost in the Method Ledger while `ledger summary` excludes its `wall_clock_sec` from the aggregate and counts it in `wall_unknown_runs`, and `ledger list` renders its wall clock as `?s`.
+
+ `ledger summary --by method` groups run-level tokens, wall clock, human minutes and escalations by the run's `provenance.method`. `--by node` walks every nested artifact in every stored result and groups by `provenance.node`, using `provenance.tokens` where a script stamped it. Per-agent token attribution is the runtime's to expose; until it does, node rows show artifact counts and run rows carry the real cost.
+diff --git a/substrate/gates.js b/substrate/gates.js
+index 58094b3..36b0d91 100755
+--- a/substrate/gates.js
++++ b/substrate/gates.js
+@@ -13,6 +13,7 @@ import fs from 'node:fs'
+ import path from 'node:path'
+ import { GATES, ensureDir, parseArgs, die, readJson, writeJson, nowIso } from './lib/paths.js'
+ import { validate, formatErrors } from './lib/contracts.js'
++import { notify } from './notify.js'
+
+ const OPEN = path.join(GATES, 'open'), CLOSED = path.join(GATES, 'closed')
+ const { pos, opts } = parseArgs(process.argv.slice(2))
+@@ -54,7 +55,13 @@ switch (cmd) {
+     if (opts['payload-ref']) rec.payload_ref = opts['payload-ref']
+     if (opts.payload) rec.payload = readJson(opts.payload)
+     assertValid(rec)
+-    writeJson(path.join(OPEN, `${id}.json`), rec)
++    const recPath = path.join(OPEN, `${id}.json`)
++    writeJson(recPath, rec)
++    // Delivery is best-effort and never blocking: the record above is already the source of truth. A failed,
++    // timed-out or unconfigured delivery never changes the exit code or stdout, and the record is always rewritten
++    // with the outcome after the fact.
++    rec.delivery = await notify(rec)
++    writeJson(recPath, rec)
+     console.log(id)
+     break
+   }
+diff --git a/substrate/notify.js b/substrate/notify.js
+new file mode 100644
+index 0000000..9f0dc28
+--- /dev/null
++++ b/substrate/notify.js
+@@ -0,0 +1,122 @@
++// Best-effort, non-blocking notification for gates. Never throws, never rejects, never fails the caller.
++//
++// Routing: a code-level table decides the channel for a gate name (see channelFor). The driver that actually
++// sends is chosen by env var NOTIFY_DRIVER ("github" | "webhook"; unset = no driver, delivery.attempted = false).
++//
++// Env vars:
++//   NOTIFY_DRIVER          "github" | "webhook" (unset = no driver configured)
++//   NOTIFY_GITHUB_TOKEN    token for the GitHub REST API (Authorization header only; never logged or written)
++//   NOTIFY_GITHUB_REPO     "owner/repo" to open the issue in
++//   NOTIFY_GITHUB_API      base URL override, default https://api.github.com (tests point this at 127.0.0.1)
++//   NOTIFY_WEBHOOK_URL     URL the webhook driver POSTs to (UNVERIFIED FROM CI — see substrate/README.md)
++//   NOTIFY_TIMEOUT_MS      per-attempt timeout in ms, default 5000
++//
++// GITHUB_TOKEN is never read; only NOTIFY_GITHUB_TOKEN selects the token.
++
++// Budget-breach gate names route to the phone channel, same as sev1_page. Everything else, including spec_gate,
++// goes to queue. This table is a literal in code, not read from env or config.
++const PHONE_GATES = new Set(['sev1_page', 'ratio_gate'])
++
++export function channelFor(gateName) {
++  const name = String(gateName || '')
++  if (PHONE_GATES.has(name) || name.endsWith('_budget_breach')) return 'phone'
++  return 'queue'
++}
++
++function timeoutMs(env) {
++  const raw = env.NOTIFY_TIMEOUT_MS
++  const n = raw === undefined ? 5000 : Number(raw)
++  return Number.isFinite(n) && n > 0 ? n : 5000
++}
++
++async function fetchWithTimeout(url, init, ms) {
++  const controller = new AbortController()
++  const timer = setTimeout(() => controller.abort(new Error('timeout')), ms)
++  try {
++    return await fetch(url, { ...init, signal: controller.signal })
++  } finally {
++    clearTimeout(timer)
++  }
++}
++
++// Verified driver: opens a labelled GitHub issue via the REST API. The only transport reachable from this
++// container (see substrate/README.md for the egress policy that rules out the alternatives).
++const githubDriver = {
++  name: 'github',
++  async send(record, channel, env) {
++    const token = env.NOTIFY_GITHUB_TOKEN
++    const repo = env.NOTIFY_GITHUB_REPO
++    if (!token || !repo) throw new Error('github driver not configured: missing NOTIFY_GITHUB_TOKEN or NOTIFY_GITHUB_REPO')
++    const base = env.NOTIFY_GITHUB_API || 'https://api.github.com'
++    const url = `${base.replace(/\/+$/, '')}/repos/${repo}/issues`
++    const title = `[gate:${channel}] ${record.gate} (${record.id})`
++    const body = [
++      `Gate \`${record.id}\` (${record.gate}) opened by workflow \`${record.workflow}\` in run \`${record.run_id}\`.`,
++      `Record: gates/open/${record.id}.json`,
++      `Options: ${(record.options || []).join(', ')}`,
++    ].join('\n')
++    const res = await fetchWithTimeout(url, {
++      method: 'POST',
++      headers: {
++        Authorization: `token ${token}`,
++        Accept: 'application/vnd.github+json',
++        'Content-Type': 'application/json',
++        'User-Agent': 'company-graph-notify',
++      },
++      body: JSON.stringify({ title, body, labels: ['gate', `channel:${channel}`] }),
++    }, timeoutMs(env))
++    if (!res.ok) {
++      // Never include the response body in the error: a server that echoes the request back (e.g. a 401 that
++      // reflects the Authorization header) must not leak the token into delivery.error, stdout or stderr.
++      throw new Error(`github issue create failed: HTTP ${res.status}`)
++    }
++    return { ok: true }
++  },
++}
++
++// Optional generic webhook driver. UNVERIFIED FROM CI: no test in this repo exercises it against a real external
++// service, only against a local 127.0.0.1 stand-in (see substrate/README.md).
++const webhookDriver = {
++  name: 'webhook',
++  async send(record, channel, env) {
++    const url = env.NOTIFY_WEBHOOK_URL
++    if (!url) throw new Error('webhook driver not configured: missing NOTIFY_WEBHOOK_URL')
++    const res = await fetchWithTimeout(url, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        gate: record.gate,
++        id: record.id,
++        channel,
++        run_id: record.run_id,
++        workflow: record.workflow,
++        record_path: `gates/open/${record.id}.json`,
++      }),
++    }, timeoutMs(env))
++    if (!res.ok) throw new Error(`webhook post failed: ${res.status}`)
++    return { ok: true }
++  },
++}
++
++const DRIVERS = { github: githubDriver, webhook: webhookDriver }
++
++function safeErrorMessage(err) {
++  const msg = err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || String(err)
++  return msg || 'unknown error'
++}
++
++// Never rejects. Returns a delivery object: {attempted, ok, channel, at, error?}.
++export async function notify(record, { env = process.env, driver } = {}) {
++  const channel = channelFor(record.gate)
++  const at = new Date().toISOString()
++  const chosen = driver || DRIVERS[env.NOTIFY_DRIVER]
++  if (!chosen) {
++    return { attempted: false, ok: false, channel, at, error: 'delivery not configured: no NOTIFY_DRIVER selected' }
++  }
++  try {
++    await chosen.send(record, channel, env)
++    return { attempted: true, ok: true, channel, at }
++  } catch (err) {
++    return { attempted: true, ok: false, channel, at, error: safeErrorMessage(err) }
++  }
++}

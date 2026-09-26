@@ -1,0 +1,731 @@
+{
+  "entry": {
+    "id": "k13-build-implement",
+    "run_id": "k13",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T18:06:42.901Z",
+    "finished_at": "2026-09-26T19:08:44.000Z",
+    "wall_clock_sec": 3721,
+    "result_ref": "ledger/runs/k13-build-implement.json",
+    "artifact_count": 12,
+    "escalations": 1,
+    "tokens": 1144379,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 815994,
+      "claude-sonnet-5": 285264,
+      "claude-opus-5-5": 43121
+    },
+    "cost_est_usd": 2.18,
+    "agents": 28,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k13",
+      "created_at": "2026-09-26T18:05:59Z"
+    },
+    "trace_ref": ".artifacts/traces/k13-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k13",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "no task passed",
+    "specs": [
+      "spec-wi-c5-gate-delivery"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "t1-gate-delivery-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verify backward compatibility: existing GateRecord files lacking a delivery field continue to validate because delivery is not in the required array (schema line 866)",
+              "Verify token protection: sentinel token cannot leak into delivery.error, GateRecord on disk, stdout, or issue body—token used only in Authorization header (notify.js line 169) and response body never included in errors (lines 176-179)",
+              "Verify non-blocking delivery: record is written before notify() call (gates.js line 59), delivery failures never change exit code 0 or stdout, and notify() always resolves never rejects (notify.js lines 109-122)",
+              "Verify routing table literal: PHONE_GATES hardcoded as Set (notify.js line 18) with budget-breach suffix check (line 22), not read from environment or config",
+              "Verify gates decide preserves delivery: decide command has no notify() call (gates.js 92-118) and preserves delivery field when rewriting record to gates/closed/",
+              "Verify delivery object structure: required fields (attempted, ok, channel, at) and optional error match both schema (contracts.json lines 860-863) and return values from notify() (notify.js lines 114, 118, 120)",
+              "Verify AC-13 documentation: README.md documents all env vars (NOTIFY_DRIVER, NOTIFY_GITHUB_TOKEN never GITHUB_TOKEN, repo, API override, webhook URL, timeout), routing table, best-effort guarantee, GitHub as only verified driver with egress policy, and webhook as UNVERIFIED FROM CI (lines 81-117)"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to leak GitHub token through error messages when API server returns 401 with echoed Authorization header; failed because code explicitly excludes response body from errors (notify.js:70, :179).",
+              "Attempted to trigger accidental reading of GITHUB_TOKEN environment variable; failed because code only reads NOTIFY_GITHUB_TOKEN (line 47) and comments explicitly document GITHUB_TOKEN is never read (line 14).",
+              "Attempted to find hardcoded secrets or credentials in code; failed because all sensitive values are read from environment variables and no secrets appear in error messages, defaults, or logs."
+            ],
+            "findings": [],
+            "confidence": 0.98,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Token leakage in error messages - tried setting up a server that echoes back Authorization headers. The implementation catches this via safeErrorMessage() which excludes response bodies from delivery.error, preventing token leakage even when a 401 echoes the request.",
+              "Attempt 2: Delivery failure blocking the gate - tried causing notify() to fail by pointing the GitHub driver at a closed port (connection refused). The implementation returns exit code 0 and logs only the gate id, writing the record with delivery.attempted=true and delivery.ok=false, proving delivery failures are non-blocking.",
+              "Attempt 3: Timeout hanging the CLI - tried pointing the driver at a server that accepts connections but never responds, with NOTIFY_TIMEOUT_MS set to 300ms. The fetchWithTimeout() implementation uses AbortController to enforce the timeout, preventing the CLI from blocking for the full default 5000ms."
+            ],
+            "findings": [
+              {
+                "id": "1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63",
+                "claim": "Tests accessing rec.delivery report 'undefined' for criteria AC-6, AC-7, AC-8, AC-11, and AC-12, indicating notify() integration may not be applied or executed in test environment",
+                "evidence": "Test results show failures: Test 6 (AC-11) expects 1 HTTP request but gets 0 at line 28, Tests 8/22/23/24/25 fail with 'Cannot read properties of undefined (reading attempted/ok)' trying to access rec.delivery properties that should exist after notify() returns",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|tests-report-undefined-rec-delivery",
+                "status": "open"
+              },
+              {
+                "id": "2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-6-delivery-failure-non-blocking.test.js:31",
+                "claim": "Test assertion at line 31 expects rec.delivery.attempted=true but rec.delivery is undefined, indicating no delivery was stamped despite error handling path",
+                "evidence": "Test fails with 'Cannot read properties of undefined (reading ok)' at line 53 when trying to assert rec.delivery.ok === false. Server responds 500 but record shows no delivery object was added",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:59-64|delivery-not-stamped-on-failure",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-11-decide-preserves-delivery.test.js:28",
+                "claim": "Test assertion expects server.requests.length===1 after gates open, but gets 0, indicating notify() was not called for the phone channel gate (sev1_page)",
+                "evidence": "Line 28 asserts server.requests.length===1 after calling gates open with NOTIFY_DRIVER='github' and full GitHub config. Error shows 'Expected 1 but got 0', confirming zero HTTP requests to the configured server",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|notify-not-called-for-open",
+                "status": "open"
+              },
+              {
+                "id": "4",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-12-existing-suite-unaffected.test.js:53",
+                "claim": "Test expects rec.delivery.attempted===false when no NOTIFY_DRIVER is set, but rec.delivery is undefined, indicating notify() is not being invoked even with environment configured",
+                "evidence": "Line 53 asserts rec.delivery.attempted===false with error 'Cannot read properties of undefined'. Per AC-8 spec, when no driver is selected, delivery should still be stamped with attempted=false and an explanatory error message",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|no-driver-should-still-stamp-delivery",
+                "status": "open"
+              },
+              {
+                "id": "5",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:58-66",
+                "claim": "Between first write (line 59) and delivery stamping (line 63), if notify() fails to execute or return, record on disk lacks delivery field, breaking AC-4/AC-5/AC-6/AC-7/AC-8 requirements that delivery is always stamped",
+                "evidence": "AC-6 test failure shows server received zero requests despite NOTIFY_DRIVER=github and repo configured. AC-7 test failure shows delivery.timeout not present. AC-8 tests show delivery.error not present when config incomplete. All suggest notify(rec) on line 63 either wasn't called or its return value wasn't assigned",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|delivery-stamping-incomplete",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.35,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "tiebreak",
+            "verdict": "pass",
+            "attempts": [
+              "Read the full spec (ledger/runs/k12/spec-wi-c5-gate-delivery.json) and the diff (.artifacts/diffs/t1-gate-delivery.r0.patch), then checked the diff against AC-1 to AC-14. The schema adds an optional, closed delivery object with the required attempted/ok/channel/at fields. gates open writes the record, then awaits notify(), then rewrites the record. notify() never rejects and returns attempted:false when no driver or an unknown driver is set. The routing table is a literal (sev1_page, ratio_gate, *_budget_breach go to phone). The token appears only in the Authorization header. Error strings never include the response body. The timeout goes through AbortController and NOTIFY_TIMEOUT_MS. The README covers everything AC-13 requires.",
+              "Checked the correctness lens's main claim that notify() is not called at gates.js:63. It is false: the worktree's substrate/gates.js imports notify at line 16 and runs `rec.delivery = await notify(rec)` at line 63, exactly as in the diff.",
+              "Traced why the tests saw rec.delivery as undefined. The tests in .artifacts/tests/t1-gate-delivery/ import '../../../substrate/test/helpers.js', which resolves to /home/user/company-graph/substrate/test/helpers.js. Its cli() spawns path.join(REPO,'substrate','gates.js'), where REPO is the main tree. The main tree's substrate/gates.js has no notify import, so the tests ran against the base code, not the worktree. That explains both the undefined delivery and the 0 requests.",
+              "Found a second problem on the test side. cli() uses spawnSync, which blocks the parent's event loop, so the 127.0.0.1 server started inside the same test process cannot answer while the child runs. HTTP-path tests (AC-4/5/6/10/11) built this way cannot see requests even against a correct implementation. This is a defect in the test harness, not in the implementation."
+            ],
+            "findings": [
+              {
+                "id": "tb-1",
+                "lens": "tiebreak",
+                "severity": "high",
+                "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/*.test.js (import of ../../../substrate/test/helpers.js)",
+                "claim": "All five correctness findings (rec.delivery undefined, 0 HTTP requests) come from the tests running the main-tree substrate/gates.js, which has no notify integration, instead of the worktree under review. The implementation calls and stamps notify() correctly, so these findings are overruled for the implementation.",
+                "evidence": "helpers.js:7 sets REPO to the main tree and helpers.js:18 spawns path.join(REPO,'substrate',`${name}.js`). Grep for 'notify' in /home/user/company-graph/substrate/gates.js finds nothing. In /home/user/company-graph/.artifacts/worktrees/t1-gate-delivery/substrate/gates.js, line 16 imports notify and line 63 runs `rec.delivery = await notify(rec)`.",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|tests-report-undefined-rec-delivery",
+                "status": "overruled",
+                "target": "test"
+              },
+              {
+                "id": "tb-2",
+                "lens": "tiebreak",
+                "severity": "medium",
+                "location": "/home/user/company-graph/substrate/test/helpers.js:18 used by c5-AC-4/5/6/10/11 tests",
+                "claim": "The HTTP-path tests start an in-process 127.0.0.1 server and then call cli(), which uses spawnSync. That blocks the parent event loop, so the server cannot handle the child's request, and the tests would report 0 requests or timeouts even against a correct implementation. The test surface needs an async spawn or an out-of-process server.",
+                "evidence": "helpers.js line 4 imports spawnSync and line 18 calls spawnSync(process.execPath, ...). c5-AC-11 line 13 calls startServer(...) in-process and then calls cli('gates', ['open', ...]) synchronously.",
+                "dedupe_key": "substrate/test/helpers.js:18|spawnSync-blocks-inprocess-server",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.88,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:tiebreak",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "opus",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "tb-1",
+            "lens": "tiebreak",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/*.test.js (import of ../../../substrate/test/helpers.js)",
+            "claim": "All five correctness findings (rec.delivery undefined, 0 HTTP requests) come from the tests running the main-tree substrate/gates.js, which has no notify integration, instead of the worktree under review. The implementation calls and stamps notify() correctly, so these findings are overruled for the implementation.",
+            "evidence": "helpers.js:7 sets REPO to the main tree and helpers.js:18 spawns path.join(REPO,'substrate',`${name}.js`). Grep for 'notify' in /home/user/company-graph/substrate/gates.js finds nothing. In /home/user/company-graph/.artifacts/worktrees/t1-gate-delivery/substrate/gates.js, line 16 imports notify and line 63 runs `rec.delivery = await notify(rec)`.",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|tests-report-undefined-rec-delivery",
+            "status": "overruled",
+            "target": "test"
+          },
+          {
+            "id": "2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-6-delivery-failure-non-blocking.test.js:31",
+            "claim": "Test assertion at line 31 expects rec.delivery.attempted=true but rec.delivery is undefined, indicating no delivery was stamped despite error handling path",
+            "evidence": "Test fails with 'Cannot read properties of undefined (reading ok)' at line 53 when trying to assert rec.delivery.ok === false. Server responds 500 but record shows no delivery object was added",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:59-64|delivery-not-stamped-on-failure",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-11-decide-preserves-delivery.test.js:28",
+            "claim": "Test assertion expects server.requests.length===1 after gates open, but gets 0, indicating notify() was not called for the phone channel gate (sev1_page)",
+            "evidence": "Line 28 asserts server.requests.length===1 after calling gates open with NOTIFY_DRIVER='github' and full GitHub config. Error shows 'Expected 1 but got 0', confirming zero HTTP requests to the configured server",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|notify-not-called-for-open",
+            "status": "open"
+          },
+          {
+            "id": "4",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-12-existing-suite-unaffected.test.js:53",
+            "claim": "Test expects rec.delivery.attempted===false when no NOTIFY_DRIVER is set, but rec.delivery is undefined, indicating notify() is not being invoked even with environment configured",
+            "evidence": "Line 53 asserts rec.delivery.attempted===false with error 'Cannot read properties of undefined'. Per AC-8 spec, when no driver is selected, delivery should still be stamped with attempted=false and an explanatory error message",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|no-driver-should-still-stamp-delivery",
+            "status": "open"
+          },
+          {
+            "id": "5",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:58-66",
+            "claim": "Between first write (line 59) and delivery stamping (line 63), if notify() fails to execute or return, record on disk lacks delivery field, breaking AC-4/AC-5/AC-6/AC-7/AC-8 requirements that delivery is always stamped",
+            "evidence": "AC-6 test failure shows server received zero requests despite NOTIFY_DRIVER=github and repo configured. AC-7 test failure shows delivery.timeout not present. AC-8 tests show delivery.error not present when config incomplete. All suggest notify(rec) on line 63 either wasn't called or its return value wasn't assigned",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/gates.js:63|delivery-stamping-incomplete",
+            "status": "open"
+          },
+          {
+            "id": "tb-2",
+            "lens": "tiebreak",
+            "severity": "medium",
+            "location": "/home/user/company-graph/substrate/test/helpers.js:18 used by c5-AC-4/5/6/10/11 tests",
+            "claim": "The HTTP-path tests start an in-process 127.0.0.1 server and then call cli(), which uses spawnSync. That blocks the parent event loop, so the server cannot handle the child's request, and the tests would report 0 requests or timeouts even against a correct implementation. The test surface needs an async spawn or an out-of-process server.",
+            "evidence": "helpers.js line 4 imports spawnSync and line 18 calls spawnSync(process.execPath, ...). c5-AC-11 line 13 calls startServer(...) in-process and then calls cli('gates', ['open', ...]) synchronously.",
+            "dedupe_key": "substrate/test/helpers.js:18|spawnSync-blocks-inprocess-server",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t1-gate-delivery-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Verified schema backward compatibility: delivery field is optional with correct required properties (attempted, ok, channel, at); existing records without delivery should validate. Implementation correct but untested for AC-1.",
+              "Examined GitHub driver implementation and channelFor routing: driver correctly forms POST /repos/<owner>/<repo>/issues requests with channel labels; routing correctly sends sev1_page, ratio_gate, and *_budget_breach gates to 'phone' channel, others to 'queue'. Implementation appears correct but AC-4 and AC-5 are untested.",
+              "Checked error handling and non-blocking contract: error messages never include response bodies (preventing token leaks), timeouts detected via AbortError.name and reported as 'timeout', missing drivers return attempted:false, thrown errors caught; record written before delivery attempted ensuring failure never affects exit code or stdout. Implementation correct but AC-6, AC-7, AC-8, AC-9 untested."
+            ],
+            "findings": [
+              {
+                "id": "f1-coverage-gap",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/t1-gate-delivery|TestSet criteria_coverage property",
+                "claim": "Only AC-10 tests were submitted and executed, but criteria_coverage claims all 14 criteria are tested.",
+                "evidence": "tests_ref points only to c5-AC-10-token-never-leaks.test.js; results show 3 tests executed (all AC-10); test files for AC-1,2,3,4,5,6,7,8,9,11,12,13,14 exist in artifact store but were not included in TestSet submission. Actual test execution covers only AC-10 per results_ref showing 'criteria_covered: [AC-10...]'. Claimed coverage (all 14) contradicts actual coverage (1 criterion).",
+                "dedupe_key": ".artifacts/tests/t1-gate-delivery|criteria_coverage_false_13_untested",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-coverage-gap",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/t1-gate-delivery|TestSet criteria_coverage property",
+            "claim": "Only AC-10 tests were submitted and executed, but criteria_coverage claims all 14 criteria are tested.",
+            "evidence": "tests_ref points only to c5-AC-10-token-never-leaks.test.js; results show 3 tests executed (all AC-10); test files for AC-1,2,3,4,5,6,7,8,9,11,12,13,14 exist in artifact store but were not included in TestSet submission. Actual test execution covers only AC-10 per results_ref showing 'criteria_covered: [AC-10...]'. Claimed coverage (all 14) contradicts actual coverage (1 criterion).",
+            "dedupe_key": ".artifacts/tests/t1-gate-delivery|criteria_coverage_false_13_untested",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "t1-gate-delivery-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified that the GitHub driver error handling at notify.js:71 never includes response body in error messages, preventing token leaks from 401 responses that echo Authorization headers, thus satisfying AC-10's strict secrecy requirement",
+              "Verified that delivery field in contracts.schema.json:866 is NOT in GateRecord.required array, ensuring backward compatibility with existing records in gates/closed/ that lack a delivery property, thus satisfying AC-1",
+              "Verified that gates.js decide case (lines 92-118) reads, modifies, validates and rewrites the record but makes no call to notify(), preserving the delivery field unchanged and respecting AC-11's requirement that 'decide makes no notification attempt'"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to leak NOTIFY_GITHUB_TOKEN into the written GateRecord file by examining the delivery object returned by notify() - token is never written to any returned object, only used locally in Authorization header",
+              "Attempt to leak token through delivery.error when a malicious server echoes the Authorization header back in response body - implementation explicitly never reads response body (line 71 of notify.js only includes HTTP status), defeating AC-10's 401 test case",
+              "Attempt to inject malicious markdown into GitHub issue body by calling gates open with newlines and special characters in gate name - entire request body is JSON.stringify'd (line 66), which properly escapes all control characters"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Token leakage via Authorization header echo: verified token is only in Authorization header, never in record/stdout/stderr/body by reading implementation and confirmed by passed AC-10 tests",
+              "Delivery failure should crash gate: verified delivery errors are caught and gate always exits 0 with bare gate ID by reading gates.js integration and error handling in notify.js",
+              "Misconfigured driver should still attempt delivery: verified unset/unknown NOTIFY_DRIVER causes attempted:false by reading notify() logic that checks for driver existence"
+            ],
+            "findings": [
+              {
+                "id": "c5-notify-empty-error-string",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/t1-gate-delivery/substrate/notify.js:103-105",
+                "claim": "The safeErrorMessage function can return an empty string, violating the spec requirement that delivery.error be non-empty",
+                "evidence": "If a driver throws an empty string (e.g., throw ''), the function evaluates: ('' && ''.message) || String('') which returns ''. This creates delivery.error='' which violates AC-6 ('delivery.error is a non-empty string'), AC-8 ('a non-empty error saying delivery was not configured'), and AC-9 ('a non-empty error'). The AC-9 test asserts delivery.error.length > 0 but only tests new Error(...) cases, not edge cases where a driver throws falsy values.",
+                "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/notify.js:103-105|safeErrorMessage can return empty string violating non-empty requirement",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.75,
+            "change_set_id": "t1-gate-delivery-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "c5-notify-empty-error-string",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/t1-gate-delivery/substrate/notify.js:103-105",
+            "claim": "The safeErrorMessage function can return an empty string, violating the spec requirement that delivery.error be non-empty",
+            "evidence": "If a driver throws an empty string (e.g., throw ''), the function evaluates: ('' && ''.message) || String('') which returns ''. This creates delivery.error='' which violates AC-6 ('delivery.error is a non-empty string'), AC-8 ('a non-empty error saying delivery was not configured'), and AC-9 ('a non-empty error'). The AC-9 test asserts delivery.error.length > 0 but only tests new Error(...) cases, not edge cases where a driver throws falsy values.",
+            "dedupe_key": ".artifacts/worktrees/t1-gate-delivery/substrate/notify.js:103-105|safeErrorMessage can return empty string violating non-empty requirement",
+            "status": "open",
+            "target": "implementation"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "t1-gate-delivery-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Try to cause delivery.error to be empty string - the safeErrorMessage function's fallback to 'unknown error' prevents this",
+              "Try to leak GitHub token in delivery.error by echoing response body - the code never reads response body, preventing token leakage even if server echoes Authorization header",
+              "Try to cause gates decide to lose delivery field - the decide command never modifies the delivery field, preserving it unchanged when moving records to gates/closed/"
+            ],
+            "confidence": 0.98,
+            "findings": [],
+            "change_set_id": "t1-gate-delivery-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Leak GitHub token via error messages: Attempt blocked by safeErrorMessage() filtering and explicit response body exclusion at line 71 in notify.js",
+              "Enable delivery with ambient GITHUB_TOKEN variable: Attempt blocked by explicit NOTIFY_DRIVER requirement at line 112 in notify.js",
+              "Exfiltrate sensitive data via webhook payload: Attempt blocked by constraining payload to non-secret metadata (gate, id, channel, run_id, workflow, record_path)",
+              "Bypass record write if delivery fails: Attempt blocked by writeJson() before notify() at line 59 in gates.js",
+              "Inject malicious data into GitHub issue labels: Attempt blocked by hard-coded routing table constraining channel to 'phone' or 'queue'",
+              "Cause DoS via malicious NOTIFY_TIMEOUT_MS: Attempt blocked by timeoutMs() validation at line 26-30 in notify.js defaulting to 5000ms",
+              "Include echoed Authorization header in error messages: Attempt blocked by explicit line 71 code comment and implementation that strips response body"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "t1-gate-delivery-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Reviewed the test results file (t1-gate-delivery.r3.json) which shows only 3 tests from the AC-10 file were executed, then cross-checked against the TestSet criteria_coverage which claims to cover AC-1 through AC-14, revealing a mismatch between declared coverage and actual test execution",
+              "Examined the test files directory which contains 14 distinct test files (one per AC) all properly formed with assertions that can fail, but found that the TestSet.tests_ref points only to the AC-10 test file, meaning 13 of 14 test files are not part of the official test set",
+              "Inspected the TestSet definition in the task input which declares criteria_coverage=['AC-1','AC-2',...'AC-14'] but specifies tests_ref as a single AC-10 test file path, confirming the metadata declares false coverage"
+            ],
+            "findings": [
+              {
+                "id": "test-coverage-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/t1-gate-delivery/",
+                "claim": "TestSet declares criteria_coverage for AC-1 through AC-14 but tests_ref points only to the AC-10 test file",
+                "evidence": "TestSet criteria_coverage array contains 14 items [\"AC-1\",\"AC-2\",...\"AC-14\"], but tests_ref=\"/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-10-token-never-leaks.test.js\" references only one file; 13 test files for AC-1-9 and AC-11-14 exist in the directory but are not part of the declared test set",
+                "dedupe_key": ".artifacts/tests/t1-gate-delivery/|TestSet criteria_coverage mismatch with tests_ref",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "test-execution-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/results/t1-gate-delivery.r3.json",
+                "claim": "Test results show only AC-10 test file executed (3 tests passed) although criteria_coverage claims AC-1 through AC-14 are tested",
+                "evidence": "Test results file contains only test_file=c5-AC-10-token-never-leaks.test.js and test_suite=c5-AC-10-token-never-leaks with total=3 tests; criteria_covered array lists only AC-10 variants; no results for AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-11,AC-12,AC-13,AC-14",
+                "dedupe_key": ".artifacts/results/t1-gate-delivery.r3.json|Only AC-10 test was executed despite declaring 14 AC coverage",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "untested-criteria-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/t1-gate-delivery/",
+                "claim": "AC-1 through AC-9 and AC-11 through AC-14 lack test execution results despite test files existing in the directory",
+                "evidence": "The following 13 test files exist but produced no test results: c5-AC-1-schema-delivery-optional.test.js, c5-AC-2-schema-delivery-validation.test.js, c5-AC-3-channel-routing.test.js, c5-AC-4-open-phone-delivery.test.js, c5-AC-5-open-queue-delivery.test.js, c5-AC-6-delivery-failure-non-blocking.test.js, c5-AC-7-delivery-timeout.test.js, c5-AC-8-no-driver-configured.test.js, c5-AC-9-driver-throws-never-rejects.test.js, c5-AC-11-decide-preserves-delivery.test.js, c5-AC-12-existing-suite-unaffected.test.js, c5-AC-13-readme-documents-notifier.test.js, c5-AC-14-webhook-never-claimed-verified.test.js",
+                "dedupe_key": ".artifacts/tests/t1-gate-delivery/|AC-1-9 and AC-11-14 test files exist but untested",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "t1-gate-delivery-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k13",
+              "created_at": "2026-09-26T18:05:59Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "test-coverage-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/t1-gate-delivery/",
+            "claim": "TestSet declares criteria_coverage for AC-1 through AC-14 but tests_ref points only to the AC-10 test file",
+            "evidence": "TestSet criteria_coverage array contains 14 items [\"AC-1\",\"AC-2\",...\"AC-14\"], but tests_ref=\"/home/user/company-graph/.artifacts/tests/t1-gate-delivery/c5-AC-10-token-never-leaks.test.js\" references only one file; 13 test files for AC-1-9 and AC-11-14 exist in the directory but are not part of the declared test set",
+            "dedupe_key": ".artifacts/tests/t1-gate-delivery/|TestSet criteria_coverage mismatch with tests_ref",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "test-execution-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/results/t1-gate-delivery.r3.json",
+            "claim": "Test results show only AC-10 test file executed (3 tests passed) although criteria_coverage claims AC-1 through AC-14 are tested",
+            "evidence": "Test results file contains only test_file=c5-AC-10-token-never-leaks.test.js and test_suite=c5-AC-10-token-never-leaks with total=3 tests; criteria_covered array lists only AC-10 variants; no results for AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-11,AC-12,AC-13,AC-14",
+            "dedupe_key": ".artifacts/results/t1-gate-delivery.r3.json|Only AC-10 test was executed despite declaring 14 AC coverage",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "untested-criteria-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/t1-gate-delivery/",
+            "claim": "AC-1 through AC-9 and AC-11 through AC-14 lack test execution results despite test files existing in the directory",
+            "evidence": "The following 13 test files exist but produced no test results: c5-AC-1-schema-delivery-optional.test.js, c5-AC-2-schema-delivery-validation.test.js, c5-AC-3-channel-routing.test.js, c5-AC-4-open-phone-delivery.test.js, c5-AC-5-open-queue-delivery.test.js, c5-AC-6-delivery-failure-non-blocking.test.js, c5-AC-7-delivery-timeout.test.js, c5-AC-8-no-driver-configured.test.js, c5-AC-9-driver-throws-never-rejects.test.js, c5-AC-11-decide-preserves-delivery.test.js, c5-AC-12-existing-suite-unaffected.test.js, c5-AC-13-readme-documents-notifier.test.js, c5-AC-14-webhook-never-claimed-verified.test.js",
+            "dedupe_key": ".artifacts/tests/t1-gate-delivery/|AC-1-9 and AC-11-14 test files exist but untested",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 0,
+      "failed": 0,
+      "results_ref": ""
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "test_validity": [
+      {
+        "test": "AC-10: the sentinel token does not leak on a successful delivery",
+        "criterion": "AC-10",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-11: deciding a gate keeps its delivery object and does not notify again",
+        "criterion": "AC-11",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-12: a GITHUB_TOKEN alone (no NOTIFY_DRIVER) never enables delivery or touches the network",
+        "criterion": "AC-12",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-6: a failing driver call does not block decide() or throw",
+        "criterion": "AC-6",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-7: a driver that never responds times out well before the process would otherwise wait",
+        "criterion": "AC-7",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-8: no NOTIFY_DRIVER set at all",
+        "criterion": "AC-8",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-8: an unknown driver name",
+        "criterion": "AC-8",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-8: github driver selected but missing token and repo",
+        "criterion": "AC-8",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-11 (assertion failure): Expected server to receive 1 request but received 0",
+        "criterion": "AC-11",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "unclear"
+      },
+      {
+        "test": "AC-10: the sentinel token does not leak on a successful delivery",
+        "criterion": "AC-10",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      }
+    ],
+    "boundary_repairs": [],
+    "escalations": [
+      {
+        "task_id": "t1-gate-delivery",
+        "reason": "repeat_finding",
+        "history": [
+          "r1: 8 failing test(s) classified unclear — reaching correctness as today",
+          "r1: 1 failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran",
+          "r1 [spec_conformance,security,correctness]: pass (6 findings)",
+          "r1: confirming correctness (re-verifying a test_defect repair before this task may pass)",
+          "r1c: 1 failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran",
+          "r1c [correctness]: fail (1 findings)",
+          "r1c: a previously passing lens failed after a fix; running all lenses until green",
+          "r1: upheld correctness at .artifacts/tests/t1-gate-delivery|TestSet criteria_coverage property: The finding targets the TestSet submission's criteria_coverage field, not the correctness of AC-10's assertions. The fixer's own dispute confirms the underlying fact: tests_ref pointed to a single file (c5-AC-10-token-never-leaks.test.js), only 3 tests executed, and all 14 ACs were nonetheless claimed as covered. That is a genuine misrepresentation in the artifact under review — a TestSet claiming coverage it did not actually exercise is a real defect in how the Test Author's output represents the spec's acceptance criteria, independent of whether AC-10 itself is well-tested. Reclassifying this as 'packaging mismatch' rather than 'test defect' does not change that criteria_coverage was false; a false coverage claim is squarely something the correctness lens is entitled to flag. Nothing in the spec (ledger/runs/k12/spec-wi-c5-gate-delivery.json) sanctions submitting partial coverage while declaring full coverage, so this is not an out-of-scope ask or an already-blocked attack — it is a legitimate accuracy defect in the submitted TestSet.",
+          "r2 [spec_conformance,security,correctness]: fail (1 findings)",
+          "r3 [spec_conformance,security,correctness]: fail (3 findings)",
+          "r3: correctness has failed 3 consecutive rounds — not converging, whatever its findings are keyed on"
+        ],
+        "repeats": [],
+        "hypothesis": "The stuck part is how the tests were packaged, not what they check. After the r1 test_defect repair, the TestSet's tests_ref points to the single AC-10 file instead of the t1-gate-delivery directory (all 14 AC files exist there). The runner has run only those 3 AC-10 tests in each round since, while criteria_coverage still claims AC-1 to AC-14. The loop has no step that re-points tests_ref, so correctness fails every round with reworded findings. The fixer disputed this as a packaging mismatch and lost to the judge. Fix: re-point tests_ref to the directory and run the full set. The Implementer's code has not yet been checked against 13 of the 14 criteria.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": [
+          {
+            "id": "f1-coverage-gap",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/t1-gate-delivery|TestSet criteria_coverage property",
+            "claim": "Only AC-10 tests were submitted and executed, but criteria_coverage claims all 14 criteria are tested.",
+            "evidence": "tests_ref points only to c5-AC-10-token-never-leaks.test.js; results show 3 tests executed (all AC-10); test files for AC-1,2,3,4,5,6,7,8,9,11,12,13,14 exist in artifact store but were not included in TestSet submission. Actual test execution covers only AC-10 per results_ref showing 'criteria_covered: [AC-10...]'. Claimed coverage (all 14) contradicts actual coverage (1 criterion).",
+            "dedupe_key": ".artifacts/tests/t1-gate-delivery|criteria_coverage_false_13_untested",
+            "status": "disputed",
+            "target": "test"
+          }
+        ]
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 327344,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k13",
+      "created_at": "2026-09-26T18:05:59Z"
+    }
+  }
+}

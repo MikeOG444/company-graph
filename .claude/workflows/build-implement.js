@@ -75,13 +75,27 @@ const ChangeSet = { type: 'object', additionalProperties: false,
     // Size of the file at diff_ref, as measured by the agent that wrote it. The script cannot stat a file, so the
     // emptiness decision has to travel on the ChangeSet or not exist at all.
     diff_bytes: { type: 'integer', minimum: 0 },
-    touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' } } }
+    touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' },
+    // Optional (wi-b5): a value a sibling task's owned surface creates, asked for instead of invented. Routed to
+    // boundaryRepair before any lens, test runner, fixer or empty-diff gate. Never required.
+    needs_from_sibling: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['surface', 'what'], properties: { surface: { type: 'string' }, what: { type: 'string' } } } },
+    // Optional (wi-b6): a Fixer's own report on its OWN fix. true when it changes what the code DOES; false when
+    // it only renames, relabels or moves things without changing the behaviour a finding named. A false value for
+    // a finding that cites a failing test is refused (fixRefused, in the sentinel block below) rather than
+    // accepted — the fixer may not bend the code to fit a test's text.
+    behaviour_changed: { type: 'boolean' }, behaviour_rationale: { type: 'string' } } }
 const TestSet = { type: 'object', additionalProperties: false, required: ['id', 'task_id', 'tests_ref', 'criteria_coverage'],
   properties: { id: { type: 'string' }, task_id: { type: 'string' }, tests_ref: { type: 'string' },
     criteria_coverage: { type: 'array', items: { type: 'string' } } } }
 const TestResults = { type: 'object', additionalProperties: false, required: ['passed', 'failed', 'results_ref', 'criteria_covered'],
   properties: { passed: { type: 'integer' }, failed: { type: 'integer' }, results_ref: { type: 'string' },
-    criteria_covered: { type: 'array', items: { type: 'string' } } } }
+    criteria_covered: { type: 'array', items: { type: 'string' } },
+    // wi-b8: every relative import/require specifier the runner found in every file under the TestSet it ran,
+    // reported without judging — escapingImports (fix-loop decisions, below) decides which of these escape the
+    // TestSet directory. Optional/additive: an older runner result that never set it still validates.
+    imports: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'specifier'],
+      properties: { file: { type: 'string' }, specifier: { type: 'string' } } } } } }
 const Finding = { type: 'object', additionalProperties: false,
   required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
@@ -117,6 +131,28 @@ const Suite = { type: 'object', additionalProperties: false, required: ['artifac
     tests_found: { type: 'array', items: { type: 'string' }, description: 'EVERY .js basename found across the TestSet paths, before any copying. Reconciled in script against tests_landed + tests_skipped: a short list is how a TestSet silently half-lands.' },
     tests_landed: { type: 'array', items: { type: 'string' }, description: 'TestSet files copied into the repo test dir and committed' },
     tests_skipped: { type: 'array', items: { type: 'string' }, description: 'TestSet files NOT copied because a file of that name already exists. Reported, never overwritten.' } } }
+
+// ---- wi-b6: test validity before blame ----
+// The detector's own report: facts only, never a verdict — the class is derived in script code by the PURE
+// testValidity function below, never voted on by an agent (out_of_scope: "Letting an agent vote on a failing
+// test's class").
+const TestValidityFacts = { type: 'object', additionalProperties: false,
+  required: ['test', 'criterion', 'locates_by_first_occurrence', 'requires_unquoted_literal', 'fails_on_base_same_reason', 'names_criterion_behaviour'],
+  properties: { test: { type: 'string' }, criterion: { type: 'string' },
+    locates_by_first_occurrence: { type: 'boolean' }, requires_unquoted_literal: { type: 'boolean' },
+    fails_on_base_same_reason: { type: 'boolean' }, names_criterion_behaviour: { type: 'boolean' } } }
+const TestValidityReport = { type: 'object', additionalProperties: false, required: ['tests'],
+  properties: { tests: { type: 'array', items: TestValidityFacts } } }
+// Emitted in the run output (AC-11): one entry per classification made, whatever produced it — the detector's
+// facts, or a refused fixer's behaviour_changed:false (AC-13, whose `facts` is { behaviour_changed: false }
+// instead of the detector's four booleans; deliberately an open object rather than a second named shape).
+const TestValidityEntry = { type: 'object', additionalProperties: false, required: ['test', 'criterion', 'facts', 'class'],
+  properties: { test: { type: 'string' }, criterion: { type: 'string' }, facts: { type: 'object' },
+    class: { enum: ['test_defect', 'code_defect', 'unclear'] } } }
+// TestRepair: unchanged shape, reused by the detector's test_defect route and by a refused fix's re-route, in
+// addition to its original use in the fix loop below. Declared once, here, so every caller shares one definition.
+const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
+  properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
 
 // ---- pure-code edges ----
 const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
@@ -477,7 +513,24 @@ function disputesToJudge(repairs) {
 // appears ANYWHERE in the inputs gets an entry — 'nobody resolved it' is the explicit value 'unresolved', never an
 // absent key a caller could mistake for settled. `carried` is what a round-outcome guard must treat as still open:
 // everything except a finding this round actually fixed or a judge actually overruled.
-function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref }) {
+// The TestSet the next round runs, after a Test Author repair returned `repaired` (k13d). A repair of ONE file
+// inside the current TestSet directory must not narrow the run to that file: on k13 it did, and the runner then
+// ran 3 of 14 criteria's tests for every later round while criteria_coverage still claimed all 14. A repaired
+// ref inside (or equal to) the current one keeps the current one; a ref elsewhere replaces it, as before.
+function widenTestsRef(current, repaired, artifact_dir) {
+  if (!repaired) return current
+  // k17d: a repair that names a path OUTSIDE the artifact dir (e.g. 'substrate/test', the repo's own test dir)
+  // must never become the TestSet — on k17 it did, the escape check then flagged the repo's legitimate
+  // '../lib/...' imports, and fixers rewrote four repo tests. Repairs on the branch are carried by the rediff.
+  const art = String(artifact_dir ?? '.artifacts').replace(/\/+$/, '')
+  const underArt = (p) => { const s = String(p); return s === art || s.startsWith(art + '/') || s.includes('/' + art + '/') }
+  if (!current) return repaired
+  if (!underArt(repaired)) return current
+  const dir = String(current).replace(/\/+$/, '')
+  return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
+}
+
+function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref, artifact_dir }) {
   const resolution = {}
   const rulingByKey = new Map((rulings ?? []).filter(r => r && r.dedupe_key != null).map(r => [r.dedupe_key, r.ruling]))
   const deferredKeys = new Set((deferred ?? []).map(f => f.dedupe_key))
@@ -526,7 +579,7 @@ function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_
   }
   let nextTestsRef = tests_ref
   for (const r of repairs ?? []) {
-    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = r.tests_ref
+    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = widenTestsRef(nextTestsRef, r.tests_ref, artifact_dir)
   }
 
   const needs_rediff = (repairs ?? []).some(r => {
@@ -564,14 +617,247 @@ function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
   return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
 }
 
+// A lander reports tests_found / tests_landed / tests_skipped entries as bare filenames, but a skip note carries a
+// trailing parenthetical ("x.js (already exists)", "x.js (skipped: exists)") and a found entry may carry the
+// directory it was found under (e.g. under a scan root) while landed/skipped entries are already bare. Reducing
+// every entry to a bare basename before comparing is the one normalisation both reconciliation checks below need,
+// so a lander's parenthetical note or path prefix never manufactures a false unaccounted-file finding.
+function testFileBasename(p) {
+  let s = String(p ?? '').trim()
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim()
+  const parts = s.split('/')
+  return parts[parts.length - 1]
+}
+
 // A basename integration reported as tests_skipped (already exists in the repo test dir, never overwritten) that a
 // repair path actually edited in the artifact TestSet is not a stale duplicate — it is a lost fix. Matched by
 // basename only against repairs whose target was the artifact TestSet (tests_ref); a repair that edited a file on
 // the task branch (finding_location) is excluded because the branch merge already carries it.
 function unlandedRepairs({ tests_skipped, repaired_tests }) {
-  const basename = (p) => String(p ?? '').split('/').pop()
-  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
-  return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
+  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => testFileBasename(r.ref)))
+  return (tests_skipped ?? []).filter(name => targeted.has(testFileBasename(name)))
+}
+
+// ---- Sibling value repair (wi-b5): the response to a boundary violation or a needs_from_sibling ask, when the
+// human-costing Escalation isn't the only option. Pure decision: no runtime handle crosses in, nothing here
+// waits on anything. First-seen order throughout — the same task strayed into the same owner twelve times still
+// names that owner once.
+
+// Every distinct sibling task id an owned-surfaces stray or a needs_from_sibling ask points at, first-seen,
+// straying owners first (in strays' order) then any additional owner a needs_from_sibling surface resolves to.
+// A needs_from_sibling surface owned by no sibling (withinOwned over every sibling's owned_surfaces) is reported
+// as unowned rather than silently dropped — boundaryRepair escalates outright when unowned is non-empty.
+function repairOwners(strays, needs, siblings) {
+  const owners = []
+  const unowned = []
+  for (const s of strays ?? []) if (s?.owner && !owners.includes(s.owner)) owners.push(s.owner)
+  for (const n of needs ?? []) {
+    let owner = null
+    for (const sib of siblings ?? []) {
+      const sibRefs = (sib?.owned_surfaces ?? []).map(x => x.ref)
+      if (withinOwned(n?.surface, sibRefs, [])) { owner = sib.id; break }
+    }
+    if (!owner) unowned.push(n)
+    else if (!owners.includes(owner)) owners.push(owner)
+  }
+  return { owners, unowned }
+}
+
+// True when awaiting `owners` from `task_id` would deadlock: an owner has itself recorded straying into
+// task_id (violations carries { straying_task_id, strays: [{ref, owner}] }), or waiting_on already has that
+// owner awaiting task_id (through a depends_on chain or an active repair wait). Checked before any 'wait' is
+// ever returned, so the script never awaits a sibling that is awaiting it back.
+function isMutualWait(task_id, owners, violations, waiting_on) {
+  for (const owner of owners ?? []) {
+    const stray = (violations ?? []).some(v => v?.straying_task_id === owner && (v.strays ?? []).some(s => s?.owner === task_id))
+    if (stray) return true
+    if ((waiting_on?.[owner] ?? []).includes(task_id)) return true
+  }
+  return false
+}
+
+// The one repair decision consulted at both boundary call sites and at the needs_from_sibling routing point
+// (AC-2 through AC-7 of spec-wi-b5-sibling-value-repair). Discards the stray branch by never returning it (the
+// caller re-runs the strayer's implementer on a FRESH branch, never patches the old one), waits for the owning
+// siblings' existing taskDone promises, and re-runs the implementer once on a branch based on the owners'
+// finished branches — never more than once (`repair_used`) and never for a mutual stray (both escalate).
+//   proceed  — nothing to repair: no strays, no needs_from_sibling.
+//   escalate — reason 'need_unowned' (a needs_from_sibling surface no sibling owns), 'mutual' (owner is itself
+//              awaiting this task), 'repair_used' (this task already spent its one repair), or 'owner_failed'
+//              (an owner is missing from owner_results or did not pass). owners names who was involved; never
+//              'wait' or 'rerun' once repair_used is true.
+//   wait     — owner_results absent: the caller must pause on the named owners' taskDone promises and call again.
+//   rerun    — owner_results present and every owner passed: base_branch is the first owner's branch (first-seen
+//              order), merge_branches every remaining owner's branch.
+function boundaryRepair({ task_id, strays, needs_from_sibling, siblings, repair_used, violations, waiting_on, owner_results }) {
+  const strayList = strays ?? []
+  const needsList = needs_from_sibling ?? []
+  if (!strayList.length && !needsList.length) return { action: 'proceed' }
+
+  const { owners, unowned } = repairOwners(strayList, needsList, siblings)
+  if (unowned.length) return { action: 'escalate', reason: 'need_unowned', owners }
+  if (isMutualWait(task_id, owners, violations, waiting_on)) return { action: 'escalate', reason: 'mutual', owners }
+  if (repair_used) return { action: 'escalate', reason: 'repair_used', owners }
+  if (!owner_results) return { action: 'wait', owners }
+
+  const failed = owners.filter(o => !owner_results[o] || owner_results[o].passed !== true)
+  if (failed.length) return { action: 'escalate', reason: 'owner_failed', owners }
+
+  const branches = owners.map(o => owner_results[o].branch)
+  return { action: 'rerun', owners, base_branch: branches[0], merge_branches: branches.slice(1) }
+}
+
+// requested_paths is the passing TestSets' tests_ref list (Integrate calls this with exactly that — AC-21):
+// with none requested, no TestSet path was ever asked to land, so nothing can be unaccounted for regardless of
+// what tests_found lists (a pre-existing repo test file is not a TestSet file that went missing). Otherwise the
+// answer is simply tests_found minus whatever was landed or skipped.
+function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped }) {
+  if (!(requested_paths ?? []).length) return []
+  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])].map(testFileBasename))
+  return (tests_found ?? []).filter(f => !accounted.has(testFileBasename(f)))
+}
+
+// A copy of graph-lint's PANEL_PATTERNS phrase list (build-spec.js) — copied, not shared, because the two live in
+// separate workflow files the runtime forbids from importing each other. A criterion whose THEN matches one of
+// these phrases asserts something is unchanged / identical to before / not added-removed relative to the base, and
+// is verified by the verifier panel at build time (graph-lint's classifyCriterion), not by a test.
+const PANEL_PHRASES = [
+  /\bbyte[- ]identical\b/i,
+  /\bto before\b/i,
+  /\bchanged paths?\b/i,
+  /\b(?:\w+\s+)?(?:is|are)\s+(?:added|removed|upgraded)\b/i,
+  /\bunmodified\b/i,
+  /\bunchanged\b/i,
+]
+// Ids of every criterion in `acceptance` whose THEN is change-scoped, in acceptance order. THEN only — a GIVEN or
+// WHEN that happens to mention "unchanged" as filler does not exempt a criterion the way graph-lint's
+// classifyCriterion (which reads given+when+then together) can; the fix-loop only ever tells the Test Author about
+// a task's OWN criteria, so THEN is the narrower and safer read here.
+function changeScopedCriteria(acceptance) {
+  const ids = []
+  for (const c of acceptance ?? []) {
+    const text = String(c?.then ?? '')
+    if (PANEL_PHRASES.some(re => re.test(text))) ids.push(c.id)
+  }
+  return ids
+}
+
+// ---- Test validity before blame (wi-b6): a failing test counts against the implementation only once it is
+// shown to be valid. testValidity is the ONE place that decision is made — an agent (the validity: detector)
+// reports facts only, never a verdict (out_of_scope forbids letting it vote), so every fact->class mapping lives
+// here, pure, where a test can drive it with plain objects instead of running the whole loop.
+//
+// A missing or non-boolean fact never counts as true (AC-5): `=== true` is the only way in, so 'yes', 1, or an
+// absent key all read as false, and a test with no established facts at all reads as 'unclear' rather than
+// defaulting toward blaming either side.
+//   test_defect  — the test itself is broken: it locates the code under test by first textual occurrence rather
+//                  than by call structure, or it requires an exact identifier/string the Spec never quoted (AC-2,
+//                  true even when the test's own message talks about the right criterion); OR it already failed on
+//                  the task's BASE commit for the same reason while not describing the cited criterion's behaviour
+//                  (AC-3) — it asserts something this task was never asked to change.
+//   code_defect  — the test names the cited criterion's behaviour and none of the test-defect signals apply (AC-4).
+//   unclear      — anything else: no signal fired, or the base-failure and criterion-naming signals both fired at
+//                  once (AC-5b), which is genuinely ambiguous rather than a defect on either side.
+function testValidity(facts) {
+  const f = facts ?? {}
+  const is = (v) => v === true
+  const locatesByFirstOccurrence = is(f.locates_by_first_occurrence)
+  const requiresUnquotedLiteral = is(f.requires_unquoted_literal)
+  const failsOnBaseSameReason = is(f.fails_on_base_same_reason)
+  const namesCriterionBehaviour = is(f.names_criterion_behaviour)
+  if (locatesByFirstOccurrence || requiresUnquotedLiteral) return 'test_defect'
+  if (failsOnBaseSameReason && !namesCriterionBehaviour) return 'test_defect'
+  if (namesCriterionBehaviour && !failsOnBaseSameReason) return 'code_defect'
+  return 'unclear'
+}
+
+// True when a finding's claim, evidence or location names one of THIS round's currently failing tests as a whole
+// word — the same whole-word rule citedCriteria uses, so a test named e.g. "AC-2" is never matched as a substring
+// of "AC-2b". Only consulted for a finding whose fixer reported behaviour_changed:false (fixRefused below); a
+// finding that never cites a failing test is never in scope for that refusal.
+function citesFailingTest(finding, failingTestNames) {
+  return citedCriteria(finding, failingTestNames ?? []).length > 0
+}
+
+// The fix-refusal decision (AC-13): a code fixer may not bend the implementation to fit a test's own text. Refused
+// only when the fixer itself reported behaviour_changed:false (true, or absent because an older fixer never set
+// it, both pass through unrefused) AND the finding it "fixed" cites a test that is currently failing. Consulted
+// ONLY for a fix whose outcome is already 'applied' (fixOutcome) — a DISPUTE: or TEST-ONLY: fix is a different,
+// pre-existing outcome and is never re-decided here.
+function fixRefused({ behaviour_changed, cites_test_failure }) {
+  return behaviour_changed === false && cites_test_failure === true
+}
+
+// ---- wi-b8: tests that escape the TestSet directory ----
+// Runs k7, k11 and k13 all hit the same hole: a test at .artifacts/tests/<task>/ imported
+// '../../../substrate/test/helpers.js', a relative path that climbs OUT of the TestSet directory and loads the
+// main checkout's PRE-TASK code instead of the change under review — a green (or red) result that proves nothing
+// about the task. No node path module, no fs: pure string logic, exactly like scopeOf/testRepairTarget above.
+
+// The TestSet directory for containment purposes. tests_ref is sometimes a directory ('.artifacts/tests/t1') and
+// sometimes a single file ('.artifacts/tests/t1/x.test.js', AC-5) — a file's last path segment ends with a known
+// JS/TS source extension, a directory's does not. A generic "contains a dot" check would misidentify a directory
+// whose own name happens to carry a dot (e.g. 't1.backup') as a file, so the signal is narrowed to the actual
+// extensions test files are written with.
+const TEST_FILE_EXT_RE = /\.[mc]?[jt]sx?$/
+function testSetDirOf(tests_ref) {
+  const s = String(tests_ref ?? '').replace(/\/+$/, '')
+  const last = s.split('/').pop() ?? ''
+  if (!TEST_FILE_EXT_RE.test(last)) return s
+  const idx = s.lastIndexOf('/')
+  return idx === -1 ? '' : s.slice(0, idx)
+}
+
+// Everything before the last '/' in a path — the directory a file sits in. '' when there is none.
+function dirOf(p) {
+  const s = String(p ?? '')
+  const idx = s.lastIndexOf('/')
+  return idx === -1 ? '' : s.slice(0, idx)
+}
+
+// A relative specifier resolved against the IMPORTING FILE's own directory (AC-3), never against tests_ref
+// directly — a sibling file one level down resolving './helpers.js' or '../helpers.js' must land beside itself,
+// not beside the TestSet root. '..' pops the last collected segment; a '..' with nothing left to pop is kept
+// literally, which only ever shows up when a specifier climbs above the combined path entirely.
+function resolveSpecifier(fileDir, specifier) {
+  const segs = [...String(fileDir ?? '').split('/'), ...String(specifier ?? '').split('/')]
+  const out = []
+  for (const seg of segs) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') { if (out.length && out[out.length - 1] !== '..') out.pop(); else out.push('..'); continue }
+    out.push(seg)
+  }
+  return out.join('/')
+}
+
+// Every { file, specifier } entry whose specifier is RELATIVE ('./' or '../' — a bare package name or a
+// node: builtin never escapes, AC-4) that resolves outside the TestSet directory. Missing/empty imports, or an
+// entry with no specifier, return [] without throwing (AC-6).
+// k15d: tests_ref arrives both absolute (/home/.../.artifacts/tests/t1/x.test.js — a Test Author returned one on
+// k15) and relative (.artifacts/tests/t1/), and the runner may report files either way. Compared as raw strings,
+// a mixed pair reads EVERY relative import as escaping and declares every round invalid. So both sides are
+// resolved and cut at the artifact directory segment (default '.artifacts'), which every TestSet lives under.
+function anchorAtArtifacts(p, artifact_dir) {
+  const r = resolveSpecifier('', p)
+  const art = resolveSpecifier('', artifact_dir ?? '.artifacts')
+  const i = art ? ('/' + r + '/').indexOf('/' + art + '/') : -1
+  return i === -1 ? r : r.slice(i)
+}
+
+function escapingImports({ tests_ref, imports, artifact_dir }) {
+  const dir = anchorAtArtifacts(testSetDirOf(tests_ref), artifact_dir)
+  const out = []
+  for (const imp of imports ?? []) {
+    const file = imp?.file
+    const specifier = imp?.specifier
+    if (typeof file !== 'string' || !file) continue
+    if (typeof specifier !== 'string' || !specifier) continue
+    if (!(specifier.startsWith('./') || specifier.startsWith('../'))) continue
+    const resolved = anchorAtArtifacts(resolveSpecifier(dirOf(file), specifier), artifact_dir)
+    const within = resolved === dir || (dir && resolved.startsWith(`${dir}/`))
+    if (!within) out.push({ file, specifier })
+  }
+  return out
 }
 // ---- END fix-loop decisions ----
 
@@ -631,8 +917,29 @@ const escalations = []
 // later task's empty-diff refusal (AC-7) to name the sibling recorded straying into ITS owned surfaces, instead of
 // the generic "check whether that implementer wrote outside its owned surfaces".
 const boundaryViolations = []
+// One entry per boundary-repair attempt this run made (AC-13), whatever it concluded. [] when no task strayed.
+const boundaryRepairs = []
 const taskDone = {}, resolveTask = {}
 for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
+
+// Run-level registry (AC-12): task_id -> sibling ids it is CURRENTLY awaiting through an active repair wait.
+// Populated right before an `await taskDone[...]` below and cleared right after, so a concurrent sibling's
+// boundaryRepair call sees an accurate, momentary picture rather than a stale one.
+const waitingRegistry = {}
+// Every id `taskId`'s task depends_on, transitively, excluding itself — the depends_on half of the waiting_on
+// argument boundaryRepair reads for its mutual-wait guard (AC-12).
+function transitiveDepIds(taskId, seen = new Set()) {
+  const entry = tasks.find(t => t.task.id === taskId)
+  for (const d of entry?.task.depends_on ?? []) {
+    if (!seen.has(d)) { seen.add(d); transitiveDepIds(d, seen) }
+  }
+  return seen
+}
+function waitingOnMap(ids) {
+  const out = {}
+  for (const id of ids ?? []) out[id] = [...new Set([...(waitingRegistry[id] ?? []), ...transitiveDepIds(id)])]
+  return out
+}
 
 const finished = (await pipeline(tasks, async (item) => {
   const out = await runTask(item)
@@ -641,7 +948,10 @@ const finished = (await pipeline(tasks, async (item) => {
 })).filter(Boolean)
 
 async function runTask({ spec, task, spec_ref }) {
-  const wt = `${ART}/worktrees/${task.id}`
+  // wt and branch are reassigned once, after a boundary repair rerun succeeds (AC-9, AC-10): the strayer's
+  // ORIGINAL task/<id> branch is discarded and every later reference in this function — verify loop, fixer,
+  // panel, the pass/fail return — reads the fresh repair branch instead, without a second code path.
+  let wt = `${ART}/worktrees/${task.id}`
   // The else branch used to read `${specText}` — its own binding, inside its own initializer. That is a temporal
   // dead zone ReferenceError, so EVERY task crashed on any call without spec_ref. It never fired because every run
   // to date happened to pass one. With no ref there is no file to point at, so the spec is inlined whole.
@@ -658,9 +968,22 @@ async function runTask({ spec, task, spec_ref }) {
     return { spec, task, passed: false, skipped: true }
   }
   const vo = A.verify_only?.[task.id]
-  const branch = vo ? vo.branch : `task/${task.id}`
-  const base = vo ? vo.base : (deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE)
-  const extraMerges = deps.slice(0, -1).map(d => `task/${d.task.id}`)
+  let branch = vo ? vo.branch : `task/${task.id}`
+  // A dependency's RESULT branch, not task/<id>: a dependency that was boundary-repaired passed on its fresh
+  // repair branch, and task/<id> is the abandoned stray (k9d). A pass always carries `branch`; the fallback is
+  // only for a result shape that predates it.
+  const depBranch = (d) => d.branch ?? `task/${d.task.id}`
+  const base = vo ? vo.base : (deps.length ? depBranch(deps[deps.length - 1]) : BASE)
+  const extraMerges = deps.slice(0, -1).map(depBranch)
+  // Sibling ids and owned_surfaces, told to the implementer (AC-15) so it can name a sibling's surface in
+  // needs_from_sibling instead of guessing, and so it never invents a reason to write there instead.
+  const siblingSurfaces = siblingTasks.map(t => ({ id: t.id, owned_surfaces: t.owned_surfaces }))
+
+  // Criteria whose THEN is change-scoped (unchanged/identical-to-before/not-added-removed relative to base) are
+  // verified by the verifier panel at build time (graph-lint's classifyCriterion, build-spec.js), not by a test —
+  // told to the Test Author so it does not spend a test on what the panel already covers. Restricted to this
+  // task's own criteria_ids: a sibling task's change-scoped criteria are none of this Test Author's business.
+  const panelCriteriaIds = changeScopedCriteria(spec.acceptance ?? []).filter(id => (task.criteria_ids ?? []).includes(id))
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
@@ -677,19 +1000,81 @@ async function runTask({ spec, task, spec_ref }) {
                  Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
                  and return that path as diff_ref; ALSO report diff_bytes: the exact byte size of that file (wc -c), reported
                  honestly as 0 if your commit added nothing to ${base}. base_commit = the sha of ${base}; worktree = "${wt}".
+                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+                 ${JSON.stringify(siblingSurfaces)}. If this task needs a value one of those surfaces creates and you cannot derive
+                 it yourself, do not invent it and do not write there — return needs_from_sibling: [{ surface, what }] naming the
+                 surface and what you need, and leave the rest of the diff as far as you got without it (an empty diff is fine here).
                  Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
+                 ${panelCriteriaIds.length ? `Of those, ${JSON.stringify(panelCriteriaIds)} are change-scoped: each one's THEN asserts
+                 something is unchanged, identical to before, or not added/removed relative to the base. Those are verified by the
+                 verifier panel at build time, not by a test — do NOT write a test for any criterion in that list. ` : ''}
                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
+                 A source-text WIRING test — one that checks which calls happen, in which order, inside a named function — must use
+                 substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf) to find those
+                 call sites; it must NEVER locate anything by the first textual occurrence of a name in the file (indexOf and similar),
+                 which finds a declaration or an unrelated mention just as easily as the call the test means to check, and a test built on
+                 it is a test defect, not a correctness finding. Require an exact literal (an identifier or string match) only when the
+                 Spec itself quotes that literal — never invent one merely because it makes the assertion easier to write.
+                 NEVER use a relative import or require that climbs out of the TestSet directory you were given (no './..' path that
+                 leaves it) — a test whose import escapes that directory can end up running against the wrong code entirely and the
+                 run is marked invalid. This TestSet lands in substrate/test/ beside the repo's own helpers.js, fixloop-helpers.js and
+                 extract-fixloop.js, so import them as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that
+                 starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync.
                  Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
   ])
   if (!changeSet0 || !testSet) return null
 
+  // ctx is created here — before the empty-diff gate, before any lens, test runner or fixer — so the
+  // needs_from_sibling routing below (AC-16) and the boundary-repair machinery both have ctx.history and
+  // ctx.repair_used to read and write from the earliest possible point. ctx.changeSet is provisional here
+  // (changeSet0, pre empty-diff-gate, pre canary) and is reassigned as the settled ChangeSet emerges below.
+  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
+    tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
+  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
+  const ctx = { spec, task, changeSet: changeSet0, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
+                tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
+                lens_streaks: {}, grace_used: false,
+                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
+                // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
+                // independent of whether a lens re-raises them — the k1v guard reads this, not the panel verdict alone.
+                carried: [],
+                // repairedTests: { ref, source } for every non-disputing test repair this task's Test Author made,
+                // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
+                repairedTests: [],
+                // repair_used: this task's one allowed boundary repair (sibling-value-repair), spent at most once.
+                repair_used: false,
+                // testValidity: one entry per failing-test classification made across this task's rounds (wi-b6,
+                // AC-11), from the detector's facts or a refused fixer's behaviour_changed:false. Emitted in the
+                // run output as-is; [] when nothing was ever classified.
+                testValidity: [],
+                // importEscapes: one { round, file, specifier } entry per escaping import recorded across this
+                // task's rounds (wi-b8, AC-10). Emitted in the run output as import_escapes; [] when no round saw one.
+                importEscapes: [],
+                // testDefectRecheckUsed: this task's one forced extra confirm round after a test_defect repair
+                // (AC-9) — the task must not pass in the very round a test_defect was found and routed to the Test
+                // Author, before the Test Runner has re-run against the repair. Bounded at one, exactly like
+                // grace_used, so a disputed or ineffective repair cannot hold the loop open forever.
+                testDefectRecheckUsed: false }
+  const fileOf = (loc) => String(loc).split(':')[0].trim()
+
+  // ---- needs_from_sibling routing (AC-16): consulted BEFORE the empty-diff gate and before any run, lens,
+  // slice or fix label, because an implementer that asks instead of inventing may legitimately return an
+  // empty diff — the empty-diff gate must never see that as a refusal to explain. routeBoundary, defined
+  // further down as a `function` declaration, is hoisted and already callable here.
+  const needs0 = ctx.changeSet.needs_from_sibling ?? []
+  if (needs0.length) {
+    const outcome = await routeBoundary([], needs0)
+    if (!outcome.proceed) return { ...ctx, passed: false }
+    if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+  }
+
   // ---- Empty-diff gate: decided from the ChangeSet, before any lens, test runner or fixer is called ----
   // A diff that measured empty is not a change to review. Letting the panel run on one is how t5i deadlocked: the
   // lenses read a tree the fixer could not see. This costs at most one cheap re-capture, and usually nothing.
-  let cs = changeSet0
+  let cs = ctx.changeSet
   let recaptured = false
   for (;;) {
     const action = emptyDiffAction({
@@ -743,24 +1128,10 @@ async function runTask({ spec, task, spec_ref }) {
       { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (mutated) changeSet1 = { ...mutated, notes: undefined, diff_bytes: mutated.diff_bytes ?? changeSet1.diff_bytes }
   }
+  ctx.changeSet = changeSet1
 
   // Lens re-run policy: after a fix, re-run only the lenses that failed until they pass, then confirm the ones that had passed.
   // If a confirm run fails, run all three until green (mode 'all'). Confirm runs do not count toward K_ROUNDS.
-  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
-    tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
-  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
-  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
-                tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
-                lens_streaks: {}, grace_used: false,
-                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
-                // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
-                // independent of whether a lens re-raises them — the k1v guard reads this, not the panel verdict alone.
-                carried: [],
-                // repairedTests: { ref, source } for every non-disputing test repair this task's Test Author made,
-                // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
-                repairedTests: [] }
-  const fileOf = (loc) => String(loc).split(':')[0].trim()
-
   const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
     siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
   // ---- Boundary check: Task.owned_surfaces is told to the implementer and verified by nobody. Run t5i wrote
@@ -771,22 +1142,22 @@ async function runTask({ spec, task, spec_ref }) {
   // surface someone else owns, is ever a defect. Each call site (this settled-ChangeSet check and the round-level
   // re-check below) ends the task itself, inline, right where its verdict is decided — never through a shared
   // return path a reader could miss.
-  const escalateBoundaryViolation = async (boundary) => {
-    boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
-    const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
-    lines.forEach(l => ctx.history.push(l))
-    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
-                             command that changes the repository — you package the escalation, you never fix it.
-                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
-                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
-                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
-                             disjoint across tasks in the same spec); no panel was run and no round was spent on it.
-                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
-      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
-    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
-  }
-  if (initialBoundary.verdict === 'violation') { await escalateBoundaryViolation(initialBoundary); return { ...ctx, passed: false } }
-  if (initialBoundary.verdict === 'unowned') {
+  //
+  // A violation, or a non-empty needs_from_sibling, is consulted with boundaryRepair BEFORE this Escalation is
+  // ever written (wi-b5): the strayer's branch is discarded, the owning sibling(s) are awaited on their EXISTING
+  // taskDone promises (never a new poll or timer), and the strayer's implementer is re-run once on a fresh
+  // branch based on the owners' finished work. escalateBoundaryViolation itself is unchanged — same reason,
+  // same Escalation shape — it is simply reached only when a repair is not possible or was already spent.
+  // (The four functions this comment used to sit directly above are declared further down, after the round-level
+  // re-check — function declarations hoist through this whole runTask body, so both call sites below still see
+  // them; only their TEXTUAL position moved, to keep boundaryRepair( reachable from source before escalations.push
+  // at both call sites, per AC-8.)
+
+  if (initialBoundary.verdict === 'violation') {
+    const outcome = await routeBoundary(initialBoundary.strays, [])
+    if (!outcome.proceed) return { ...ctx, passed: false }
+    if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+  } else if (initialBoundary.verdict === 'unowned') {
     initialBoundary.unowned.forEach(ref => ctx.history.push(`${task.id} touched ${ref}, which no task in the graph owns`))
   }
 
@@ -812,7 +1183,11 @@ async function runTask({ spec, task, spec_ref }) {
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
     const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
-                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
+                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.
+                        ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
+                        file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
+                        WITHOUT judging whether any of them is correct; that decision is made elsewhere. Omit a package name or a
+                        node: builtin; report only relative paths.`,
       { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
     const overruledNote = ctx.overruled.length
@@ -838,6 +1213,12 @@ async function runTask({ spec, task, spec_ref }) {
         .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
 
     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
+    // Populated inside the correctness thunk below, before it calls the correctness lens (AC-6: this round's ONE
+    // call site of testValidity precedes every fix:${task.id} agent call, which only happen later in this same
+    // round, in the fix loop further down). Read afterwards by the fix-refusal check (AC-13): a code fixer's
+    // finding "cites a failing test" against THIS round's full failing-test list, test_defect included.
+    let roundTestDefects = []       // this round's tests classified test_defect — never reaches the correctness lens or a fix:
+    let roundFailingTestNames = []  // every test the Test Runner reported failing this round, whatever its class
     const lensThunks = {
       // touched_surfaces is a permission envelope, not a mandate (rulings r5 and c1 both overruled "listed surface not touched"; the
       // c1 lens re-raised it and forced an escalation). Only work outside the envelope, or a criterion left unmet, is a finding.
@@ -847,9 +1228,116 @@ async function runTask({ spec, task, spec_ref }) {
              names is never expected in the diff. Fail only for work outside the envelope, out_of_scope work, or a criterion the diff leaves unmet.`),
       security: () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
                                A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
-      correctness: async () => { const r = await runP; return r && lens('correctness',
-        'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
-        `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
+      correctness: async () => {
+        const r = await runP
+        if (!r) return null
+        // ---- Tests that escape the TestSet directory (wi-b8, AC-8/AC-9/AC-10): checked BEFORE anything else this
+        // round touches — before the validity detector, before any fix: agent — because a test that ran against
+        // code outside this task's change (k7, k11, k13) makes every OTHER fact this round reported about it
+        // meaningless. escapingImports is pure string logic (fix-loop decisions, above); nothing here reads a file
+        // or resolves a path itself.
+        const escapes = escapingImports({ tests_ref: ctx.testSet.tests_ref, imports: r.imports, artifact_dir: ART })
+        let escapeNote = ''
+        if (escapes.length) {
+          escapes.forEach(e => ctx.importEscapes.push({ round: ctx.round, file: e.file, specifier: e.specifier }))
+          const escapingFiles = [...new Set(escapes.map(e => e.file))]
+          const specifiersOf = (file) => escapes.filter(e => e.file === file).map(e => e.specifier)
+          // Existing testfix: path, reused exactly (testRepairTarget, label beginning testfix:${task.id}:,
+          // AT('test-author'), TestRepair schema) — same repair path a test_defect uses below.
+          const repairs = (await parallel(escapingFiles.map(file => () => {
+            const target = testRepairTarget({ finding: { location: file }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+            const targetNote = target.source === 'finding_location'
+              ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
+              : `Write it under the TestSet directory (create the file there if it does not exist yet).`
+            return agent(`The test file "${file}" imports through a relative path that ESCAPES the TestSet directory
+                   ${ctx.testSet.tests_ref} (specifier(s): ${JSON.stringify(specifiersOf(file))}) — it may have run against code outside
+                   this task's own change rather than testing it. Repair the test at ${target.ref} so every relative import/require stays
+                   inside the TestSet directory: never use a relative path that climbs out of it; do not read or modify the implementation.
+                   A TestSet lands in substrate/test/ at run time, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
+                   those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that starts a local HTTP server
+                   in-process must drive the CLI with an async child process, never spawnSync. ${targetNote} If the import is correct and
+                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and
+                   the criteria the tests now cover.`,
+              { label: `testfix:${task.id}:escape:${file}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
+              .then(p => p && { p, target })
+          }))).filter(Boolean)
+          repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
+          const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
+          if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef, ART) }
+          ctx.history.push(`${tag}: ${escapingFiles.length} TestSet file(s) imported outside ${ctx.testSet.tests_ref}; routed to the Test Author and this round's run marked invalid`)
+          // The correctness lens is told the run was INVALID instead of being given this round's failures as
+          // evidence (AC-9) — an escaping import can make a real defect look fixed, or an unrelated failure look
+          // like this task's fault, so neither this round's pass nor its fail is trustworthy evidence either way.
+          // Recorded in escapeNote and folded into the one correctness-lens call below, rather than a second
+          // call site, so the round's failing-test facts (which may be nonsense) are never even read.
+          escapeNote = `This round's test run is INVALID: ${escapingFiles.length} TestSet file(s) imported a relative path that
+             escapes the TestSet directory (${JSON.stringify(escapingFiles)}), so the results may not reflect this task's own change
+             at all. Do NOT treat this round's pass or fail results as evidence for or against the implementation — the escaping
+             file(s) are already being repaired by the Test Author.`
+        }
+        // ---- Test validity before blame (wi-b6, AC-8/AC-9): before correctness gets to blame the implementation
+        // for ANY failing test, one cheap read-only detector runs ONCE, only because this round's Test Runner
+        // reported failed > 0 AND no import already escaped this round (wi-b8: an escaping import already makes
+        // every fact this round reported about a failing test meaningless, so the detector never runs on it).
+        if (!escapes.length && r.failed > 0) {
+          const detected = (await agent(`Report FACTS ONLY about each currently FAILING test from this round's run — never a verdict, never
+                 a fix. Test results are at ${r.results_ref} (${r.failed} failing, ${r.passed} passing). The change under review is committed
+                 on branch ${branch} in worktree ${wt} (app at ${wt}/${APP}/); its BASE commit (before this task's change) is ${base}.
+                 For EVERY failing test return one entry with: test (its name), criterion (the acceptance criterion id from
+                 ${JSON.stringify(task.criteria_ids)} it cites, or your best guess), and four booleans:
+                 locates_by_first_occurrence (the test finds the code under test by the FIRST TEXTUAL occurrence of a name in the file,
+                 rather than by call structure inside a named function — e.g. text.indexOf('name') instead of inspecting call sites);
+                 requires_unquoted_literal (the test requires an exact identifier or string that ${specText} never quotes);
+                 fails_on_base_same_reason (reason about whether this same test would ALSO fail, for the same reason, against the base
+                 commit ${base} — before this task's change existed — without needing to check it out or execute it);
+                 names_criterion_behaviour (the test's own assertions actually describe the cited criterion's behaviour, not something else).
+                 Read-only: do NOT create, edit, delete or commit any file, and do not modify the worktree ${wt} or branch ${branch} in any
+                 way — you report facts about tests that already failed, you never re-run, fix, or change anything.`,
+            { label: `validity:${task.id}:${tag}`, model: MODEL.cheap, ...AT('lens-correctness'), schema: TestValidityReport }))?.tests ?? []
+          roundFailingTestNames = detected.map(dt => dt.test)
+          const classified = detected.map(dt => {
+            const facts = { locates_by_first_occurrence: dt.locates_by_first_occurrence, requires_unquoted_literal: dt.requires_unquoted_literal,
+              fails_on_base_same_reason: dt.fails_on_base_same_reason, names_criterion_behaviour: dt.names_criterion_behaviour }
+            return { dt, facts, class: testValidity(facts) }
+          })
+          classified.forEach(c => ctx.testValidity.push({ test: c.dt.test, criterion: c.dt.criterion, facts: c.facts, class: c.class }))
+          roundTestDefects = classified.filter(c => c.class === 'test_defect').map(c => c.dt)
+          const unclearCount = classified.filter(c => c.class === 'unclear').length
+          if (unclearCount) ctx.history.push(`${tag}: ${unclearCount} failing test(s) classified unclear — reaching correctness as today`)
+          if (roundTestDefects.length) {
+            // Existing testfix: path, reused exactly (testRepairTarget, label testfix:${task.id}:..., AT('test-author'),
+            // TestRepair schema) — a test_defect test never reaches a fix: fixer and never counts toward the panel's
+            // fail verdict (AC-7, AC-9). testRepairTarget's finding.location falls back to the whole tests_ref when
+            // location isn't a file path, which a bare test name is.
+            const repairs = (await parallel(roundTestDefects.map(dt => () => {
+              const target = testRepairTarget({ finding: { location: dt.test }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+              const targetNote = target.source === 'finding_location'
+                ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
+                : `Write it under the TestSet directory (create the file there if it does not exist yet).`
+              return agent(`The failing test "${dt.test}" (criterion ${dt.criterion}) was classified a TEST DEFECT before the correctness
+                     lens or any fixer saw it: it locates the code it covers by first textual occurrence rather than call structure, or
+                     requires an exact literal the Spec never quotes, or fails the same way on the task's base commit while not describing
+                     the criterion's behaviour. Repair the test at ${target.ref} so it asserts exactly what ${specText} says; do not read or
+                     modify the implementation. ${targetNote} If the test is right and this classification is wrong, change nothing and set
+                     notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+                { label: `testfix:${task.id}:validity:${dt.test}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
+                .then(p => p && { dt, p, target })
+            }))).filter(Boolean)
+            repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
+            const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
+            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef, ART) }
+            ctx.history.push(`${tag}: ${roundTestDefects.length} failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran`)
+          }
+        }
+        const testDefectNames = roundTestDefects.map(dt => dt.test)
+        const adjustedResults = testDefectNames.length ? { ...r, failed: Math.max(0, r.failed - testDefectNames.length) } : r
+        const defectNote = testDefectNames.length
+          ? `These failing tests were classified TEST DEFECTS this round and are already being repaired by the Test Author, not the
+             implementation: ${JSON.stringify(testDefectNames)}. They are not evidence against this change — do not raise a finding citing them.`
+          : ''
+        return lens('correctness', 'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
+          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote} ${escapeNote}`)
+      },
     }
     const rawVerdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean)
     // stripForeignFindings runs BEFORE normalizeVerdict and adjudicate (ROUTING/SCOPE fix): a finding whose only
@@ -889,11 +1377,18 @@ async function runTask({ spec, task, spec_ref }) {
     }
 
     if (result === 'pass') {
+      // AC-9: this task must not pass in the very round a test_defect test was found and routed to the Test
+      // Author, before the Test Runner has re-run against the repair — correctness's 'pass' here only reflects
+      // the ADJUSTED count with those tests subtracted out, not a re-verified one. Force exactly one extra confirm
+      // round (bounded like grace_used, so a disputed or ineffective repair never holds the loop open forever).
+      const forceRecheck = roundTestDefects.length > 0 && !ctx.testDefectRecheckUsed
+      if (roundTestDefects.length > 0) ctx.testDefectRecheckUsed = true
       toRun.forEach(l => ctx.verified.add(l))
+      if (forceRecheck) ctx.verified.delete('correctness')
       const remaining = LENSES.filter(l => !ctx.verified.has(l))
       if (remaining.length) {   // failures cleared; now confirm the lenses that had passed before the fix
         ctx.toRun = remaining; confirming = true
-        ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
+        ctx.history.push(`${tag}: confirming ${remaining.join(',')}${forceRecheck ? ' (re-verifying a test_defect repair before this task may pass)' : ''}`)
         continue
       }
       // Every lens is green — that alone is not proof (k1v): a test dispute nobody ruled on, or any other finding
@@ -935,8 +1430,6 @@ async function runTask({ spec, task, spec_ref }) {
     // target is absent — a finding about a test assertion whose location points at the code it covers still
     // routes to the Test Author when the lens marked target "test".
     const findingRoute = (f) => routeFinding(f, { tests_ref: ctx.testSet.tests_ref, artifact_dir: ART })
-    const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
-      properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
 
     // Scope the fixer's input (point 2): one cheap mechanical agent per failing round slices the cumulative diff into
     // one per-file patch per distinct finding file, so a code fixer reads its own hunk instead of exploring the whole tree.
@@ -989,7 +1482,12 @@ async function runTask({ spec, task, spec_ref }) {
              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
              asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>". If the
              defect is real but lives in a TEST assertion rather than in this code — you are forbidden to edit tests — make no change
-             and set notes to "TEST-ONLY: <what the test asserts and why the code is right>"; it will be routed to the Test Author once.`,
+             and set notes to "TEST-ONLY: <what the test asserts and why the code is right>"; it will be routed to the Test Author once.
+             You may NOT bend the code to fit a test's own text. Also report behaviour_changed: true when this fix changes what the code
+             DOES; false when it only renames or relabels an identifier, or moves a declaration, without changing the behaviour the
+             finding actually names. behaviour_rationale: one line why. A fix reported behaviour_changed:false for a finding that cites a
+             failing test is refused — never accepted — and re-routed to the Test Author instead, so answer honestly rather than
+             guessing what keeps the fix accepted.`,
             { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })
         })()))).filter(Boolean)
 
@@ -1017,17 +1515,51 @@ async function runTask({ spec, task, spec_ref }) {
       }))).filter(Boolean)
     }
 
-    const applied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied').map(x => x.p)
+    // Fix refusal (wi-b6, AC-13): a code fixer may not bend the implementation to fit a test's own text. Consulted
+    // only for a fix whose outcome is already 'applied' — DISPUTE: and TEST-ONLY: are separate, pre-existing
+    // outcomes and are untouched by this. fixRefused is the pure decision (sentinel block); citesFailingTest reads
+    // THIS round's full failing-test list (test_defect included) the correctness thunk populated above.
+    const codeApplied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied')
+    const refusedFixes = codeApplied.filter(x => fixRefused({
+      behaviour_changed: x.p.behaviour_changed, cites_test_failure: citesFailingTest(x.f, roundFailingTestNames) }))
+    refusedFixes.forEach(x => ctx.testValidity.push({ test: x.f.location, criterion: x.f.claim ?? x.f.location, facts: { behaviour_changed: false }, class: 'test_defect' }))
+
+    // Refused fixes are re-routed to the Test Author's testfix path exactly like a TEST-ONLY outcome — never to
+    // a fix: fixer, never counted in `applied` — and their commit must not survive on the task branch: the merge
+    // step below is told which diff_refs to revert.
+    let refusedRepairs = []
+    if (refusedFixes.length) {
+      refusedRepairs = (await parallel(refusedFixes.map(x => () => {
+        const target = testRepairTarget({ finding: x.f, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+        const targetNote = target.source === 'finding_location'
+          ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
+          : `Write it under the TestSet directory (create the file there if it does not exist yet).`
+        return agent(`A code fixer reported behaviour_changed:false for this finding while it cites a failing test — it may not bend the
+               implementation to fit the test's own text, so the fix was refused. Location: ${x.f.location}. Evidence: ${x.f.evidence}.
+               Fixer's own rationale: ${x.p.behaviour_rationale ?? '(none given)'}. Re-read the spec (${specText}). Repair the test at
+               ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test
+               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote
+               or edited) and the criteria the tests now cover.`,
+          { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
+      }))).filter(Boolean)
+      refusedRepairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
+      ctx.history.push(`${tag}: refused ${refusedFixes.length} fix(es) that reported behaviour_changed:false for a finding citing a failing test — re-routed to the Test Author`)
+    }
+    const refusedKeys = new Set(refusedFixes.map(x => x.f.dedupe_key))
+
+    const applied = codeApplied.filter(x => !refusedKeys.has(x.f.dedupe_key)).map(x => x.p)
 
     // One flat repair record per outcome this round, path-tagged but never path-FILTERED for dispute purposes —
     // the record shape resolveRound/disputesToJudge share (AC-2 through AC-9): dedupe_key, path, notes, plus
     // target_source/tests_ref for a test-path repair, plus f/p so the judge loop and the history lines below can
     // still read the original finding and repair.
     const repairRecords = [
-      ...fixes.map(x => ({ dedupe_key: x.f.dedupe_key, path: x.kind, notes: x.p.notes, f: x.f, p: x.p,
+      ...fixes.filter(x => !refusedKeys.has(x.f.dedupe_key)).map(x => ({ dedupe_key: x.f.dedupe_key, path: x.kind, notes: x.p.notes, f: x.f, p: x.p,
         target_source: x.kind === 'test' ? x.target?.source : undefined,
         tests_ref: x.kind === 'test' ? x.p.tests_ref : undefined })),
       ...testOnlyRepairs.map(x => ({ dedupe_key: x.f.dedupe_key, path: 'test', notes: x.p.notes, f: x.f, p: x.p,
+        target_source: x.target?.source, tests_ref: x.p.tests_ref })),
+      ...refusedRepairs.map(x => ({ dedupe_key: x.f.dedupe_key, path: 'test', notes: x.p.notes, f: x.f, p: x.p,
         target_source: x.target?.source, tests_ref: x.p.tests_ref })),
     ]
 
@@ -1068,7 +1600,7 @@ async function runTask({ spec, task, spec_ref }) {
     // (AC-3 through AC-9): every dedupe_key here gets an entry, 'nobody resolved it' included, so a test dispute
     // the judge never ruled on reads 'unresolved' rather than silently vanishing the moment the lens stops
     // re-raising it (k1v).
-    const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref })
+    const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART })
     ctx.carried = round.carried
     ctx.testSet = { ...ctx.testSet, tests_ref: round.tests_ref }
     const repairedCount = repairRecords.filter(r => r.path === 'test' && fixOutcome(r.notes) !== 'dispute').length
@@ -1085,12 +1617,18 @@ async function runTask({ spec, task, spec_ref }) {
     settled.forEach(l => ctx.verified.add(l))
     ctx.toRun = lensesToRun({ lenses: LENSES, retry, verified: [...ctx.verified], mode: ctx.mode })
 
-    // Nothing to recapture: no code fix applied, and no test repair edited a file already on the branch either
-    // (needs_rediff, AC-9). Previously passing lenses stay verified; only the failing ones re-run.
-    if (!applied.length && !round.needs_rediff) continue
+    // Nothing to recapture: no code fix applied, no test repair edited a file already on the branch (needs_rediff,
+    // AC-9), and no refused fix's commit to purge. Previously passing lenses stay verified; only the failing ones re-run.
+    if (!applied.length && !round.needs_rediff && !refusedFixes.length) continue
 
+    const revertNote = refusedFixes.length
+      ? ` A REFUSED fix is already committed on ${branch} and must NOT survive: for each diff at
+                                ${JSON.stringify(refusedFixes.map(x => x.p.diff_ref))}, find the commit that introduced it (git log -p or
+                                git log --oneline) and revert it (git revert --no-edit <that commit>, or apply the diff in reverse with
+                                git apply -R and commit the reversal) BEFORE computing the cumulative diff below, so none of its hunks remain.`
+      : ''
     const merged = await agent(`In worktree ${wt} (branch ${branch}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed
-                                (this list may be empty when only a test repair changed the branch). Verify each listed fix is present (git log); if one is
+                                (this list may be empty when only a test repair changed the branch).${revertNote} Verify each listed fix is present (git log); if one is
                                 missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
                                 (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
@@ -1102,8 +1640,130 @@ async function runTask({ spec, task, spec_ref }) {
     // clean or unowned changes nothing about how the loop continues.
     const roundBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
       siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
-    if (roundBoundary.verdict === 'violation') { await escalateBoundaryViolation(roundBoundary); return { ...ctx, passed: false } }
+    if (roundBoundary.verdict === 'violation') {
+      const outcome = await routeBoundary(roundBoundary.strays, [])
+      if (!outcome.proceed) return { ...ctx, passed: false }
+      if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+    }
     ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
+  }
+
+  // ---- The four boundary-repair functions used by both call sites above (initialBoundary and roundBoundary).
+  // Declared here, after both use sites, on purpose: function declarations hoist through this entire runTask
+  // body, so both earlier call sites still resolve them at call time — only the source TEXT moved, so that
+  // reading forward from either boundaryCheck( call, boundaryRepair( is always reached before escalations.push
+  // (AC-8). routeBoundary and resolveBoundaryDecision (which call boundaryRepair) are declared before
+  // escalateBoundaryViolation (whose body is the only place escalations.push appears) for the same reason.
+
+  async function routeBoundary(strays, needs) {
+    const decision = boundaryRepair({
+      task_id: task.id, strays: strays ?? [], needs_from_sibling: needs ?? [], siblings: siblingTasks,
+      repair_used: ctx.repair_used, violations: boundaryViolations,
+      waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
+    })
+    return resolveBoundaryDecision(decision, strays ?? [], needs ?? [])
+  }
+
+  // Resolves one boundaryRepair decision to completion: 'wait' pauses on the named owners' EXISTING taskDone
+  // promises (AC-12) and calls boundaryRepair again with owner_results filled in; 'rerun' performs the one
+  // allowed repair and re-checks its result (AC-11); 'escalate' and 'proceed' are terminal. Returns
+  // { proceed: true, changeSet? } to let the caller continue (changeSet present only after a successful
+  // rerun), or { proceed: false } once an Escalation has been written.
+  async function resolveBoundaryDecision(decision, strays, needs) {
+    if (decision.action === 'proceed') return { proceed: true }
+    if (decision.action === 'wait') {
+      const owners = decision.owners ?? []
+      waitingRegistry[task.id] = [...new Set([...(waitingRegistry[task.id] ?? []), ...owners])]
+      const results = await Promise.all(owners.map(o => taskDone[o]))
+      delete waitingRegistry[task.id]
+      const owner_results = {}
+      owners.forEach((o, i) => {
+        const r = results[i]
+        owner_results[o] = r ? { passed: r.passed === true, branch: r.branch ?? `task/${o}` } : undefined
+      })
+      const decision2 = boundaryRepair({
+        task_id: task.id, strays, needs_from_sibling: needs, siblings: siblingTasks,
+        repair_used: ctx.repair_used, violations: boundaryViolations,
+        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)), owner_results,
+      })
+      return resolveBoundaryDecision(decision2, strays, needs)
+    }
+    if (decision.action === 'rerun') {
+      ctx.repair_used = true
+      const cs2 = await repairRerun(decision)
+      if (!cs2) {
+        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'owner_failed' })
+        await escalateBoundaryViolation({ strays }, `${task.id}'s repair re-run produced no ChangeSet.`)
+        return { proceed: false }
+      }
+      const reBoundary = boundaryCheck({ touched_surfaces: cs2.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+        siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
+      const reNeeds = cs2.needs_from_sibling ?? []
+      // AC-11: the rerun's ChangeSet goes back through the same decision, now with repair_used true, so the
+      // decision function — not a second hand-written condition here — is what says a second stray escalates.
+      const decision3 = boundaryRepair({
+        task_id: task.id, strays: reBoundary.verdict === 'violation' ? reBoundary.strays : [], needs_from_sibling: reNeeds,
+        siblings: siblingTasks, repair_used: ctx.repair_used, violations: boundaryViolations,
+        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
+      })
+      if (decision3.action !== 'proceed') {
+        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'strayed_again' })
+        if (reBoundary.verdict === 'violation') await escalateBoundaryViolation(reBoundary)
+        else await escalateBoundaryViolation({ strays: [] }, `${task.id} again returned needs_from_sibling after its one repair: ${JSON.stringify(reNeeds)}`)
+        return { proceed: false }
+      }
+      boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'repaired' })
+      return { proceed: true, changeSet: cs2 }
+    }
+    // escalate: reason is one of need_unowned, mutual, repair_used, owner_failed — every one an existing
+    // Escalation reason value reached through the existing escalateBoundaryViolation path (AC-11, out_of_scope).
+    boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: '', outcome: decision.reason })
+    if (strays.length) await escalateBoundaryViolation({ strays })
+    else await escalateBoundaryViolation({ strays: [] }, `${task.id}'s boundary repair ended: ${decision.reason}.`)
+    return { proceed: false }
+  }
+
+  // Re-runs the strayer's implementer ONCE, on a fresh branch (never task/<task.id> — AC-9) based on the
+  // decision's base_branch, merging merge_branches and the task's ORIGINAL dependency branches first. Reassigns
+  // the OUTER wt/branch so every later reference in this function — panel, fixer, the pass/fail return — reads
+  // the repair branch, and the original task/<task.id> branch is never passed to Integrate (AC-10).
+  async function repairRerun(decision) {
+    const repairBranch = `task/${task.id}-repair`
+    const repairWt = `${ART}/worktrees/${task.id}-repair`
+    const originalDepBranches = deps.map(depBranch)   // the task's own depends_on, as result branches
+    const mergeList = [...new Set([...(decision.merge_branches ?? []), ...originalDepBranches])]
+    const cs2 = await agent(`Create a worktree of THIS repository on a new branch: git worktree add -b ${repairBranch} ${repairWt} ${decision.base_branch}
+                 (skip if it exists). ${mergeList.length ? `Merge ${mergeList.join(', ')} into the branch. ` : ''}The app is at ${repairWt}/${APP}/
+                 (run npm ci there if node_modules is missing). A sibling task now carries the value(s) this task needed and could not invent or
+                 could not legally write itself; re-implement this task there, staying inside owned surfaces (paths are repository-relative) and
+                 using the sibling's finished work instead of repeating the earlier stray. Commit your work on the branch.
+                 Run \`git rev-parse HEAD\` AFTER the merge(s) above and use that sha as base_commit, so the diff you write reflects only this
+                 task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
+                 inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
+                 byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
+                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+                 ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
+      { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
+    if (cs2) { wt = repairWt; branch = repairBranch }
+    return cs2
+  }
+
+  async function escalateBoundaryViolation(boundary, extraNote) {
+    const strays = boundary?.strays ?? []
+    if (strays.length) boundaryViolations.push({ straying_task_id: task.id, strays })
+    const lines = strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
+    if (extraNote) lines.push(extraNote)
+    lines.forEach(l => ctx.history.push(l))
+    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+                             command that changes the repository — you package the escalation, you never fix it.
+                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
+                             disjoint across tasks in the same spec), or asked for a value from a sibling this run could not repair;
+                             no panel was run and no round was spent on it.
+                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
+      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
+    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
   }
 }
 
@@ -1135,7 +1795,11 @@ const landing = passingTests.length
                            If a landed test then FAILS, report the failure verbatim in
                            the suite counts — never delete, skip or edit a test to make the suite green.`
   : ''
-const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
+// A run in which no task passed has nothing to integrate: no branch to merge, no test to land, no suite that
+// means anything. This guard sits on passing.length, before the mechanical merge-and-test agent() call, so
+// neither it nor its strong-model conflict-resolution partner further below ever runs (AC-20) — the latter is
+// already gated on `suite &&`, which is false whenever this one skips the call and leaves suite null.
+const suite = !passing.length ? null : await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
                            (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
                            ${JSON.stringify(passingBranches)}. Resolve conflicts minimally and list any files you touched in conflicts.${landing}
                            Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
@@ -1143,6 +1807,7 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
                            Finally run \`git rev-parse HEAD\` in the worktree and return its FULL 40-character sha as integration_commit.
                            Copy that sha exactly; if the command fails, leave integration_commit out rather than guessing one.`,
   { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
+if (!passing.length) log('integration: no task passed; nothing to integrate')
 
 // AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
 let finalSuite = suite
@@ -1150,7 +1815,11 @@ let finalSuite = suite
 // neither landed nor skipped went missing silently — run t7i lost one of t2's two test files that way, with
 // tests_skipped empty and nothing to notice it.
 const landedSet = new Set([...(suite?.tests_landed ?? []), ...(suite?.tests_skipped ?? [])])
-const unaccounted = (suite?.tests_found ?? []).filter(f => !landedSet.has(f))
+// unaccountedTestFiles is called with the passing TestSets' own tests_ref paths (requested_paths): with no task
+// passing (and so no path ever requested), or with tests_found holding only pre-existing repo test files no
+// TestSet path ever named, nothing is unaccounted for regardless of what landedSet above says (AC-21).
+const unaccounted = unaccountedTestFiles({ requested_paths: passingTests, tests_found: suite?.tests_found ?? [],
+  tests_landed: suite?.tests_landed ?? [], tests_skipped: suite?.tests_skipped ?? [] })
 if (unaccounted.length) log(`integration: ${unaccounted.length} TestSet file(s) neither landed nor skipped: ${unaccounted.join(', ')}`)
 
 // unlandedRepairs: a tests_skipped basename a passing task's fix loop actually repaired (in the artifact TestSet,
@@ -1181,6 +1850,9 @@ if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || (suit
     { label: 'integrate:resolve', model: MODEL.strong, ...AT('integrate-resolve'), schema: Suite })
   if (resolved) finalSuite = resolved
 }
+// AC-20: with nothing to integrate, finalSuite must say so — never a merged branch name, and never the generic
+// INTEGRATION_FAILED fallback below (which is for an Integrator that ran and came back empty, a different case).
+if (!passing.length) finalSuite = { artifact_ref: 'no task passed', passed: 0, failed: 0, results_ref: '', conflicts: [], tests_landed: [], tests_skipped: [] }
 
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
@@ -1198,6 +1870,15 @@ return {
   suite: { passed: finalSuite?.passed ?? 0, failed: finalSuite?.failed ?? 0, results_ref: finalSuite?.results_ref ?? '' },
   tests_landed: finalSuite?.tests_landed ?? [],
   tests_skipped: finalSuite?.tests_skipped ?? [],
+  // One entry per failing-test classification made across every task this run (wi-b6, AC-11): { test, criterion,
+  // facts, class }. [] when nothing was ever classified — no round ever saw failed > 0, or every task was skipped.
+  test_validity: finished.flatMap(f => f.testValidity ?? []),
+  // One { round, file, specifier } entry per escaping import recorded across every task this run (wi-b8, AC-10).
+  // [] when no round saw a TestSet file import a relative path outside its own TestSet directory.
+  import_escapes: finished.flatMap(f => f.importEscapes ?? []),
+  // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+  // [] when no task strayed.
+  boundary_repairs: boundaryRepairs,
   escalations,
   starved_items: [],
   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.

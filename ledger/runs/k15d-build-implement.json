@@ -1,0 +1,50 @@
+{
+  "entry": {
+    "id": "k15d-build-implement",
+    "run_id": "k15d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-26T20:20:00.000Z",
+    "finished_at": "2026-09-26T20:23:26.000Z",
+    "wall_clock_sec": 206,
+    "result_ref": "ledger/runs/k15d-build-implement.json",
+    "artifact_count": 17,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k15d",
+      "created_at": "2026-09-26T20:23:26.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k15: task passed (round 2), 0 escalations; integration suite 336/340 (A5 site freeze + cascade)",
+    "gate": "none — the main session reviews every landing under the operating rule (HANDOFF §6)",
+    "option_taken": "direct_drive (review-and-land)",
+    "decided_by": "ai_agent (main session)",
+    "landed": {
+      "commits": [
+        "3118246"
+      ],
+      "base_patch": "ledger/runs/k15/integration-5358e0c..a6153ac.patch"
+    },
+    "first_clean_panel_pass_this_stretch": true,
+    "b6_live": "the validity detector classified 4 failing tests test_defect (first-occurrence / unquoted-literal) and 4 code_defect; routing kept them away from fixers",
+    "defects_fixed_by_main_session": [
+      "escapingImports compared raw strings; tests_ref was seen absolute and relative on k15, so a mixed pair would invalidate every round — both sides now anchored at the artifact dir",
+      "b8 AC-1 test banned words in comments; integrate:resolve reworded prose to satisfy it — test now checks code only"
+    ],
+    "fixture_extended": "a5-bind-AC-13: +testfix:${task.id}:escape:${file}, parallel 7->8 (B7)",
+    "integrate_resolve_false_trigger": "the lander reported skipped helpers with an ' (already exists)' suffix, so reconciliation counted them unaccounted and pulled in the strong-tier resolver",
+    "verification": {
+      "root": "344/344",
+      "toy": "60/60",
+      "b8_mutations": "4/5 caught; survivor behaviour-equivalent"
+    }
+  }
+}

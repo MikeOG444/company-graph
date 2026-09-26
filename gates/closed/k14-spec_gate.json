@@ -1,0 +1,78 @@
+{
+  "id": "k14-spec_gate",
+  "gate": "spec_gate",
+  "run_id": "k14",
+  "workflow": "build-spec",
+  "status": "decided",
+  "opened_at": "2026-09-26T19:12:45.000Z",
+  "options": [
+    "approve",
+    "revise",
+    "kill"
+  ],
+  "provenance": {
+    "node": "spec_gate",
+    "executor": "ai_agent",
+    "method": "hitl",
+    "run_id": "k14",
+    "created_at": "2026-09-26T19:12:45.000Z"
+  },
+  "project_id": "venture0",
+  "next_workflow": "build-implement",
+  "payload": {
+    "spec_id": "spec-wi-b8-tests-run-the-task-code",
+    "work_item_id": "wi-b8-tests-run-the-task-code",
+    "risk": "high",
+    "high_by_rule": [
+      "rule: surface ref names a sensitive term: .claude/agents/test-author.md"
+    ],
+    "why_gated": "Only the C13 false positive: HIGH_REF matches \"auth\" in test-author.md. No schema change; the risk router agent reasons read low. Lint 0 violations.",
+    "lint": {
+      "gate_required": false,
+      "violations": 0,
+      "warnings": 30
+    },
+    "criteria_count": 12,
+    "tasks": [
+      {
+        "id": "wi-b8-impl-escaping-imports",
+        "owned": [
+          ".claude/workflows/build-implement.js",
+          ".claude/agents/test-author.md"
+        ],
+        "depends_on": [],
+        "criteria_ids": [
+          "AC-1",
+          "AC-2",
+          "AC-3",
+          "AC-4",
+          "AC-5",
+          "AC-6",
+          "AC-7",
+          "AC-8",
+          "AC-9",
+          "AC-10",
+          "AC-11",
+          "AC-12"
+        ]
+      }
+    ],
+    "spec_ref": "ledger/runs/k14/spec-wi-b8-tests-run-the-task-code.json",
+    "graph_ref": "ledger/runs/k14/graph-wi-b8-tests-run-the-task-code.json",
+    "durable_ref": "ledger/runs/k14-build-spec.json",
+    "estimate": "1 task; expect $2-3."
+  },
+  "delivery": {
+    "attempted": false,
+    "ok": false,
+    "channel": "queue",
+    "at": "2026-09-26T19:12:45.272Z",
+    "error": "delivery not configured: no NOTIFY_DRIVER selected"
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T19:20:48.000Z",
+    "note": "Approved by the human in chat. Gated only by C13's false positive."
+  }
+}

@@ -1,0 +1,472 @@
+{
+  "entry": {
+    "id": "k10-build-spec",
+    "run_id": "k10",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-26T04:27:04.193Z",
+    "finished_at": "2026-09-26T04:30:29.000Z",
+    "wall_clock_sec": 205,
+    "result_ref": "ledger/runs/k10-build-spec.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 109715,
+    "tokens_by_model": {
+      "claude-opus-5-5": 48442,
+      "claude-haiku-4-5": 61273
+    },
+    "cost_est_usd": 0.36,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k10",
+      "created_at": "2026-09-26T04:26:50Z"
+    },
+    "trace_ref": ".artifacts/traces/k10-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-b6-test-validity-before-blame",
+          "work_item_id": "wi-b6-test-validity-before-blame",
+          "goal": "In .claude/workflows/build-implement.js, a failing test should count against the implementation only after the test is shown to be valid. Today every failure in the Test Runner's results reaches the correctness lens as evidence against the code (runTask, the `run:${task.id}:${tag}` agent feeding `lensThunks.correctness`). routeFinding sends it to a code fixer unless a lens already set target:'test'. Nothing checks the test first. On run k9b this escalated a correct implementation after 1.28M tokens, and a fixer bent correct code to fit a test's text. The change has three parts, built as ONE task because build-implement.js's committed copy runs the build.\n\n(1) Classify failing tests before blaming the code. When a round's Test Runner reports failed > 0, and before the correctness lens or any fixer spends tokens on those failures, one cheap read-only detector agent runs once per round. Its label is `validity:${task.id}:${tag}`, it uses MODEL.cheap with AT('lens-correctness') or AT('mechanical'), and it returns a schema-typed object with a `tests` array. For each failing test it reports only boolean facts: `locates_by_first_occurrence`, `requires_unquoted_literal`, `fails_on_base_same_reason`, `names_criterion_behaviour`, plus the `test` name and the cited `criterion`. It must not modify the task worktree or branch. A new PURE function `testValidity(facts)`, declared between the `// ---- BEGIN fix-loop decisions ----` and `// ---- END fix-loop decisions ----` sentinels, turns those facts into 'test_defect' | 'code_defect' | 'unclear'. A test_defect goes to the Test Author through the EXISTING testfix: path (testRepairTarget reused, label `testfix:${task.id}:...`). It never goes to a `fix:` fixer and never counts toward the panel's fail verdict. code_defect and unclear go through the loop as today, and unclear is recorded. Every classification is emitted in the run output as `test_validity: [{ test, criterion, facts, class }]`.\n\n(2) The fixer may not bend code to a test's text. ChangeSet gets two optional fields: `behaviour_changed: boolean` and `behaviour_rationale: string`. They are added to the inline contract in build-implement.js and to contracts.schema.json. When a fixer reports behaviour_changed:false for a finding that cites a test failure, the fix is not accepted as applied. That test is re-routed as a test_defect to the testfix: path, recorded in test_validity, and its commit does not survive on the task branch.\n\n(3) Give the Test Author the tool and the rule. The Test Author prompts in build-implement.js and .claude/agents/test-author.md must say: a source-text wiring test asserts CALLS and their order inside a named function using substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf), never the first textual occurrence of a name in the file; and it may require an exact literal only when the Spec quotes it. The fixer prompt and .claude/agents/fixer.md state the behaviour_changed rule.\n\nCost control: the detector runs only when a round has failed > 0 and uses the cheap tier. The goal is fewer wasted fixer, lens and escalation rounds, not an extra hard pause.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "The fix-loop decisions block cut from .claude/workflows/build-implement.js between the exact sentinel lines (via extractBlock in substrate/test/extract-fixloop.js) and evaluated with new Function",
+              "when": "the evaluated block is asked to return testValidity",
+              "then": "testValidity is a function declared inside the sentinel block. It is pure: it takes one plain facts object, does not reference agent, parallel, pipeline, budget, log, ctx or any runtime handle, and returns exactly one of the strings 'test_defect', 'code_defect', 'unclear'.",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "testValidity is loaded from the sentinel block",
+              "when": "it is called with { locates_by_first_occurrence: true, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true }, and separately with { locates_by_first_occurrence: false, requires_unquoted_literal: true, fails_on_base_same_reason: false, names_criterion_behaviour: true }",
+              "then": "both calls return 'test_defect'. A test that finds code by first textual occurrence, or requires an identifier or string the Spec does not quote, is a test defect even if its message talks about the criterion.",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "testValidity is loaded from the sentinel block",
+              "when": "it is called with { locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: true, names_criterion_behaviour: false }",
+              "then": "it returns 'test_defect': the test fails on the task's base commit for the same reason and does not describe the cited criterion's behaviour, so it asserts something the task was never asked to change.",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "testValidity is loaded from the sentinel block",
+              "when": "it is called with { locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true }",
+              "then": "it returns 'code_defect'",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "testValidity is loaded from the sentinel block",
+              "when": "it is called with (a) all four facts false, (b) { fails_on_base_same_reason: true, names_criterion_behaviour: true } with the other two false, (c) an empty object, (d) null or undefined, and (e) facts whose values are non-boolean (e.g. 'yes', 1)",
+              "then": "every call returns 'unclear' without throwing. A missing or non-boolean fact never counts as true, and a failing test with no established facts is never classified test_defect or code_defect.",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "The source text of .claude/workflows/build-implement.js, analysed with substrate/test/b5-wiring-helpers.js (functionNamed(text, 'runTask'), callSites, firstCallOf)",
+              "when": "the calls inside the runTask body are inspected",
+              "then": "runTask contains at least one call site of testValidity. The first such call precedes every agent call labelled with a template beginning `fix:${task.id}` inside runTask. The test locates both inside runTask's body, never by a whole-file first-occurrence search.",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "The source text of runTask in build-implement.js, analysed with the b5 wiring helpers",
+              "when": "the path taken by a failing test classified 'test_defect' is inspected",
+              "then": "runTask calls testRepairTarget for test_defect tests and sends them to an agent whose label template begins `testfix:${task.id}` with AT('test-author') and the existing TestRepair schema. No code path hands a test_defect test to an agent labelled `fix:`.",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "A run of runTask's verify loop in which the Test Runner reports failed > 0",
+              "when": "the round proceeds",
+              "then": "exactly one detector agent labelled `validity:${task.id}:${tag}` runs in that round, on MODEL.cheap, with a schema whose `tests` array items require test, criterion, locates_by_first_occurrence, requires_unquoted_literal, fails_on_base_same_reason and names_criterion_behaviour (the four facts typed boolean). Its prompt forbids modifying the task worktree or branch and asks for facts only, never a verdict. When the Test Runner reports failed == 0, no validity: agent runs that round.",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "A round in which every failing test is classified test_defect and the spec_conformance and security lenses report no defects",
+              "when": "the panel verdict for that round is formed",
+              "then": "the correctness lens is not given those tests' failures as evidence against the implementation: its prompt names them as test defects under repair, not findings. No finding produced only by a test_defect test is counted toward adjudicate's fail result. Those tests are repaired on the testfix: path, and correctness re-runs in a later round. The task does not pass while a test_defect test is still failing and unrepaired, and it does not escalate via a panel 'fail' because of those tests alone.",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "Failing tests classified code_defect or unclear",
+              "when": "the round continues",
+              "then": "they reach the correctness lens and the existing routeFinding / fixer / testfix / dispute flow exactly as before this change. The unclear ones are still recorded in test_validity.",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "Any build-implement run whose detector classified at least one failing test",
+              "when": "the workflow returns its output object",
+              "then": "the output has a `test_validity` array with one entry { test, criterion, facts, class } per classification made in the run: facts is the object the detector reported and class is testValidity's result. `test_validity` is [] when nothing was classified. contracts.schema.json's EvidenceBundle declares test_validity as an optional array of objects with those four properties, class enum ['test_defect','code_defect','unclear'] and additionalProperties false, so the output still validates against EvidenceBundle.",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "contracts.schema.json's ChangeSet definition and the inline ChangeSet const in build-implement.js",
+              "when": "both are read",
+              "then": "both declare optional `behaviour_changed` (type boolean) and `behaviour_rationale` (type string). Neither field is in either `required` list, and a ChangeSet without them still validates.",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "A code fixer returns a ChangeSet with behaviour_changed === false (notes not starting 'DISPUTE:' or 'TEST-ONLY:') for a finding that cites a failing test",
+              "when": "runTask processes that round's fixes",
+              "then": "the fix is not counted in `applied`. The test is re-routed once, in that round, to the Test Author on the testfix: path through testRepairTarget. A test_validity entry with class 'test_defect' is recorded whose facts include behaviour_changed:false. The fixer's commit does not survive on the task branch: the round's merge/rediff step is told to revert it. A fixer ChangeSet with behaviour_changed true or absent is handled exactly as today. The decision whether a fix is refused is a pure function inside the sentinel block, and a test drives it with plain objects for behaviour_changed false / true / absent and for a finding that does / does not cite a test failure.",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "The code-fixer prompt in build-implement.js (the agent labelled `fix:${task.id}:...`) and .claude/agents/fixer.md",
+              "when": "their text is read",
+              "then": "both name `behaviour_changed` and `behaviour_rationale`. Both say a fix that only renames or relabels identifiers, or moves declarations, without changing behaviour the finding names must report behaviour_changed:false. Both say such a fix, for a finding citing a test failure, is refused and routed to the Test Author rather than accepted.",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "The Test Author prompt in build-implement.js (the agent labelled `tests:${task.id}`) and .claude/agents/test-author.md",
+              "when": "their text is read",
+              "then": "both name substrate/test/b5-wiring-helpers.js and each of functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf. Both state that a source-text wiring test asserts calls and their order inside a named function and never the first textual occurrence of a name in the file. Both state that a test may require an exact literal only when the Spec quotes it.",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "The new tests added under substrate/test/ for this work item",
+              "when": "their source is read",
+              "then": "they resolve repository paths from process.cwd() or from the existing extractors (extract-fixloop.js / fixloop-helpers.js REPO), never with a '..' segment relative to the test file. They never spawn npm test or any child process. Wiring assertions use the b5-wiring-helpers call-structure helpers rather than a whole-file indexOf of a function name.",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "The existing test suite under substrate/test/",
+              "when": "it is run after the change",
+              "then": "every test that passed before still passes. In particular, loadFixLoopDecisions in extract-fixloop.js still returns its seventeen existing functions (extended only additively, if at all), and normalizeVerdict, adjudicate, the dispute: and tiebreak: agent prompts and their derivation are byte-for-byte unchanged.",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/fixer.md"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/test-author.md"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/"
+            }
+          ],
+          "out_of_scope": [
+            "How lens verdicts are derived for findings not produced by a test failure (normalizeVerdict, adjudicate, LOW_CONFIDENCE, VETO_LENS)",
+            "The dispute judge and Tiebreak Judge: their prompts, models, Ruling schema and how rulings are applied",
+            "Any other workflow (build-spec, create-project, launch, deploy) and any agent definition other than fixer.md and test-author.md",
+            "Changing substrate/test/b5-wiring-helpers.js; it is reused as-is",
+            "Rewriting or repairing existing tests from earlier work items (k9b/b5 tests), except additively extending extract-fixloop.js's returned function list",
+            "Letting an agent vote on a failing test's class: the detector reports facts only, and the class is derived in script code",
+            "Automatically choosing Escalation options (guide / direct_drive / kill_to_spec) instead of asking the human, and any change to the Escalation schema or the escalate() packager; the user's broader request to settle those options internally is a separate work item",
+            "Changes to budget caps, round caps, MAX_FIXERS, model tiering, or the Integrate / Evidence phases beyond adding test_validity to the output",
+            "Running the detector on passing tests, or more than once per round"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface ref names a sensitive term: .claude/agents/test-author.md",
+            "rule: surface kind schema: contracts.schema.json",
+            "AC-12 explicitly states 'a ChangeSet without them still validates' — the new optional `behaviour_changed` and `behaviour_rationale` fields are not in the required list and existing clients remain compatible",
+            "AC-11 states 'the output still validates against EvidenceBundle' for the new optional `test_validity` array — no breaking changes to the EvidenceBundle contract",
+            "All schema changes are additive: new fields to ChangeSet and EvidenceBundle, not structural changes to stored data shape",
+            "Workflow logic changes (routing test_defect tests to Test Author instead of Fixer) are internal to build-implement.js and do not alter external contracts or interfaces",
+            "Does not touch auth, secrets, payments, or infra; is not irreversible; does not break existing route contracts for clients consuming ChangeSet or EvidenceBundle",
+            "graph lint: spec_names_test_surface {\"check\":\"spec_names_test_surface\",\"ref\":\"substrate/test\"}"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k10",
+            "created_at": "2026-09-26T04:26:50Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-b6-test-validity-before-blame",
+          "tasks": [
+            {
+              "id": "implement-test-validity-classification",
+              "spec_id": "spec-wi-b6-test-validity-before-blame",
+              "description": "Implement test validity classification in build-implement.js workflow. Add testValidity pure function to sentinel block; integrate detector agent that runs when tests fail; route test_defect tests away from correctness lens; add behaviour_changed field to ChangeSet and test_validity array to EvidenceBundle in schema; refuse fixes with behaviour_changed:false that cite test failures; update fixer and test-author prompts with new rules and behaviors; add tests verifying testValidity logic, detector integration, fix refusal, and output schema.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "contracts.schema.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/fixer.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/test-author.md"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k10",
+            "created_at": "2026-09-26T04:26:50Z"
+          }
+        },
+        "lint": {
+          "violations": [
+            {
+              "check": "spec_names_test_surface",
+              "ref": "substrate/test"
+            }
+          ],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-2"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-3"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-4"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-5"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-7",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-8"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-9"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-10"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-12",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-13",
+              "path": "merge/rediff"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-14",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-15",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-16",
+              "path": "extract-fixloop.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-16",
+              "path": "fixloop-helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-test-validity-classification",
+              "criterion": "AC-17",
+              "path": "extract-fixloop.js"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "test"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "test"
+            },
+            {
+              "id": "AC-9",
+              "verification": "test"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "test"
+            },
+            {
+              "id": "AC-12",
+              "verification": "test"
+            },
+            {
+              "id": "AC-13",
+              "verification": "test"
+            },
+            {
+              "id": "AC-14",
+              "verification": "test"
+            },
+            {
+              "id": "AC-15",
+              "verification": "test"
+            },
+            {
+              "id": "AC-16",
+              "verification": "test"
+            },
+            {
+              "id": "AC-17",
+              "verification": "panel",
+              "matched": "unchanged"
+            }
+          ],
+          "gate_required": true,
+          "provenance": {
+            "node": "graph_lint",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "n/a",
+            "run_id": "k10",
+            "created_at": "2026-09-26T04:26:50Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k10",
+      "created_at": "2026-09-26T04:26:50Z"
+    }
+  }
+}

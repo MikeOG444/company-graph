@@ -1,0 +1,1292 @@
+diff --git a/.claude/agents/fixer.md b/.claude/agents/fixer.md
+index e6bdedd..5351914 100644
+--- a/.claude/agents/fixer.md
++++ b/.claude/agents/fixer.md
+@@ -15,4 +15,5 @@ Rules:
+ - Write the incremental diff to the path you were given and return it as `diff_ref`.
+ - If you are confident the finding is wrong, make no change and set `notes` to `DISPUTE: <one sentence why>`. A dispute goes to a separate judge, never back to the lens.
+ - **`TEST-ONLY:` is a different outcome from `DISPUTE:`.** You are forbidden to edit tests. If the finding is real but the defect actually lives in a test assertion — the test asserts something other than what the spec says, not the code you were pointed at — make no change and set `notes` to `TEST-ONLY: <what the test asserts and why the implementation is right>`. Use `DISPUTE:` when the finding is simply wrong (the change is fine as written, in the code, the way it is); use `TEST-ONLY:` when the finding is right but the fix belongs in the test, not here. A `TEST-ONLY:` outcome is routed to the Test Author's repair path once, in the same round, never to the dispute judge, and is never counted as an applied fix.
++- **You may not bend the code to fit a test's own text.** Report `behaviour_changed`: `true` when your fix changes what the code DOES; `false` when it only renames or relabels an identifier, or moves a declaration, without changing the behaviour the finding actually named. Give a one-line reason in `behaviour_rationale`. A fix you report `behaviour_changed: false` for, on a finding that cites a failing test, is refused rather than accepted — it is re-routed to the Test Author's repair path instead. Answer honestly: reporting `true` to get a fix accepted when the behaviour didn't actually change does not survive contact with a re-verified diff.
+ - Return only the ChangeSet fields the schema asks for.
+diff --git a/.claude/agents/test-author.md b/.claude/agents/test-author.md
+index 20c9e62..d2039a7 100644
+--- a/.claude/agents/test-author.md
++++ b/.claude/agents/test-author.md
+@@ -12,5 +12,7 @@ Rules:
+ - Write tests FROM THE SPEC ONLY. Do not open, search for, or infer from any implementation of this task. You may read the repo's existing test conventions and fixtures so your tests run.
+ - Every test maps to an acceptance criterion id in `task.criteria_ids`. Name tests after the criterion. Report the ids you covered in `criteria_coverage`; do not claim coverage you did not write.
+ - Tests must be runnable by the repo's existing test runner without manual steps.
++- **A source-text wiring test asserts CALLS, and their order, inside a named function — never the first textual occurrence of a name in the file.** Use `substrate/test/b5-wiring-helpers.js` (`functionNamed`, `enclosingFunction`, `callSites`, `reachersOf`, `firstCallOf`) to find the call sites you are checking. A test built on `indexOf` or a similar whole-file first-occurrence search finds a declaration or an unrelated mention just as easily as the call the test means to check — that is a test defect, not a correctness finding, and it is what run k9d's wiring fix replaced.
++- **Require an exact literal only when the Spec quotes it.** Assert an identifier, string, or other literal exactly only when the Spec text itself quotes that literal; otherwise assert the behaviour, not incidental wording.
+ - Write them under the directory you were given and return that path as `tests_ref`.
+ - Return only the TestSet fields the schema asks for.
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index f9b74f7..f0b4bab 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -79,7 +79,12 @@ const ChangeSet = { type: 'object', additionalProperties: false,
+     // Optional (wi-b5): a value a sibling task's owned surface creates, asked for instead of invented. Routed to
+     // boundaryRepair before any lens, test runner, fixer or empty-diff gate. Never required.
+     needs_from_sibling: { type: 'array', items: { type: 'object', additionalProperties: false,
+-      required: ['surface', 'what'], properties: { surface: { type: 'string' }, what: { type: 'string' } } } } } }
++      required: ['surface', 'what'], properties: { surface: { type: 'string' }, what: { type: 'string' } } } },
++    // Optional (wi-b6): a Fixer's own report on its OWN fix. true when it changes what the code DOES; false when
++    // it only renames, relabels or moves things without changing the behaviour a finding named. A false value for
++    // a finding that cites a failing test is refused (fixRefused, in the sentinel block below) rather than
++    // accepted — the fixer may not bend the code to fit a test's text.
++    behaviour_changed: { type: 'boolean' }, behaviour_rationale: { type: 'string' } } }
+ const TestSet = { type: 'object', additionalProperties: false, required: ['id', 'task_id', 'tests_ref', 'criteria_coverage'],
+   properties: { id: { type: 'string' }, task_id: { type: 'string' }, tests_ref: { type: 'string' },
+     criteria_coverage: { type: 'array', items: { type: 'string' } } } }
+@@ -122,6 +127,28 @@ const Suite = { type: 'object', additionalProperties: false, required: ['artifac
+     tests_landed: { type: 'array', items: { type: 'string' }, description: 'TestSet files copied into the repo test dir and committed' },
+     tests_skipped: { type: 'array', items: { type: 'string' }, description: 'TestSet files NOT copied because a file of that name already exists. Reported, never overwritten.' } } }
+ 
++// ---- wi-b6: test validity before blame ----
++// The detector's own report: facts only, never a verdict — the class is derived in script code by the PURE
++// testValidity function below, never voted on by an agent (out_of_scope: "Letting an agent vote on a failing
++// test's class").
++const TestValidityFacts = { type: 'object', additionalProperties: false,
++  required: ['test', 'criterion', 'locates_by_first_occurrence', 'requires_unquoted_literal', 'fails_on_base_same_reason', 'names_criterion_behaviour'],
++  properties: { test: { type: 'string' }, criterion: { type: 'string' },
++    locates_by_first_occurrence: { type: 'boolean' }, requires_unquoted_literal: { type: 'boolean' },
++    fails_on_base_same_reason: { type: 'boolean' }, names_criterion_behaviour: { type: 'boolean' } } }
++const TestValidityReport = { type: 'object', additionalProperties: false, required: ['tests'],
++  properties: { tests: { type: 'array', items: TestValidityFacts } } }
++// Emitted in the run output (AC-11): one entry per classification made, whatever produced it — the detector's
++// facts, or a refused fixer's behaviour_changed:false (AC-13, whose `facts` is { behaviour_changed: false }
++// instead of the detector's four booleans; deliberately an open object rather than a second named shape).
++const TestValidityEntry = { type: 'object', additionalProperties: false, required: ['test', 'criterion', 'facts', 'class'],
++  properties: { test: { type: 'string' }, criterion: { type: 'string' }, facts: { type: 'object' },
++    class: { enum: ['test_defect', 'code_defect', 'unclear'] } } }
++// TestRepair: unchanged shape, reused by the detector's test_defect route and by a refused fix's re-route, in
++// addition to its original use in the fix loop below. Declared once, here, so every caller shares one definition.
++const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
++  properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
++
+ // ---- pure-code edges ----
+ const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
+ 
+@@ -253,13 +280,13 @@ function stuckLens(streaks, cap) {
+ // escalated on the round that FIRST raised its open finding, with zero fix attempts on it. One grace round is
+ // granted for that case: once per task, only when every open finding is brand new, and never to a lens already on a
+ // failure streak (that lens is stuck, not unlucky). Bounded at one, or a renaming defect would extend forever.
+-function graceRound(ctx, findings) {
+-  if (ctx.grace_used) return false
++function graceRound(state, findings) {
++  if (state.grace_used) return false
+   const open = findings ?? []
+   if (!open.length) return false
+-  const seen = ctx.seen ?? new Set()
++  const seen = state.seen ?? new Set()
+   if (!open.every(f => !seen.has(f.dedupe_key))) return false
+-  return !stuckLens(ctx.lens_streaks, ctx.k_rounds)
++  return !stuckLens(state.lens_streaks, state.k_rounds)
+ }
+ 
+ // What to do when the captured diff measures empty. Run t5i deadlocked here: task t2 depended on t1, t1's
+@@ -284,16 +311,16 @@ function emptyDiffAction({ diff_bytes, touched_surfaces_count, has_deps, recaptu
+ // Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
+ // overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
+ // count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
+-function shouldEscalate(ctx, findings) {
+-  if (ctx.tokens >= ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
++function shouldEscalate(state, findings) {
++  if (state.tokens >= state.task_tokens || state.last_round_tokens > state.round_tokens) return 'budget'
+   // A stuck lens reports as repeat_finding — the existing enum value, because the contract's reason list is fixed
+   // and this IS a repeat, just one the dedupe_key could not see.
+-  if (stuckLens(ctx.lens_streaks, ctx.k_rounds)) return 'repeat_finding'
+-  if (ctx.round >= ctx.k_rounds) return graceRound(ctx, findings) ? null : 'max_rounds'
++  if (stuckLens(state.lens_streaks, state.k_rounds)) return 'repeat_finding'
++  if (state.round >= state.k_rounds) return graceRound(state, findings) ? null : 'max_rounds'
+   const keys = (findings ?? []).map(f => f.dedupe_key)
+-  const seenKeys = ctx.seen ?? new Set()
++  const seenKeys = state.seen ?? new Set()
+   const overlap = keys.filter(k => seenKeys.has(k))
+-  if (ctx.round > 1 && keys.length && overlap.length === keys.length && overlap.length === seenKeys.size) return 'repeat_finding'
++  if (state.round > 1 && keys.length && overlap.length === keys.length && overlap.length === seenKeys.size) return 'repeat_finding'
+   if (!keys.length || keys.every(k => seenKeys.has(k))) return 'no_fresh_findings'
+   return null
+ }
+@@ -656,6 +683,52 @@ function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, test
+   const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])])
+   return (tests_found ?? []).filter(f => !accounted.has(f))
+ }
++
++// ---- Test validity before blame (wi-b6): a failing test counts against the implementation only once it is
++// shown to be valid. testValidity is the ONE place that decision is made — an agent (the validity: detector)
++// reports facts only, never a verdict (out_of_scope forbids letting it vote), so every fact->class mapping lives
++// here, pure, where a test can drive it with plain objects instead of running the whole loop.
++//
++// A missing or non-boolean fact never counts as true (AC-5): `=== true` is the only way in, so 'yes', 1, or an
++// absent key all read as false, and a test with no established facts at all reads as 'unclear' rather than
++// defaulting toward blaming either side.
++//   test_defect  — the test itself is broken: it locates the code under test by first textual occurrence rather
++//                  than by call structure, or it requires an exact identifier/string the Spec never quoted (AC-2,
++//                  true even when the test's own message talks about the right criterion); OR it already failed on
++//                  the task's BASE commit for the same reason while not describing the cited criterion's behaviour
++//                  (AC-3) — it asserts something this task was never asked to change.
++//   code_defect  — the test names the cited criterion's behaviour and none of the test-defect signals apply (AC-4).
++//   unclear      — anything else: no signal fired, or the base-failure and criterion-naming signals both fired at
++//                  once (AC-5b), which is genuinely ambiguous rather than a defect on either side.
++function testValidity(facts) {
++  const f = facts ?? {}
++  const is = (v) => v === true
++  const locatesByFirstOccurrence = is(f.locates_by_first_occurrence)
++  const requiresUnquotedLiteral = is(f.requires_unquoted_literal)
++  const failsOnBaseSameReason = is(f.fails_on_base_same_reason)
++  const namesCriterionBehaviour = is(f.names_criterion_behaviour)
++  if (locatesByFirstOccurrence || requiresUnquotedLiteral) return 'test_defect'
++  if (failsOnBaseSameReason && !namesCriterionBehaviour) return 'test_defect'
++  if (namesCriterionBehaviour && !failsOnBaseSameReason) return 'code_defect'
++  return 'unclear'
++}
++
++// True when a finding's claim, evidence or location names one of THIS round's currently failing tests as a whole
++// word — the same whole-word rule citedCriteria uses, so a test named e.g. "AC-2" is never matched as a substring
++// of "AC-2b". Only consulted for a finding whose fixer reported behaviour_changed:false (fixRefused below); a
++// finding that never cites a failing test is never in scope for that refusal.
++function citesFailingTest(finding, failingTestNames) {
++  return citedCriteria(finding, failingTestNames ?? []).length > 0
++}
++
++// The fix-refusal decision (AC-13): a code fixer may not bend the implementation to fit a test's own text. Refused
++// only when the fixer itself reported behaviour_changed:false (true, or absent because an older fixer never set
++// it, both pass through unrefused) AND the finding it "fixed" cites a test that is currently failing. Consulted
++// ONLY for a fix whose outcome is already 'applied' (fixOutcome) — a DISPUTE: or TEST-ONLY: fix is a different,
++// pre-existing outcome and is never re-decided here.
++function fixRefused({ behaviour_changed, cites_test_failure }) {
++  return behaviour_changed === false && cites_test_failure === true
++}
+ // ---- END fix-loop decisions ----
+ 
+ // =====================================================================
+@@ -799,6 +872,12 @@ async function runTask({ spec, task, spec_ref }) {
+       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
+     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
+                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
++                 A source-text WIRING test — one that checks which calls happen, in which order, inside a named function — must use
++                 substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf) to find those
++                 call sites; it must NEVER locate anything by the first textual occurrence of a name in the file (indexOf and similar),
++                 which finds a declaration or an unrelated mention just as easily as the call the test means to check, and a test built on
++                 it is a test defect, not a correctness finding. Require an exact literal (an identifier or string match) only when the
++                 Spec itself quotes that literal — never invent one merely because it makes the assertion easier to write.
+                  Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
+   ])
+@@ -822,7 +901,16 @@ async function runTask({ spec, task, spec_ref }) {
+                 // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
+                 repairedTests: [],
+                 // repair_used: this task's one allowed boundary repair (sibling-value-repair), spent at most once.
+-                repair_used: false }
++                repair_used: false,
++                // testValidity: one entry per failing-test classification made across this task's rounds (wi-b6,
++                // AC-11), from the detector's facts or a refused fixer's behaviour_changed:false. Emitted in the
++                // run output as-is; [] when nothing was ever classified.
++                testValidity: [],
++                // testDefectRecheckUsed: this task's one forced extra confirm round after a test_defect repair
++                // (AC-9) — the task must not pass in the very round a test_defect was found and routed to the Test
++                // Author, before the Test Runner has re-run against the repair. Bounded at one, exactly like
++                // grace_used, so a disputed or ineffective repair cannot hold the loop open forever.
++                testDefectRecheckUsed: false }
+   const fileOf = (loc) => String(loc).split(':')[0].trim()
+ 
+   // ---- needs_from_sibling routing (AC-16): consulted BEFORE the empty-diff gate and before any run, lens,
+@@ -974,6 +1062,12 @@ async function runTask({ spec, task, spec_ref }) {
+         .then(v => v && { ...v, lens: name })   // the script names the lens; the agent does not
+ 
+     const sealVerdict = (v, model) => ({ ...v, change_set_id: ctx.changeSet.id, provenance: stamp(`lens:${v.lens}`, model, 'dark_factory') })
++    // Populated inside the correctness thunk below, before it calls the correctness lens (AC-6: this round's ONE
++    // call site of testValidity precedes every fix:${task.id} agent call, which only happen later in this same
++    // round, in the fix loop further down). Read afterwards by the fix-refusal check (AC-13): a code fixer's
++    // finding "cites a failing test" against THIS round's full failing-test list, test_defect included.
++    let roundTestDefects = []       // this round's tests classified test_defect — never reaches the correctness lens or a fix:
++    let roundFailingTestNames = []  // every test the Test Runner reported failing this round, whatever its class
+     const lensThunks = {
+       // touched_surfaces is a permission envelope, not a mandate (rulings r5 and c1 both overruled "listed surface not touched"; the
+       // c1 lens re-raised it and forced an escalation). Only work outside the envelope, or a criterion left unmet, is a finding.
+@@ -983,9 +1077,72 @@ async function runTask({ spec, task, spec_ref }) {
+              names is never expected in the diff. Fail only for work outside the envelope, out_of_scope work, or a criterion the diff leaves unmet.`),
+       security: () => lens('security', `Focus on ${JSON.stringify(spec.touched_surfaces)}: injection, authz, secrets, data exposure BEYOND what the spec requires.
+                                A fail must cite a defect in how the change implements the spec, never the spec's own goal.`),
+-      correctness: async () => { const r = await runP; return r && lens('correctness',
+-        'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
+-        `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(r)}.`) },
++      correctness: async () => {
++        const r = await runP
++        if (!r) return null
++        // ---- Test validity before blame (wi-b6, AC-8/AC-9): before correctness gets to blame the implementation
++        // for ANY failing test, one cheap read-only detector runs ONCE, only because this round's Test Runner
++        // reported failed > 0. It reports facts only; testValidity (the pure function, called next) derives the
++        // class in script code.
++        if (r.failed > 0) {
++          const detected = (await agent(`Report FACTS ONLY about each currently FAILING test from this round's run — never a verdict, never
++                 a fix. Test results are at ${r.results_ref} (${r.failed} failing, ${r.passed} passing). The change under review is committed
++                 on branch ${branch} in worktree ${wt} (app at ${wt}/${APP}/); its BASE commit (before this task's change) is ${base}.
++                 For EVERY failing test return one entry with: test (its name), criterion (the acceptance criterion id from
++                 ${JSON.stringify(task.criteria_ids)} it cites, or your best guess), and four booleans:
++                 locates_by_first_occurrence (the test finds the code under test by the FIRST TEXTUAL occurrence of a name in the file,
++                 rather than by call structure inside a named function — e.g. text.indexOf('name') instead of inspecting call sites);
++                 requires_unquoted_literal (the test requires an exact identifier or string that ${specText} never quotes);
++                 fails_on_base_same_reason (reason about whether this same test would ALSO fail, for the same reason, against the base
++                 commit ${base} — before this task's change existed — without needing to check it out or execute it);
++                 names_criterion_behaviour (the test's own assertions actually describe the cited criterion's behaviour, not something else).
++                 Read-only: do NOT create, edit, delete or commit any file, and do not modify the worktree ${wt} or branch ${branch} in any
++                 way — you report facts about tests that already failed, you never re-run, fix, or change anything.`,
++            { label: `validity:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestValidityReport }))?.tests ?? []
++          roundFailingTestNames = detected.map(dt => dt.test)
++          const classified = detected.map(dt => {
++            const facts = { locates_by_first_occurrence: dt.locates_by_first_occurrence, requires_unquoted_literal: dt.requires_unquoted_literal,
++              fails_on_base_same_reason: dt.fails_on_base_same_reason, names_criterion_behaviour: dt.names_criterion_behaviour }
++            return { dt, facts, class: testValidity(facts) }
++          })
++          classified.forEach(c => ctx.testValidity.push({ test: c.dt.test, criterion: c.dt.criterion, facts: c.facts, class: c.class }))
++          roundTestDefects = classified.filter(c => c.class === 'test_defect').map(c => c.dt)
++          const unclearCount = classified.filter(c => c.class === 'unclear').length
++          if (unclearCount) ctx.history.push(`${tag}: ${unclearCount} failing test(s) classified unclear — reaching correctness as today`)
++          if (roundTestDefects.length) {
++            // Existing testfix: path, reused exactly (testRepairTarget, label testfix:${task.id}:..., AT('test-author'),
++            // TestRepair schema) — a test_defect test never reaches a fix: fixer and never counts toward the panel's
++            // fail verdict (AC-7, AC-9). testRepairTarget's finding.location falls back to the whole tests_ref when
++            // location isn't a file path, which a bare test name is.
++            const repairs = (await parallel(roundTestDefects.map(dt => () => {
++              const target = testRepairTarget({ finding: { location: dt.test }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
++              const targetNote = target.source === 'finding_location'
++                ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
++                : `Write it under the TestSet directory (create the file there if it does not exist yet).`
++              return agent(`The failing test "${dt.test}" (criterion ${dt.criterion}) was classified a TEST DEFECT before the correctness
++                     lens or any fixer saw it: it locates the code it covers by first textual occurrence rather than call structure, or
++                     requires an exact literal the Spec never quotes, or fails the same way on the task's base commit while not describing
++                     the criterion's behaviour. Repair the test at ${target.ref} so it asserts exactly what ${specText} says; do not read or
++                     modify the implementation. ${targetNote} If the test is right and this classification is wrong, change nothing and set
++                     notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
++                { label: `testfix:${task.id}:validity:${dt.test}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
++                .then(p => p && { dt, p, target })
++            }))).filter(Boolean)
++            repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
++            const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
++            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: lastGoodRef }
++            ctx.history.push(`${tag}: ${roundTestDefects.length} failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran`)
++          }
++        }
++        const testDefectNames = roundTestDefects.map(dt => dt.test)
++        const adjustedResults = testDefectNames.length ? { ...r, failed: Math.max(0, r.failed - testDefectNames.length) } : r
++        const defectNote = testDefectNames.length
++          ? `These failing tests were classified TEST DEFECTS this round and are already being repaired by the Test Author, not the
++             implementation: ${JSON.stringify(testDefectNames)}. They are not evidence against this change — do not raise a finding citing them.`
++          : ''
++        return lens('correctness', 'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
++          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote}`)
++      },
+     }
+     const rawVerdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean)
+     // stripForeignFindings runs BEFORE normalizeVerdict and adjudicate (ROUTING/SCOPE fix): a finding whose only
+@@ -1025,11 +1182,18 @@ async function runTask({ spec, task, spec_ref }) {
+     }
+ 
+     if (result === 'pass') {
++      // AC-9: this task must not pass in the very round a test_defect test was found and routed to the Test
++      // Author, before the Test Runner has re-run against the repair — correctness's 'pass' here only reflects
++      // the ADJUSTED count with those tests subtracted out, not a re-verified one. Force exactly one extra confirm
++      // round (bounded like grace_used, so a disputed or ineffective repair never holds the loop open forever).
++      const forceRecheck = roundTestDefects.length > 0 && !ctx.testDefectRecheckUsed
++      if (roundTestDefects.length > 0) ctx.testDefectRecheckUsed = true
+       toRun.forEach(l => ctx.verified.add(l))
++      if (forceRecheck) ctx.verified.delete('correctness')
+       const remaining = LENSES.filter(l => !ctx.verified.has(l))
+       if (remaining.length) {   // failures cleared; now confirm the lenses that had passed before the fix
+         ctx.toRun = remaining; confirming = true
+-        ctx.history.push(`${tag}: confirming ${remaining.join(',')}`)
++        ctx.history.push(`${tag}: confirming ${remaining.join(',')}${forceRecheck ? ' (re-verifying a test_defect repair before this task may pass)' : ''}`)
+         continue
+       }
+       // Every lens is green — that alone is not proof (k1v): a test dispute nobody ruled on, or any other finding
+@@ -1071,8 +1235,6 @@ async function runTask({ spec, task, spec_ref }) {
+     // target is absent — a finding about a test assertion whose location points at the code it covers still
+     // routes to the Test Author when the lens marked target "test".
+     const findingRoute = (f) => routeFinding(f, { tests_ref: ctx.testSet.tests_ref, artifact_dir: ART })
+-    const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
+-      properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
+ 
+     // Scope the fixer's input (point 2): one cheap mechanical agent per failing round slices the cumulative diff into
+     // one per-file patch per distinct finding file, so a code fixer reads its own hunk instead of exploring the whole tree.
+@@ -1125,7 +1287,12 @@ async function runTask({ spec, task, spec_ref }) {
+              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
+              asks for something out of scope, make no change and set notes to "DISPUTE: <what you ran and what it showed>". If the
+              defect is real but lives in a TEST assertion rather than in this code — you are forbidden to edit tests — make no change
+-             and set notes to "TEST-ONLY: <what the test asserts and why the code is right>"; it will be routed to the Test Author once.`,
++             and set notes to "TEST-ONLY: <what the test asserts and why the code is right>"; it will be routed to the Test Author once.
++             You may NOT bend the code to fit a test's own text. Also report behaviour_changed: true when this fix changes what the code
++             DOES; false when it only renames or relabels an identifier, or moves a declaration, without changing the behaviour the
++             finding actually names. behaviour_rationale: one line why. A fix reported behaviour_changed:false for a finding that cites a
++             failing test is refused — never accepted — and re-routed to the Test Author instead, so answer honestly rather than
++             guessing what keeps the fix accepted.`,
+             { label: `fix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('fixer'), schema: ChangeSet }).then(p => p && { f, p, kind: 'code' })
+         })()))).filter(Boolean)
+ 
+@@ -1153,18 +1320,52 @@ async function runTask({ spec, task, spec_ref }) {
+       }))).filter(Boolean)
+     }
+ 
+-    const applied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied').map(x => x.p)
++    // Fix refusal (wi-b6, AC-13): a code fixer may not bend the implementation to fit a test's own text. Consulted
++    // only for a fix whose outcome is already 'applied' — DISPUTE: and TEST-ONLY: are separate, pre-existing
++    // outcomes and are untouched by this. fixRefused is the pure decision (sentinel block); citesFailingTest reads
++    // THIS round's full failing-test list (test_defect included) the correctness thunk populated above.
++    const codeApplied = fixes.filter(x => x.kind === 'code' && fixOutcome(x.p.notes) === 'applied')
++    const refusedFixes = codeApplied.filter(x => fixRefused({
++      behaviour_changed: x.p.behaviour_changed, cites_test_failure: citesFailingTest(x.f, roundFailingTestNames) }))
++    refusedFixes.forEach(x => ctx.testValidity.push({ test: x.f.location, criterion: x.f.claim ?? x.f.location, facts: { behaviour_changed: false }, class: 'test_defect' }))
++
++    // Refused fixes are re-routed to the Test Author's testfix path exactly like a TEST-ONLY outcome — never to
++    // a fix: fixer, never counted in `applied` — and their commit must not survive on the task branch: the merge
++    // step below is told which diff_refs to revert.
++    let refusedRepairs = []
++    if (refusedFixes.length) {
++      refusedRepairs = (await parallel(refusedFixes.map(x => () => {
++        const target = testRepairTarget({ finding: x.f, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
++        const targetNote = target.source === 'finding_location'
++          ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
++          : `Write it under the TestSet directory (create the file there if it does not exist yet).`
++        return agent(`A code fixer reported behaviour_changed:false for this finding while it cites a failing test — it may not bend the
++               implementation to fit the test's own text, so the fix was refused. Location: ${x.f.location}. Evidence: ${x.f.evidence}.
++               Fixer's own rationale: ${x.p.behaviour_rationale ?? '(none given)'}. Re-read the spec (${specText}). Repair the test at
++               ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test
++               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote
++               or edited) and the criteria the tests now cover.`,
++          { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
++      }))).filter(Boolean)
++      refusedRepairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
++      ctx.history.push(`${tag}: refused ${refusedFixes.length} fix(es) that reported behaviour_changed:false for a finding citing a failing test — re-routed to the Test Author`)
++    }
++    const refusedKeys = new Set(refusedFixes.map(x => x.f.dedupe_key))
++
++    const applied = codeApplied.filter(x => !refusedKeys.has(x.f.dedupe_key)).map(x => x.p)
+ 
+     // One flat repair record per outcome this round, path-tagged but never path-FILTERED for dispute purposes —
+     // the record shape resolveRound/disputesToJudge share (AC-2 through AC-9): dedupe_key, path, notes, plus
+     // target_source/tests_ref for a test-path repair, plus f/p so the judge loop and the history lines below can
+     // still read the original finding and repair.
+     const repairRecords = [
+-      ...fixes.map(x => ({ dedupe_key: x.f.dedupe_key, path: x.kind, notes: x.p.notes, f: x.f, p: x.p,
++      ...fixes.filter(x => !refusedKeys.has(x.f.dedupe_key)).map(x => ({ dedupe_key: x.f.dedupe_key, path: x.kind, notes: x.p.notes, f: x.f, p: x.p,
+         target_source: x.kind === 'test' ? x.target?.source : undefined,
+         tests_ref: x.kind === 'test' ? x.p.tests_ref : undefined })),
+       ...testOnlyRepairs.map(x => ({ dedupe_key: x.f.dedupe_key, path: 'test', notes: x.p.notes, f: x.f, p: x.p,
+         target_source: x.target?.source, tests_ref: x.p.tests_ref })),
++      ...refusedRepairs.map(x => ({ dedupe_key: x.f.dedupe_key, path: 'test', notes: x.p.notes, f: x.f, p: x.p,
++        target_source: x.target?.source, tests_ref: x.p.tests_ref })),
+     ]
+ 
+     // Dispute Checker: strong model, never the same lens. disputesToJudge selects EVERY disputing repair — code
+@@ -1221,12 +1422,18 @@ async function runTask({ spec, task, spec_ref }) {
+     settled.forEach(l => ctx.verified.add(l))
+     ctx.toRun = lensesToRun({ lenses: LENSES, retry, verified: [...ctx.verified], mode: ctx.mode })
+ 
+-    // Nothing to recapture: no code fix applied, and no test repair edited a file already on the branch either
+-    // (needs_rediff, AC-9). Previously passing lenses stay verified; only the failing ones re-run.
+-    if (!applied.length && !round.needs_rediff) continue
++    // Nothing to recapture: no code fix applied, no test repair edited a file already on the branch (needs_rediff,
++    // AC-9), and no refused fix's commit to purge. Previously passing lenses stay verified; only the failing ones re-run.
++    if (!applied.length && !round.needs_rediff && !refusedFixes.length) continue
+ 
++    const revertNote = refusedFixes.length
++      ? ` A REFUSED fix is already committed on ${branch} and must NOT survive: for each diff at
++                                ${JSON.stringify(refusedFixes.map(x => x.p.diff_ref))}, find the commit that introduced it (git log -p or
++                                git log --oneline) and revert it (git revert --no-edit <that commit>, or apply the diff in reverse with
++                                git apply -R and commit the reversal) BEFORE computing the cumulative diff below, so none of its hunks remain.`
++      : ''
+     const merged = await agent(`In worktree ${wt} (branch ${branch}) the fixes ${JSON.stringify(applied.map(p => p.diff_ref))} are already committed
+-                                (this list may be empty when only a test repair changed the branch). Verify each listed fix is present (git log); if one is
++                                (this list may be empty when only a test repair changed the branch).${revertNote} Verify each listed fix is present (git log); if one is
+                                 missing, apply it with git apply and commit. Write the cumulative diff vs ${base}
+                                 (git diff ${base}...HEAD) to ${ART}/diffs/${task.id}.r${ctx.round}.patch and return the ChangeSet with revision ${ctx.changeSet.revision + 1}
+                                 and that path as diff_ref. Previous ChangeSet: ${JSON.stringify({ ...ctx.changeSet, notes: undefined })}`,
+@@ -1468,6 +1675,9 @@ return {
+   suite: { passed: finalSuite?.passed ?? 0, failed: finalSuite?.failed ?? 0, results_ref: finalSuite?.results_ref ?? '' },
+   tests_landed: finalSuite?.tests_landed ?? [],
+   tests_skipped: finalSuite?.tests_skipped ?? [],
++  // One entry per failing-test classification made across every task this run (wi-b6, AC-11): { test, criterion,
++  // facts, class }. [] when nothing was ever classified — no round ever saw failed > 0, or every task was skipped.
++  test_validity: finished.flatMap(f => f.testValidity ?? []),
+   // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+   // [] when no task strayed.
+   boundary_repairs: boundaryRepairs,
+diff --git a/contracts.schema.json b/contracts.schema.json
+index 8daaefa..31885d3 100644
+--- a/contracts.schema.json
++++ b/contracts.schema.json
+@@ -144,6 +144,9 @@
+                               "properties": { "surface": { "type": "string", "description": "Repository-relative path the sibling owns." },
+                                                "what": { "type": "string", "description": "What is needed from that surface." } },
+                               "required": ["surface", "what"] } },
++        "behaviour_changed": { "type": "boolean",
++                            "description": "Optional (wi-b6). A Fixer's own report: true when its fix changes what the code DOES; false when it only renames, relabels or moves things without changing the behaviour a finding named. A fixer reporting false for a finding that cites a failing test is refused (build-implement's fixRefused) rather than accepted — it may not bend the code to fit a test's text." },
++        "behaviour_rationale": { "type": "string", "description": "Optional (wi-b6). One-line reason for the behaviour_changed value above." },
+         "provenance":  { "$ref": "#/$defs/Provenance" }
+       },
+       "required": ["id", "worktree", "base_commit", "diff_ref", "touched_surfaces", "revision", "provenance"],
+@@ -227,6 +230,19 @@
+       "required": ["task_id", "reason", "history", "repeats", "hypothesis", "options"]
+     },
+ 
++    "TestValidityEntry": {
++      "description": "wi-b6: a failing test's classification, recorded before the correctness lens or any fixer is allowed to blame the code for it. `class` is derived by build-implement's PURE testValidity(facts) function from the detector's facts, never declared by the detector agent itself. `facts` is usually the detector's four booleans (locates_by_first_occurrence, requires_unquoted_literal, fails_on_base_same_reason, names_criterion_behaviour) but also carries { behaviour_changed: false } when the entry instead records a fixer's refused fix (AC-13) — deliberately an open object rather than a second named shape for one field.",
++      "type": "object",
++      "additionalProperties": false,
++      "properties": {
++        "test":      { "type": "string" },
++        "criterion": { "type": "string" },
++        "facts":     { "type": "object" },
++        "class":     { "type": "string", "enum": ["test_defect", "code_defect", "unclear"] }
++      },
++      "required": ["test", "criterion", "facts", "class"]
++    },
++
+     "Repro": {
+       "description": "Reproducer → Root Cause Analyst (OPERATING_MODEL §4). A named shape because it crosses an edge; Patch.repro is the same thing at rest.",
+       "type": "object",
+@@ -404,6 +420,18 @@
+                             "description": "TestSet files the Integrator copied into the repo's test directory and committed. A TestSet that stays in the artifact store is run once and lost, so the suite never grows and defects escape through behavior nothing tests; this records which tests actually entered the repo." },
+         "tests_skipped":  { "type": "array", "items": { "type": "string" },
+                             "description": "TestSet files NOT landed because a file of that name already existed. Reported, never overwritten." },
++        "test_validity":  { "type": "array", "items": {
++                              "type": "object",
++                              "additionalProperties": false,
++                              "properties": {
++                                "test":      { "type": "string" },
++                                "criterion": { "type": "string" },
++                                "facts":     { "type": "object" },
++                                "class":     { "type": "string", "enum": ["test_defect", "code_defect", "unclear"] }
++                              },
++                              "required": ["test", "criterion", "facts", "class"]
++                            },
++                            "description": "wi-b6: one entry per failing-test classification made in this run, [] when nothing was classified. A test_defect never counted toward a panel's fail verdict — it went to the Test Author's testfix path instead." },
+         "boundary_repairs": { "type": "array",
+                             "description": "One entry per owned-surfaces boundary repair attempt this run made (a stray touched surface or a needs_from_sibling ask). Empty when no task strayed.",
+                             "items": { "type": "object", "additionalProperties": false,
+diff --git a/substrate/test/b6-fix-refusal-function.test.js b/substrate/test/b6-fix-refusal-function.test.js
+new file mode 100644
+index 0000000..978fe4c
+--- /dev/null
++++ b/substrate/test/b6-fix-refusal-function.test.js
+@@ -0,0 +1,79 @@
++// Tests for spec-wi-b6-test-validity-before-blame AC-13's fix-refusal decision: "the decision whether a
++// fix is refused is a pure function inside the sentinel block, and a test drives it with plain objects for
++// behaviour_changed false / true / absent and for a finding that does / does not cite a test failure."
++//
++// The spec does not name this function (unlike testValidity, which AC-1 names explicitly), so this file
++// locates it structurally rather than guessing a name: it is the one function declared inside the fix-loop
++// decisions sentinel block whose body reads `behaviour_changed`. Written from the spec ONLY — the
++// discovery method itself only inspects DECLARATION SHAPE (which functions exist and what identifiers
++// their bodies reference), never behaviour read from an implementation.
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++// Repository paths are resolved only through the existing extract-fixloop.js sentinel extractor.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++import { functionDecls } from './b5-wiring-helpers.js'
++
++function findRefusalFn(block) {
++  const decls = functionDecls(block)
++  const hits = decls.filter(d => block.slice(d.bodyStart, d.bodyEnd).includes('behaviour_changed'))
++  return { decls, hits }
++}
++
++test('AC-13: exactly one pure decision function inside the sentinel block reads behaviour_changed, and it is callable with plain objects', () => {
++  const { block } = extractBlock(readWorkflowText())
++  assert.ok(block, 'fix-loop decisions block must be extractable')
++  const { hits } = findRefusalFn(block)
++  assert.equal(hits.length, 1,
++    `expected exactly one function in the sentinel block deciding on behaviour_changed, found ${hits.length} (${hits.map(h => h.name).join(',')})`)
++
++  const fnName = hits[0].name
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + `\nreturn { ${fnName} }`)
++  const fn = factory()[fnName]
++  assert.equal(typeof fn, 'function')
++
++  // Purity: no runtime handle anywhere in the block (shared with testValidity's own purity check).
++  for (const token of ['agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.', 'ctx.']) {
++    assert.ok(!block.includes(token), `the sentinel block must not reference "${token}"`)
++  }
++})
++
++test('AC-13: a fix with behaviour_changed:false, for a finding that cites a test failure, is refused; true or absent is accepted; a finding that cites no test failure is never refused for that reason alone', () => {
++  const { block } = extractBlock(readWorkflowText())
++  const { hits } = findRefusalFn(block)
++  assert.equal(hits.length, 1, 'expected to find exactly one behaviour_changed-driven decision function')
++  const fnName = hits[0].name
++  // eslint-disable-next-line no-new-func
++  const fn = new Function(block + `\nreturn { ${fnName} }`)()[fnName]
++
++  // A finding that cites a test failure (the shape the code fixer receives when routed from a failing test).
++  const citesTestFailure = { id: 'f1', lens: 'correctness', evidence: 'test "AC-2 ..." failed: expected true, got false', location: 'app.js:10' }
++  const noTestCitation = { id: 'f2', lens: 'security', evidence: 'secret logged in plaintext', location: 'app.js:20' }
++
++  // Two ways this decision could plausibly be shaped: fn(changeSet, finding) or fn({ changeSet, finding }).
++  // Try both call shapes so the test drives the decision by its PLAIN-OBJECT inputs (per AC-13's own wording)
++  // without presuming an arity the spec never fixes.
++  const call = (behaviour_changed, finding) => {
++    const changeSet = behaviour_changed === undefined ? { notes: 'plain fix' } : { behaviour_changed, notes: 'plain fix' }
++    let result
++    try { result = fn(changeSet, finding) } catch { result = fn({ changeSet, finding }) }
++    return result
++  }
++
++  const refusedFalse = call(false, citesTestFailure)
++  const acceptedTrue = call(true, citesTestFailure)
++  const acceptedAbsent = call(undefined, citesTestFailure)
++  const notCitingTest = call(false, noTestCitation)
++
++  // The exact return shape (boolean vs enum) is not fixed by the spec, so this checks the OBSERVABLE
++  // distinction the spec asks for: behaviour_changed:false + a test-citing finding must be treated
++  // differently (refused) from every other combination tried.
++  assert.notDeepEqual(refusedFalse, acceptedTrue,
++    'behaviour_changed:false must be decided differently from behaviour_changed:true for the same test-citing finding')
++  assert.notDeepEqual(refusedFalse, acceptedAbsent,
++    'behaviour_changed:false must be decided differently from behaviour_changed absent for the same test-citing finding')
++  assert.notDeepEqual(refusedFalse, notCitingTest,
++    'behaviour_changed:false must be decided differently when the finding does not cite a test failure at all')
++})
+diff --git a/substrate/test/b6-prompt-rules.test.js b/substrate/test/b6-prompt-rules.test.js
+new file mode 100644
+index 0000000..50a4b91
+--- /dev/null
++++ b/substrate/test/b6-prompt-rules.test.js
+@@ -0,0 +1,84 @@
++// Tests for spec-wi-b6-test-validity-before-blame AC-14 and AC-15: the fixer prompt (build-implement.js's
++// `fix:${task.id}:...` agent call and .claude/agents/fixer.md) must name behaviour_changed /
++// behaviour_rationale and the refusal rule; the Test Author prompt (build-implement.js's `tests:${task.id}`
++// agent call and .claude/agents/test-author.md) must name substrate/test/b5-wiring-helpers.js and its five
++// helpers, the calls-not-first-occurrence rule, and the quote-only-literal rule. Written from the spec ONLY.
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++//
++// Repository paths are resolved from process.cwd() alone, NEVER by counting ".." segments from this file's
++// own location. build-implement.js's per-round Test Runner runs the suite AT this file's artifact-store path
++// while pointed AT the task's own worktree (it changes into the worktree, then invokes the test runner from
++// there), so process.cwd() at test-run time is the tree whose fixer.md / test-author.md / build-implement.js
++// actually carry this task's change — the file's own on-disk location never is. That mismatch (REPO computed
++// by walking up from import.meta.url, landing on whichever repo this file happens to physically sit under —
++// the pre-task commit when run from the artifact store) was the reported defect; the FIXER_MD / TEST_AUTHOR_MD
++// paths below no longer go through that path at all.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed, callSites } from './b5-wiring-helpers.js'
++
++const REPO = process.cwd()
++const FIXER_MD = path.join(REPO, '.claude', 'agents', 'fixer.md')
++const TEST_AUTHOR_MD = path.join(REPO, '.claude', 'agents', 'test-author.md')
++
++function fixerAgentCallText(text) {
++  const rt = functionNamed(text, 'runTask')
++  const label = text.search(/`fix:\$\{task\.id\}/)
++  assert.ok(label > rt.bodyStart && label < rt.bodyEnd, "expected the fix:${task.id} label inside runTask")
++  const callStart = text.lastIndexOf('agent(', label)
++  const callEnd = text.indexOf('})', label) + 2
++  return text.slice(callStart, callEnd)
++}
++
++function testAuthorAgentCallText(text) {
++  const label = text.search(/`tests:\$\{task\.id\}`/)
++  assert.ok(label > 0, "expected the tests:${task.id} label")
++  const callStart = text.lastIndexOf('agent(', label)
++  const callEnd = text.indexOf('})', label) + 2
++  return text.slice(callStart, callEnd)
++}
++
++test('AC-14: both the code-fixer prompt in build-implement.js and fixer.md name behaviour_changed / behaviour_rationale and the refusal rule for a rename-only fix on a test-citing finding', () => {
++  const text = readWorkflowText()
++  const fixerCall = fixerAgentCallText(text)
++  const fixerMd = fs.readFileSync(FIXER_MD, 'utf8')
++
++  for (const doc of [fixerCall, fixerMd]) {
++    assert.match(doc, /behaviour_changed/, 'must name behaviour_changed')
++    assert.match(doc, /behaviour_rationale/, 'must name behaviour_rationale')
++    assert.match(doc, /rename|relabel/i, 'must describe a rename/relabel-only fix')
++    assert.match(doc, /behaviour_changed:\s*false|behaviour_changed\s*(is\s*)?false/i, 'must state the false case explicitly')
++  }
++  // The refusal consequence: routed to the Test Author rather than accepted, specifically for a finding
++  // citing a test failure.
++  for (const doc of [fixerCall, fixerMd]) {
++    assert.match(doc, /test\s*(author|-only)/i, 'must say the fix is routed to the Test Author, not accepted')
++    assert.match(doc, /refus|reject|not (be )?accepted/i, 'must say such a fix is refused, not accepted')
++  }
++})
++
++test('AC-15: both the Test Author prompt in build-implement.js and test-author.md name substrate/test/b5-wiring-helpers.js and each of its five helpers, the calls-not-first-occurrence rule, and the quote-only-literal rule', () => {
++  const text = readWorkflowText()
++  const testAuthorCall = testAuthorAgentCallText(text)
++  const testAuthorMd = fs.readFileSync(TEST_AUTHOR_MD, 'utf8')
++
++  for (const doc of [testAuthorCall, testAuthorMd]) {
++    assert.match(doc, /substrate\/test\/b5-wiring-helpers\.js/, 'must name substrate/test/b5-wiring-helpers.js by path')
++    for (const helper of ['functionNamed', 'enclosingFunction', 'callSites', 'reachersOf', 'firstCallOf']) {
++      assert.match(doc, new RegExp(`\\b${helper}\\b`), `must name the helper ${helper}`)
++    }
++    assert.match(doc, /calls?\b.*\border\b|order\b.*\bcalls?\b/is, 'must state that a wiring test asserts calls and their order')
++    assert.match(doc, /first\s+textual\s+occurrence|first\s+occurrence/i, 'must say never the first textual occurrence of a name')
++    assert.match(doc, /exact\s+literal|quote/i, 'must state a literal may be required only when the spec quotes it')
++    // The spec's own wording is "it may require an exact literal only when the Spec quotes it" — a paraphrase,
++    // not a literal the prompts must reproduce verbatim. Check the SUBSTANCE (the literal requirement is
++    // conditioned on the Spec itself quoting it) rather than one fixed phrasing, so a prompt that says the same
++    // thing in different words is not a false failure.
++    assert.match(doc, /only\s+when[\s\S]{0,120}\bspec\b[\s\S]{0,80}\bquot/i,
++      'must tie the literal requirement to the Spec quoting it (in some form of "only when the Spec ... quotes")')
++  }
++})
+diff --git a/substrate/test/b6-regression-baseline.test.js b/substrate/test/b6-regression-baseline.test.js
+new file mode 100644
+index 0000000..46cf20e
+--- /dev/null
++++ b/substrate/test/b6-regression-baseline.test.js
+@@ -0,0 +1,81 @@
++// Regression test for spec-wi-b6-test-validity-before-blame AC-17: after this change, every test that
++// passed before still passes; loadFixLoopDecisions still returns its seventeen existing functions
++// (extended only additively, if at all); and normalizeVerdict, adjudicate, the dispute: and tiebreak: agent
++// prompts and their derivation are byte-for-byte unchanged.
++//
++// The exact BYTE-FOR-BYTE baseline text below (BASELINE_NORMALIZE_VERDICT, BASELINE_ADJUDICATE,
++// BASELINE_DISPUTE_LABEL, BASELINE_TIEBREAK_LABEL) is transcribed from .claude/workflows/build-implement.js
++// as it stood going into this work item — the pre-existing, out-of-scope surface the spec's own exclusions
++// list names verbatim ("The dispute judge and Tiebreak Judge: their prompts... How lens verdicts are
++// derived... normalizeVerdict, adjudicate"). Recording that PRE-TASK baseline now, before this task's
++// implementation lands, is the only way a test can assert "unchanged" after the fact; the same
++// requirement is why loadFixLoopDecisions's own seventeen-function list is asserted below rather than
++// merely trusted. This is baseline TEXT of an out-of-scope, already-existing surface, not a look at this
++// task's own implementation.
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, loadFixLoopDecisions } from './extract-fixloop.js'
++
++const EXISTING_SEVENTEEN = [
++  'scopeOf', 'scopeTargets', 'nextLenses', 'lensesToRun', 'roundBudget', 'taskCeiling', 'emptyDiffAction', 'shouldEscalate',
++  'surfaceRef', 'withinOwned', 'boundaryCheck', 'criteriaScope', 'citedCriteria', 'isForeignCriterionFinding',
++  'stripForeignFindings', 'routeFinding', 'fixOutcome',
++]
++
++const BASELINE_NORMALIZE_VERDICT = `function normalizeVerdict(v, tag) {
++  const defects = (v.findings ?? []).filter(f => !SPEC_LEVEL.test(String(f.claim)))
++  const derived = defects.length ? 'fail' : 'pass'
++  if (v.verdict !== derived) {
++    log(\`\${tag} \${v.lens}: said \${v.verdict} but \${defects.length} defect(s) remain; recorded as \${derived}\`)
++    return { ...v, verdict: derived }
++  }
++  return v
++}`
++
++const BASELINE_ADJUDICATE = `function adjudicate(panelVerdicts) {
++  const veto = panelVerdicts.find(v => v.lens === VETO_LENS && v.verdict === 'fail')
++  if (veto) return { result: 'fail', veto_by: veto.lens, split: false }
++  const fails = panelVerdicts.filter(v => v.verdict === 'fail')
++  if (!fails.length) return { result: 'pass', split: false }
++  if (fails.every(v => v.confidence < LOW_CONFIDENCE)) return { result: null, split: true }
++  return { result: 'fail', split: false }
++}`
++
++const BASELINE_DISPUTE_CALL = `agent(\`Rule on a disputed finding. Do not create, edit or delete any file, and do not run any command that changes
++               the repository — you rule, you never patch. \${specText}. Finding: \${JSON.stringify(x.f)}. Fixer's dispute: \${x.notes}.
++               UPHOLD only if the finding names a real defect in how the change implements the spec. OVERRULE if it objects to behavior the
++               spec requires, asks for something the spec lists as out of scope, or describes an attack the change already blocks.\`,
++          { label: \`dispute:\${task.id}:\${x.f.id}\`, model: MODEL.mid, ...AT('dispute'), schema: Ruling }))`
++
++const BASELINE_TIEBREAK_CALL = `agent(\`Adjudicate a split review. Do not create, edit or delete any file, and do not run any
++               command that changes the repository — you adjudicate, you never patch. Verdicts: \${JSON.stringify(verdicts)}. \${specText}. Change: \${JSON.stringify(diffOnly)}.\`,
++        { label: \`tiebreak:\${task.id}:\${tag}\`, model: MODEL.strong, ...AT('tiebreak'), schema: Verdict })`
++
++test('AC-17: loadFixLoopDecisions still returns every one of the seventeen existing decision functions (extended only additively, if at all)', () => {
++  const decisions = loadFixLoopDecisions()
++  for (const name of EXISTING_SEVENTEEN) {
++    assert.equal(typeof decisions[name], 'function', `expected loadFixLoopDecisions() to still return ${name} as a function`)
++  }
++})
++
++test('AC-17: normalizeVerdict is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_NORMALIZE_VERDICT), 'normalizeVerdict\'s source must be byte-for-byte unchanged from the pre-task baseline this work item is not permitted to touch')
++})
++
++test('AC-17: adjudicate is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_ADJUDICATE), 'adjudicate\'s source must be byte-for-byte unchanged from the pre-task baseline this work item is not permitted to touch')
++})
++
++test('AC-17: the dispute: agent call (prompt, label and schema) is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_DISPUTE_CALL), 'the dispute: agent call must be byte-for-byte unchanged — the dispute judge is out of scope for this work item')
++})
++
++test('AC-17: the tiebreak: agent call (prompt, label and schema) is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_TIEBREAK_CALL), 'the tiebreak: agent call must be byte-for-byte unchanged — the Tiebreak Judge is out of scope for this work item')
++})
+diff --git a/substrate/test/b6-schema-additions.test.js b/substrate/test/b6-schema-additions.test.js
+new file mode 100644
+index 0000000..2d841d9
+--- /dev/null
++++ b/substrate/test/b6-schema-additions.test.js
+@@ -0,0 +1,100 @@
++// Tests for spec-wi-b6-test-validity-before-blame AC-11 and AC-12: the new optional
++// `test_validity` array on EvidenceBundle, and the new optional `behaviour_changed` /
++// `behaviour_rationale` fields on ChangeSet, in BOTH contracts.schema.json and the inline
++// contract in .claude/workflows/build-implement.js. Written from the spec ONLY.
++//
++// Uses the repo's OWN existing contract validator (substrate/lib/contracts.js's `validate`, the same
++// one substrate/validator.js's CLI and other tests in this suite use) rather than hand-rolling an ajv
++// setup, so "still validates" is checked against the real, live contracts.schema.json.
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++// Repository paths are resolved only through the existing extract-fixloop.js REPO export and
++// substrate/lib/paths.js's own resolution, never by counting ".." from this file's own location.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { readWorkflowText } from './extract-fixloop.js'
++import { REPO } from './fixloop-helpers.js'
++import { validate } from '../lib/contracts.js'
++
++function loadSchema() {
++  return JSON.parse(fs.readFileSync(path.join(REPO, 'contracts.schema.json'), 'utf8'))
++}
++
++test('AC-12: contracts.schema.json\'s ChangeSet declares optional behaviour_changed (boolean) and behaviour_rationale (string), neither required, and a ChangeSet without them still validates', () => {
++  const schema = loadSchema()
++  const ChangeSet = schema.$defs.ChangeSet
++  assert.ok(ChangeSet, 'expected $defs.ChangeSet in contracts.schema.json')
++  assert.equal(ChangeSet.properties.behaviour_changed?.type, 'boolean', 'behaviour_changed must be typed boolean')
++  assert.equal(ChangeSet.properties.behaviour_rationale?.type, 'string', 'behaviour_rationale must be typed string')
++  assert.ok(!(ChangeSet.required ?? []).includes('behaviour_changed'), 'behaviour_changed must not be required')
++  assert.ok(!(ChangeSet.required ?? []).includes('behaviour_rationale'), 'behaviour_rationale must not be required')
++
++  const legacy = {
++    id: 'cs1', worktree: 'toy', base_commit: 'abc123', diff_ref: '.artifacts/diffs/x.patch',
++    touched_surfaces: [], revision: 0,
++    provenance: { node: 'implementer', executor: 'ai_agent', method: 'hotl', model: 'sonnet', run_id: 'r1', created_at: '2026-01-01T00:00:00Z' },
++  }
++  const result = validate('ChangeSet', legacy)
++  assert.ok(result.ok, `a legacy ChangeSet without behaviour_changed/behaviour_rationale must still validate: ${JSON.stringify(result.errors)}`)
++
++  const withFields = { ...legacy, behaviour_changed: false, behaviour_rationale: 'renamed a variable, no behaviour change' }
++  const result2 = validate('ChangeSet', withFields)
++  assert.ok(result2.ok, `a ChangeSet WITH behaviour_changed/behaviour_rationale must validate: ${JSON.stringify(result2.errors)}`)
++})
++
++test('AC-12: the inline ChangeSet const in build-implement.js declares the same two optional fields, in the same optional (not required) position', () => {
++  const text = readWorkflowText()
++  const start = text.indexOf('const ChangeSet = {')
++  assert.ok(start >= 0, 'expected the inline ChangeSet const')
++  const end = text.indexOf('const TestSet = {', start)
++  assert.ok(end > start, 'expected the next inline contract const (TestSet) to bound the ChangeSet block')
++  const block = text.slice(start, end)
++  assert.match(block, /behaviour_changed:\s*\{\s*type:\s*'boolean'/, "inline ChangeSet must declare behaviour_changed: { type: 'boolean' }")
++  assert.match(block, /behaviour_rationale:\s*\{\s*type:\s*'string'/, "inline ChangeSet must declare behaviour_rationale: { type: 'string' }")
++  const requiredMatch = block.match(/required:\s*\[([^\]]*)\]/)
++  assert.ok(requiredMatch, 'expected a required: [...] list on the inline ChangeSet')
++  assert.ok(!requiredMatch[1].includes('behaviour_changed'), 'behaviour_changed must not be in the inline required list')
++  assert.ok(!requiredMatch[1].includes('behaviour_rationale'), 'behaviour_rationale must not be in the inline required list')
++})
++
++test('AC-11: contracts.schema.json\'s EvidenceBundle declares an optional test_validity array of {test, criterion, facts, class}, with class enum [\'test_defect\',\'code_defect\',\'unclear\'] and additionalProperties false', () => {
++  const schema = loadSchema()
++  const EvidenceBundle = schema.$defs.EvidenceBundle
++  assert.ok(EvidenceBundle, 'expected $defs.EvidenceBundle')
++  const tv = EvidenceBundle.properties.test_validity
++  assert.ok(tv, 'expected EvidenceBundle.properties.test_validity')
++  assert.equal(tv.type, 'array')
++  assert.ok(!(EvidenceBundle.required ?? []).includes('test_validity'), 'test_validity must not be required')
++  const item = tv.items
++  assert.equal(item.additionalProperties, false, 'test_validity items must have additionalProperties: false')
++  for (const key of ['test', 'criterion', 'facts', 'class']) {
++    assert.ok(item.properties?.[key], `test_validity items must declare ${key}`)
++  }
++  assert.deepEqual(item.properties.class.enum?.slice().sort(), ['code_defect', 'test_defect', 'unclear'].sort())
++})
++
++test('AC-11: an EvidenceBundle with an empty test_validity array, and one with a populated classification, both validate; test_validity is [] when nothing was classified', () => {
++  const base = {
++    release_candidate_id: 'rc1', project_id: 'p1', iteration: 1, artifact_ref: 'integrate/rc1',
++    specs: [], panel_results: [], suite: { passed: 1, failed: 0, results_ref: '.artifacts/results/x.json' }, escalations: [],
++    provenance: { node: 'integrator', executor: 'ai_agent', method: 'hotl', model: 'sonnet', run_id: 'r1', created_at: '2026-01-01T00:00:00Z' },
++  }
++  const emptyResult = validate('EvidenceBundle', { ...base, test_validity: [] })
++  assert.ok(emptyResult.ok, `empty test_validity must validate: ${JSON.stringify(emptyResult.errors)}`)
++
++  const populated = {
++    ...base,
++    test_validity: [{
++      test: 'AC-2', criterion: 'AC-2',
++      facts: { locates_by_first_occurrence: true, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true },
++      class: 'test_defect',
++    }],
++  }
++  const populatedResult = validate('EvidenceBundle', populated)
++  assert.ok(populatedResult.ok, `a populated test_validity entry must validate: ${JSON.stringify(populatedResult.errors)}`)
++
++  const badClass = { ...base, test_validity: [{ test: 't', criterion: 'c', facts: {}, class: 'bogus' }] }
++  assert.ok(!validate('EvidenceBundle', badClass).ok, 'an invalid class value must fail validation')
++})
+diff --git a/substrate/test/b6-suite-hygiene.test.js b/substrate/test/b6-suite-hygiene.test.js
+new file mode 100644
+index 0000000..969b2e4
+--- /dev/null
++++ b/substrate/test/b6-suite-hygiene.test.js
+@@ -0,0 +1,106 @@
++// Tests for spec-wi-b6-test-validity-before-blame AC-16: this TestSet's own b6-*.test.js files resolve
++// repository paths only via process.cwd() or an existing extractor (extract-fixloop.js / fixloop-helpers.js
++// REPO), never by counting ".." from a test file's own location; none of them shells out to `npm test` or
++// spawns a child process; and any source-text wiring assertion uses the b5-wiring-helpers call-structure
++// helpers rather than a whole-file indexOf of a function name's first textual occurrence.
++//
++// Written from the spec ONLY, in the same self-inspecting style as the pre-existing
++// substrate/test/b5-suite-hygiene.test.js (which this file cannot modify — it is reused as-is per the
++// spec's exclusions — so a parallel b6- version covers the same property for this work item's own files).
++//
++// AC-16's "given" is tests "added under substrate/test/" — that is where this suite is landed once the
++// work item integrates. But per build-implement.js's per-round Test Runner (see fixloop-helpers.js's own
++// comment on REPO), THIS file runs earlier too: pointed straight at this TestSet directory, before any
++// landing step has copied its siblings into substrate/test/. A bare `substrate/test/` scan is therefore
++// empty in that pre-landing worktree — not because the siblings are missing, but because this file was
++// checking the wrong location for the stage it was actually running in. So this looks in EITHER place a
++// sibling b6-*.test.js can legitimately be at test-run time: the landed substrate/test/ directory, or this
++// TestSet's own directory (a literal repository-relative path — a known constant of this work item, not a
++// path counted with ".." from this file's own on-disk location, which the property below itself forbids).
++// Repository paths are resolved only via process.cwd() (through the existing REPO export of
++// fixloop-helpers.js) — never via import.meta.url or counting ".." from this file's own location.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { REPO } from './fixloop-helpers.js'
++
++const LANDED_TEST_DIR = path.join(REPO, 'substrate', 'test')
++const TESTSET_DIR = path.join(REPO, '.artifacts', 'tests', 'implement-test-validity-classification')
++const B6_PREFIX = 'b6-'
++
++function b6NamesIn(dir) {
++  if (!fs.existsSync(dir)) return []
++  return fs.readdirSync(dir).filter(name => name.startsWith(B6_PREFIX) && name.endsWith('.test.js'))
++}
++
++function b6TestFiles() {
++  const seen = new Set()
++  const files = []
++  for (const dir of [LANDED_TEST_DIR, TESTSET_DIR]) {
++    for (const name of b6NamesIn(dir)) {
++      if (seen.has(name)) continue
++      seen.add(name)
++      files.push(path.join(dir, name))
++    }
++  }
++  return files
++}
++
++test('AC-16: every b6-*.test.js file resolves repository paths only via process.cwd() or an imported existing helper, never by counting ".." from its own file location', () => {
++  const files = b6TestFiles()
++  assert.ok(files.length > 0, 'expected at least one b6-*.test.js file, landed in substrate/test/ or present in this TestSet directory')
++
++  for (const file of files) {
++    const text = fs.readFileSync(file, 'utf8')
++    assert.doesNotMatch(text, /fileURLToPath\(import\.meta\.url\)/,
++      `${path.basename(file)} must not derive a path from its own file location; use process.cwd() or an existing helper's export instead`)
++    assert.doesNotMatch(text, /path\.resolve\([^)]*'\.\.'[^)]*'\.\.'/,
++      `${path.basename(file)} must not count ".." twice from its own location to find the repo root`)
++    assert.doesNotMatch(text, /join\([^)]*__dirname[^)]*'\.\.'/,
++      `${path.basename(file)} must not walk up from __dirname to find the repo root`)
++  }
++})
++
++test('AC-16: no b6-*.test.js file shells out to npm test, spawns a child process, or dynamically executes a workflow file', () => {
++  const files = b6TestFiles()
++  assert.ok(files.length > 0)
++
++  for (const file of files) {
++    const text = fs.readFileSync(file, 'utf8')
++    assert.doesNotMatch(text, /(exec\w*|spawn\w*)\([^)]*npm\s+test/i,
++      `${path.basename(file)} must not shell out to "npm test"`)
++    assert.doesNotMatch(text, /from\s+['"]node:child_process['"]|require\(['"]\w*child_process['"]\)/,
++      `${path.basename(file)} must not import child_process`)
++    assert.doesNotMatch(text, /\b(child_process|execSync|spawnSync)\s*\.\s*\w+\(|^\s*(execSync|spawnSync|spawn|exec)\(/m,
++      `${path.basename(file)} must not shell out at all`)
++    assert.doesNotMatch(text, /import\([^)]*\.claude\/workflows/, `${path.basename(file)} must not dynamically import a workflow module`)
++    assert.doesNotMatch(text, /from\s+['"][^'"]*\.claude\/workflows[^'"]*\.js['"]/,
++      `${path.basename(file)} must not statically import a workflow module as executable code`)
++  }
++})
++
++test('AC-16: none of these files calls the CommonJS require function (this repo is ESM — "type": "module" — and calling it would crash the suite, not merely violate style)', () => {
++  const files = b6TestFiles()
++  assert.ok(files.length > 0)
++  for (const file of files) {
++    const text = fs.readFileSync(file, 'utf8')
++    const lines = text.split('\n').filter(l => !/^\s*\/\//.test(l))
++    const code = lines.join('\n')
++    assert.doesNotMatch(code, /\brequire\s*\(/, `${path.basename(file)} must not call the CommonJS require function in this ESM repo`)
++  }
++})
++
++test('AC-16: every b6-*.test.js file that inspects source-text CALL wiring imports the b5-wiring-helpers call-structure helpers rather than relying on a bare whole-file indexOf/search of a function name', () => {
++  const files = b6TestFiles()
++  assert.ok(files.length > 0)
++  const wiringFiles = files.filter(f => /wiring/.test(path.basename(f)))
++  assert.ok(wiringFiles.length > 0, 'expected at least one b6 wiring test file')
++  for (const file of wiringFiles) {
++    const text = fs.readFileSync(file, 'utf8')
++    assert.match(text, /from\s+['"]\.\/b5-wiring-helpers\.js['"]/, `${path.basename(file)} must import from ./b5-wiring-helpers.js`)
++    const imported = text.match(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/b5-wiring-helpers\.js['"]/)?.[1] ?? ''
++    assert.ok(/callSites|functionNamed|enclosingFunction|reachersOf|firstCallOf/.test(imported),
++      `${path.basename(file)} must import at least one call-structure helper (functionNamed/enclosingFunction/callSites/reachersOf/firstCallOf)`)
++  }
++})
+diff --git a/substrate/test/b6-test-validity-functions.test.js b/substrate/test/b6-test-validity-functions.test.js
+new file mode 100644
+index 0000000..e0ce662
+--- /dev/null
++++ b/substrate/test/b6-test-validity-functions.test.js
+@@ -0,0 +1,104 @@
++// Tests for spec-wi-b6-test-validity-before-blame's PURE `testValidity(facts)` function
++// (AC-1 through AC-5). Written from the spec (ledger/runs/k10/spec-wi-b6-test-validity-before-blame.json)
++// ONLY — every scenario below is transcribed from the acceptance criteria's own given/when/then, not
++// from reading the implementation.
++//
++// testValidity is declared inside the fix-loop decisions sentinel block (the same block the existing
++// seventeen decision functions live in), so it is extracted the same way AC-1 describes: cut the block
++// with extractBlock and evaluate it with `new Function`, exactly as substrate/test/extract-fixloop.js's
++// loadFixLoopDecisions already does for the seventeen. This file does its OWN `new Function` call (rather
++// than editing extract-fixloop.js, which AC-17 says must keep returning its seventeen unchanged) so it
++// asks for testValidity by name without assuming anything about the other functions' shape.
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++// Repository paths are resolved only through the existing extract-fixloop.js sentinel extractor, never by
++// counting ".." from this file's own location.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++function loadTestValidity() {
++  const { block } = extractBlock(readWorkflowText())
++  assert.ok(block, 'fix-loop decisions block must be extractable between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + '\nreturn { testValidity }')
++  const { testValidity } = factory()
++  assert.equal(typeof testValidity, 'function', 'testValidity must be declared inside the sentinel block')
++  return testValidity
++}
++
++test('AC-1: testValidity is a pure function declared in the sentinel block, taking one facts object and returning only test_defect/code_defect/unclear', () => {
++  const text = readWorkflowText()
++  const { block, beginCount, endCount } = extractBlock(text)
++  assert.equal(beginCount, 1, 'BEGIN sentinel line must appear exactly once')
++  assert.equal(endCount, 1, 'END sentinel line must appear exactly once')
++  assert.ok(block && block.includes('testValidity'), 'testValidity must be declared between the sentinel lines')
++
++  // Purity: no runtime handle crosses in. The whole block (not just testValidity's own body) must stay free
++  // of these tokens, exactly as AC-1 in the pre-existing fix-loop-decisions.test.js already requires for the
++  // seventeen decisions this function joins. Note: 'ctx.' is NOT one of these tokens — several of the
++  // pre-existing seventeen decisions (e.g. shouldEscalate) take a `ctx` parameter and reference it, and that
++  // is a plain function parameter, not a runtime handle crossing in from the workflow's closure; banning it
++  // would fail against the correct, unmodified pre-existing decisions this block already contains.
++  for (const token of ['args', 'agent(', 'parallel(', 'pipeline(', 'phase(', 'log(', 'budget.']) {
++    assert.ok(!block.includes(token), `the extractable block (including testValidity) must not reference "${token}"`)
++  }
++  assert.ok(!/\bawait\b/.test(block), 'the extractable block must not contain await')
++
++  const testValidity = loadTestValidity()
++  const VALID = new Set(['test_defect', 'code_defect', 'unclear'])
++  const samples = [
++    { locates_by_first_occurrence: true, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true },
++    { locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true },
++    {},
++  ]
++  for (const facts of samples) {
++    const result = testValidity(facts)
++    assert.ok(VALID.has(result), `testValidity(${JSON.stringify(facts)}) returned "${result}", not one of test_defect/code_defect/unclear`)
++  }
++})
++
++test('AC-2: a test that locates by first textual occurrence, or requires an unquoted literal, is a test_defect even when it names the criterion behaviour', () => {
++  const testValidity = loadTestValidity()
++  assert.equal(
++    testValidity({ locates_by_first_occurrence: true, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true }),
++    'test_defect',
++  )
++  assert.equal(
++    testValidity({ locates_by_first_occurrence: false, requires_unquoted_literal: true, fails_on_base_same_reason: false, names_criterion_behaviour: true }),
++    'test_defect',
++  )
++})
++
++test('AC-3: a test that fails on the task\'s base commit for the same reason, and does not describe the cited criterion\'s behaviour, is a test_defect', () => {
++  const testValidity = loadTestValidity()
++  assert.equal(
++    testValidity({ locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: true, names_criterion_behaviour: false }),
++    'test_defect',
++  )
++})
++
++test('AC-4: a test with none of the defect facts but that does name the criterion\'s behaviour is a code_defect', () => {
++  const testValidity = loadTestValidity()
++  assert.equal(
++    testValidity({ locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: true }),
++    'code_defect',
++  )
++})
++
++test('AC-5: with no established facts, testValidity never throws and never returns test_defect or code_defect — a missing or non-boolean fact never counts as true', () => {
++  const testValidity = loadTestValidity()
++  const scenarios = [
++    { locates_by_first_occurrence: false, requires_unquoted_literal: false, fails_on_base_same_reason: false, names_criterion_behaviour: false },
++    { fails_on_base_same_reason: true, names_criterion_behaviour: true, locates_by_first_occurrence: false, requires_unquoted_literal: false },
++    {},
++    null,
++    undefined,
++    { locates_by_first_occurrence: 'yes', requires_unquoted_literal: 1, fails_on_base_same_reason: 'yes', names_criterion_behaviour: 1 },
++  ]
++  for (const facts of scenarios) {
++    let result
++    assert.doesNotThrow(() => { result = testValidity(facts) }, `testValidity(${JSON.stringify(facts)}) must not throw`)
++    assert.equal(result, 'unclear', `testValidity(${JSON.stringify(facts)}) must be 'unclear', got "${result}"`)
++  }
++})
+diff --git a/substrate/test/b6-validity-wiring.test.js b/substrate/test/b6-validity-wiring.test.js
+new file mode 100644
+index 0000000..2dcef67
+--- /dev/null
++++ b/substrate/test/b6-validity-wiring.test.js
+@@ -0,0 +1,169 @@
++// Source-text wiring tests for spec-wi-b6-test-validity-before-blame (AC-6, AC-7, AC-8, AC-9, AC-10):
++// how the test-validity detector, testValidity's classification and the test_defect / code_defect /
++// unclear routing are wired into runTask in .claude/workflows/build-implement.js.
++//
++// Written from the spec (ledger/runs/k10/spec-wi-b6-test-validity-before-blame.json) ONLY, using
++// substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf,
++// firstCallOf) to assert CALLS and their order inside runTask — never the first textual occurrence of a
++// name anywhere in the file, which finds declarations and comments rather than calls (the exact trap the
++// harness warns this TestSet away from).
++//
++// Lands in substrate/test/ and runs under the repo's `npm test` (node --test "substrate/test/*.test.js").
++// Repository paths are resolved only through the existing extract-fixloop.js sentinel extractor, never by
++// counting ".." from this file's own location. No test here shells out to npm test or runs a workflow.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf } from './b5-wiring-helpers.js'
++
++test('AC-6: testValidity is called inside runTask, and its first call precedes every fix:${task.id} fixer agent call', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++
++  const validityCalls = callSites(text, 'testValidity', rt.bodyStart, rt.bodyEnd)
++  assert.ok(validityCalls.length > 0, 'expected at least one call to testValidity inside runTask\'s body')
++
++  // fix:${task.id} agent labels: found as the literal template prefix the spec itself quotes.
++  const fixLabelRe = /`fix:\$\{task\.id\}/g
++  const fixLabels = []
++  let m
++  while ((m = fixLabelRe.exec(text))) {
++    if (m.index > rt.bodyStart && m.index < rt.bodyEnd) fixLabels.push(m.index)
++  }
++  assert.ok(fixLabels.length > 0, 'expected at least one fix:${task.id} labelled agent call inside runTask (the existing code fixer)')
++
++  const firstValidityCall = Math.min(...validityCalls)
++  for (const label of fixLabels) {
++    assert.ok(firstValidityCall < label,
++      `the first testValidity( call (at ${firstValidityCall}) must precede every fix:\${task.id} agent label (found one at ${label})`)
++  }
++})
++
++test('AC-7: a test_defect classification is routed to testRepairTarget and a testfix:${task.id} agent labelled with AT(\'test-author\') and the TestRepair schema, never to a fix: fixer', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++
++  // Anchor on the literal 'test_defect' string testValidity returns (per AC-2/AC-3/AC-4), wherever runTask
++  // (or a function it reaches) branches on it.
++  const reach = reachersOf(text, 'testValidity')
++  const classLiteralRe = /'test_defect'/g
++  const hits = []
++  let m
++  while ((m = classLiteralRe.exec(text))) hits.push(m.index)
++  assert.ok(hits.length > 0, "expected the literal 'test_defect' to appear where the classification is branched on")
++
++  // At least one such branch point must live inside a function reachable from runTask (runTask itself or a
++  // helper it calls), and from there a call to testRepairTarget, and a testfix:${task.id} agent label with
++  // AT('test-author') and schema: TestRepair, must all be reachable — the EXISTING test-repair path AC-7
++  // says must be reused, never a fresh one.
++  const inReach = hits.filter(h => {
++    const fn = (() => { try { return enclosingFunction(text, h) } catch { return null } })()
++    return fn && reach.has(fn.name)
++  })
++  assert.ok(inReach.length > 0, "expected at least one 'test_defect' branch point inside a function reachable from runTask")
++
++  const testRepairCalls = callSites(text, 'testRepairTarget', rt.bodyStart, rt.bodyEnd)
++  assert.ok(testRepairCalls.length > 0, 'expected testRepairTarget to still be called (the EXISTING test-repair path, reused)')
++
++  const testfixLabelRe = /`testfix:\$\{task\.id\}/g
++  const testfixLabels = []
++  while ((m = testfixLabelRe.exec(text))) if (m.index > rt.bodyStart && m.index < rt.bodyEnd) testfixLabels.push(m.index)
++  assert.ok(testfixLabels.length > 0, 'expected at least one testfix:${task.id} labelled agent call inside runTask')
++
++  // Every testfix: call site must be an agent() call carrying AT('test-author') and schema: TestRepair
++  // somewhere in its own call (within a short window after the label, matching the existing call shape).
++  for (const label of testfixLabels) {
++    const window = text.slice(label, text.indexOf('})', label) + 2)
++    assert.match(window, /AT\('test-author'\)/, `testfix: call at ${label} must carry AT('test-author')`)
++    assert.match(window, /schema:\s*TestRepair/, `testfix: call at ${label} must carry schema: TestRepair`)
++  }
++})
++
++test('AC-8: exactly one validity:${task.id}:${tag} detector runs per round, only when the round\'s test results report failed > 0, on MODEL.cheap, with a tests[] schema of the four boolean facts, and its prompt forbids modifying the worktree or branch', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++
++  const labelRe = /`validity:\$\{task\.id\}:\$\{tag\}`/g
++  const labels = []
++  let m
++  while ((m = labelRe.exec(text))) labels.push(m.index)
++  assert.equal(labels.length, 1, `expected exactly one validity:\${task.id}:\${tag} agent label, found ${labels.length}`)
++  const label = labels[0]
++  assert.ok(label > rt.bodyStart && label < rt.bodyEnd, 'the validity: label must be inside runTask')
++
++  const callStart = text.lastIndexOf('agent(', label)
++  assert.ok(callStart > 0, 'expected an agent( call owning the validity: label')
++  const callEnd = text.indexOf('})', label) + 2
++  const call = text.slice(callStart, callEnd)
++
++  assert.match(call, /model:\s*MODEL\.cheap/, 'the detector must run on MODEL.cheap')
++  assert.match(call, /AT\('lens-correctness'\)|AT\('mechanical'\)/, "the detector must carry AT('lens-correctness') or AT('mechanical')")
++
++  const prompt = text.slice(callStart, label)
++  assert.match(prompt, /do not (create|edit|delete|modify)|no.*(worktree|branch)/i,
++    'the detector prompt must forbid modifying the task worktree or branch')
++  assert.match(prompt, /facts?\b/i, 'the detector prompt must ask for facts only')
++  assert.doesNotMatch(prompt, /return (a |the )?verdict/i, 'the detector must never be asked for a verdict')
++
++  // Schema: find the identifier passed as `schema:` on this call, then its object literal, and check for a
++  // `tests` array whose items require the four boolean facts plus test and criterion. The tests[] items may
++  // be declared inline, or the schema may point at a separately declared const (e.g. `items: SomeConst`) —
++  // in that case the fields live in that other declaration, not within a fixed window of the schema's own
++  // declaration, so both possible declarations are searched.
++  const schemaMatch = call.match(/schema:\s*([A-Za-z_$][\w$]*)/)
++  assert.ok(schemaMatch, 'expected a schema: <Identifier> on the validity: agent call')
++  const schemaName = schemaMatch[1]
++  const schemaDeclIdx = text.search(new RegExp(`const ${schemaName}\\s*=`))
++  assert.ok(schemaDeclIdx >= 0, `expected a declaration "const ${schemaName} ="`)
++  // The schema object is small; grab a generous window rather than brace-matching a const-initialized object.
++  let schemaText = text.slice(schemaDeclIdx, schemaDeclIdx + 1200)
++  assert.match(schemaText, /tests\s*:/, 'the schema must declare a tests array')
++
++  // If the tests[] array's `items` is a reference to another named const (rather than an inline object),
++  // resolve that identifier's own declaration and fold its text in too, so field checks see it regardless of
++  // whether the item shape is inlined or declared separately.
++  const itemsRefMatch = schemaText.match(/items\s*:\s*([A-Za-z_$][\w$]*)\s*[,}]/)
++  if (itemsRefMatch && itemsRefMatch[1] !== 'Object' && itemsRefMatch[1] !== 'Array') {
++    const itemsName = itemsRefMatch[1]
++    const itemsDeclIdx = text.search(new RegExp(`const ${itemsName}\\s*=`))
++    if (itemsDeclIdx >= 0) {
++      schemaText += '\n' + text.slice(itemsDeclIdx, itemsDeclIdx + 1200)
++    }
++  }
++
++  for (const field of ['test', 'criterion', 'locates_by_first_occurrence', 'requires_unquoted_literal', 'fails_on_base_same_reason', 'names_criterion_behaviour']) {
++    assert.match(schemaText, new RegExp(`\\b${field}\\b`), `the tests[] schema must require ${field}`)
++  }
++  assert.match(schemaText, /boolean/, 'the four facts must be typed boolean')
++
++  // Guard: the detector call must be conditioned on failed > 0. Look for a nearby reference to `.failed` in
++  // an `if` guard before the call.
++  const guardWindow = text.slice(Math.max(0, callStart - 500), callStart)
++  assert.match(guardWindow, /\.failed\s*>\s*0|failed\s*>\s*0/, 'the detector must be guarded by a round\'s failed > 0')
++})
++
++test('AC-9: the correctness lens prompt is told about test-defect repairs rather than fed those failures as findings', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const correctnessIdx = text.indexOf("lens('correctness'", rt.bodyStart)
++  assert.ok(correctnessIdx > 0 && correctnessIdx < rt.bodyEnd, 'expected the existing correctness lens call inside runTask')
++  // The correctness lens thunk must, somewhere between the detector call and the lens invocation, reference
++  // the test_validity/test_defect classification so a test under repair is named to the lens rather than
++  // silently included in its evidence.
++  const validityLabel = text.indexOf('`validity:${task.id}:${tag}`')
++  assert.ok(validityLabel > 0 && validityLabel < correctnessIdx,
++    'the validity: detector must run before the correctness lens is invoked in the same round')
++  const between = text.slice(validityLabel, correctnessIdx + 4000)
++  assert.match(between, /test_defect/, 'the correctness lens\'s evidence-building code must reference test_defect somewhere after classification')
++})
++
++test('AC-10: code_defect and unclear classifications still reach routeFinding and the fixer/testfix/dispute flow unchanged, and unclear is recorded', () => {
++  const text = readWorkflowText()
++  // routeFinding, the fixer path and disputesToJudge are pre-existing and must remain reachable/unchanged
++  // regardless of this change.
++  assert.match(text, /function routeFinding\(/, 'routeFinding must still exist')
++  assert.match(text, /function testRepairTarget\(/, 'testRepairTarget must still exist')
++  assert.match(text, /function disputesToJudge\(/, 'disputesToJudge must still exist')
++  assert.match(text, /'unclear'/, "the literal 'unclear' classification must appear (recorded, per AC-10)")
++  assert.match(text, /test_validity/, 'the run output must reference test_validity, where unclear classifications are recorded')
++})
+diff --git a/substrate/test/fixloop-helpers.js b/substrate/test/fixloop-helpers.js
+index a3986d6..616dbc8 100644
+--- a/substrate/test/fixloop-helpers.js
++++ b/substrate/test/fixloop-helpers.js
+@@ -1,14 +1,49 @@
++import fs from 'node:fs'
+ import path from 'node:path'
+ import { fileURLToPath } from 'node:url'
+ 
+-// Repository root, two levels up from substrate/test/.
++// Repository root — resolved from process.cwd(), NEVER by counting ".." segments from this file's own
++// location.
+ //
+-// The TestSet this came from hardcoded the worktree it was authored in
+-// (.artifacts/worktrees/task-wi-opp-p5-4-1), which is gitignored and dies with the container — the same
+-// disease as WorkItem.branch and EvidenceBundle.artifact_ref. A landed test must resolve against the
+-// repository it now lives in, never against the scratch directory it was born in.
++// This TestSet is authored under .artifacts/tests/implement-test-validity-classification/, which is
++// gitignored and dies with the container (CLAUDE.md's runtime note on .artifacts/). Worse, per
++// spec-wi-b6-test-validity-before-blame's own framing, during the fix loop's per-round Test Runner this
++// file's physical location never even changes: the Test Runner runs the tests AT this artifact path
++// while pointed AT the task's worktree (build-implement.js: "Run the tests at ${tests_ref} against the
++// app at ${wt}/${APP}/ ... npm ci there first"), i.e. it changes into the worktree and invokes the test
++// runner from there. So process.cwd() at test-run time is the worktree root (or, once landed, the
++// repository root a plain `npm test` is invoked from) — counting ".." from import.meta.url instead
++// resolves against wherever this FILE happens to sit (the committed pre-task repo, an unrelated
++// worktree, or nothing at all), never against the tree whose contracts.schema.json / COMPANY.md /
++// .claude/workflows/build-implement.js actually contain the change under test. That was the defect: it
++// always pointed at the pre-task commit and none of testValidity, citesFailingTest, fixRefused,
++// behaviour_changed or the b5-wiring-helpers rules existed there.
++//
++// Walk up from cwd (not sideways from this file) until BOTH repo markers are found, exactly like the
++// existing substrate/test/graph-lint-helpers.js findRepoRoot — reused here rather than reinvented, per
++// CLAUDE.md rule 3, because a hardcoded number of "up" hops breaks the moment this file's own depth
++// below the repo root differs between where it is authored and where it is run.
+ //
+ // Named fixloop-helpers.js rather than helpers.js because substrate/test/helpers.js already exists and
+ // means something else; the landing step refuses to overwrite it, which is correct, but a landed test whose
+ // helper is skipped resolves its import to the WRONG module and breaks. Renaming is the resolution.
+-export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
++//
++// Integration k11: cwd is searched FIRST (the fix-loop case above), but a suite invoked from outside any
++// repository (e.g. `node --test /abs/path/substrate/test/x.test.js` from /tmp) previously resolved fine by
++// file location, so when no repo lies above cwd we fall back to walking up from this file's own directory —
++// still by marker files, never by a fixed count of ".." hops.
++function findRepoRoot(startDir) {
++  let dir = path.resolve(startDir)
++  for (;;) {
++    if (fs.existsSync(path.join(dir, 'contracts.schema.json')) && fs.existsSync(path.join(dir, 'COMPANY.md'))) {
++      return dir
++    }
++    const parent = path.dirname(dir)
++    if (parent === dir) return null
++    dir = parent
++  }
++}
++
++const HERE = path.dirname(fileURLToPath(import.meta.url))
++export const REPO = findRepoRoot(process.cwd()) ?? findRepoRoot(HERE)
++if (!REPO) throw new Error(`repository root not found above ${process.cwd()} or ${HERE}`)

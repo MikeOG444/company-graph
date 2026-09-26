@@ -388,7 +388,9 @@ test('AC-14: both testfix: prompts point at testRepairTarget\'s ref, the fixed t
   const text = readWorkflowText()
 
   const testfixLabels = [...text.matchAll(/label:\s*`testfix:/g)]
-  assert.equal(testfixLabels.length, 2, 'expected exactly two testfix: agent call sites')
+  // Two at this spec; B6 (k11d) added two more (validity re-route and refused-fix re-route). Every one of them
+  // must still target testRepairTarget's ref and keep independence, which the loop below checks for all.
+  assert.ok(testfixLabels.length >= 2, 'expected at least the two original testfix: agent call sites')
 
   const targetAssign = text.match(/(\w+)\s*=\s*testRepairTarget\(/)
   assert.ok(targetAssign, 'expected an assignment of the form "<name> = testRepairTarget("')
@@ -408,7 +410,8 @@ test('AC-14: both testfix: prompts point at testRepairTarget\'s ref, the fixed t
     assert.ok(call, 'expected to extract the full agent(...) call for this testfix label')
     const window = text.slice(call.start, call.end)
     assert.ok(window.includes(`\${${varName}.ref}`), `each testfix prompt must interpolate \${${varName}.ref}`)
-    assert.match(window, /do not read or modify the implementation/,
+    // Whitespace-insensitive: a prompt reflowed across lines says the same thing to the Test Author (k11d).
+    assert.match(window.replace(/\s+/g, ' '), /do not read or modify the implementation/,
       'each testfix prompt must still tell the Test Author not to read or modify the implementation')
   }
 })

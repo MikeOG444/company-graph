@@ -1,0 +1,521 @@
+{
+  "entry": {
+    "id": "k17-build-implement",
+    "run_id": "k17",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T20:28:29.829Z",
+    "finished_at": "2026-09-26T21:25:47.000Z",
+    "wall_clock_sec": 3437,
+    "result_ref": "ledger/runs/k17-build-implement.json",
+    "artifact_count": 7,
+    "escalations": 1,
+    "tokens": 1540266,
+    "tokens_by_model": {
+      "claude-sonnet-5": 964651,
+      "claude-haiku-4-5": 558382,
+      "claude-opus-5-5": 17233
+    },
+    "cost_est_usd": 3.58,
+    "agents": 42,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k17",
+      "created_at": "2026-09-26T20:27:50Z"
+    },
+    "trace_ref": ".artifacts/traces/k17-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k17",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "no task passed",
+    "specs": [
+      "spec-wi-c13-b7-small-line-fixes"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Validate HIGH_REF regex changes correctly exclude author-related terms while maintaining other sensitive-term detection — regex uses negative lookahead (?!or\\b|ored\\b|ority\\b) after auth at word boundary, correctly rejecting test-author while matching authentication and authorization",
+              "Validate changeScopedCriteria function and Test Author prompt integration — function correctly matches PANEL_PHRASES against criterion THEN text, restricts results to task.criteria_ids, and prompt contains explicit instruction not to write tests for change-scoped criteria",
+              "Validate testFileBasename normalizer and dual-function integration — function correctly normalizes paths by trimming, removing parenthetical notes via regex, and returning basename; both unaccountedTestFiles and unlandedRepairs call it; no forbidden modules imported"
+            ],
+            "findings": [
+              {
+                "id": "F1",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/b8-AC-12-no-other-changes.test.js:55",
+                "claim": "The diff modifies a file outside the spec's touched_surfaces permission envelope",
+                "evidence": "The patch modifies substrate/test/b8-AC-12-no-other-changes.test.js at lines 55-57, updating the build-spec.js hash from the old value to 7765e9a... This file is not listed in spec.touched_surfaces, which explicitly restricts changes to only .claude/workflows/build-spec.js and .claude/workflows/build-implement.js. The spec note states 'substrate/test removed from touched_surfaces' confirming this file is outside the permission envelope.",
+                "dedupe_key": "substrate/test/b8-AC-12-no-other-changes.test.js:55|modifies file outside touched_surfaces",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.92,
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Regex injection through testFileBasename() parenthetical removal: tested path traversal and nested parenthetical payloads; function safely extracts only basename with no code execution or shell context",
+              "Code execution through changeScopedCriteria() and PANEL_PHRASES regexes: analyzed for ReDoS patterns, tested prompt injection via JSON-stringified criterion IDs; hardcoded regexes use only test() method, no exec() or code evaluation",
+              "Risk classification bypass via HIGH_REF negative lookahead: traced lookahead logic to confirm authn/authz/authenticate/authorize are still detected while author/authored/authority are excluded per spec AC-1 through AC-5"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Simplify HIGH_REF regex from /\\bauth(?!or\\b|ored\\b|ority\\b)\\w*|/ to /\\bauth\\w*|/ — this would cause codeRisk to incorrectly flag 'test-author.md' (AC-1) and other author-related paths (AC-3) as sensitive, but AC-2 would still pass. Without dedicated AC-1 and AC-3 tests, this regression would not be caught.",
+              "Attempt 2: Remove testFileBasename normalization from unaccountedTestFiles by deleting the .map(testFileBasename) calls — this would break the AC-12 test case where tests_skipped contains 'b.test.js (already exists)' and would return ['b.test.js (already exists)'] instead of treating it as 'b.test.js'. Without an AC-12 test, this normalization failure would not be caught.",
+              "Attempt 3: Remove the negative lookahead entirely from HIGH_REF to create /\\bauth\\w*|token|.../ — this breaks the boundary between authentication-related terms (which should match) and author-related terms (which should not). AC-2 would still pass since 'authentication' contains 'auth', but neither AC-1 (author should not match) nor AC-3 (explicit boundary test) would catch the regression because those tests do not exist."
+            ],
+            "findings": [
+              {
+                "id": "finding-1-ac1-missing-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-1-author-not-flagged.test.js)",
+                "claim": "AC-1 criterion has no test: codeRisk must return empty array for '.claude/agents/test-author.md' but no test verifies this negative case",
+                "evidence": "Glob pattern search for k17-AC-1*.test.js returns no files. AC-1 spec requires testing that refs naming 'author'/'authored'/'authority' are NOT flagged, but the existing k17-AC-2-still-flags-auth-terms.test.js only tests that actual auth terms ARE flagged, not the boundary case.",
+                "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-1-missing-test-for-author-exclusion",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "finding-2-ac3-missing-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-3-boundary-terms.test.js)",
+                "claim": "AC-3 criterion has no test: boundary test for HIGH_REF must verify authn/authenticate/authorized match while author/authored/authority/test-author do not",
+                "evidence": "No k17-AC-3*.test.js file exists. AC-3 spec explicitly requires testing refs like 'lib/authn.js', 'src/authenticate.js', 'docs/authorisation.md' (should match) against 'docs/author.md', 'src/authored.js', '.claude/agents/test-author.md' (should not match). This comprehensive boundary test is missing.",
+                "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-3-missing-boundary-test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "finding-3-ac12-missing-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-12-unaccounted-already-exists.test.js)",
+                "claim": "AC-12 criterion has no test: unaccountedTestFiles must handle lander-shape with tests_skipped entries like 'b.test.js (already exists)' but no dedicated test verifies this normalization",
+                "evidence": "No k17-AC-12*.test.js file exists. AC-13 test covers directory-carrying entries but does not test the specific (already exists) case from AC-12 spec: tests_skipped ['b5-wiring-helpers.js (already exists)', 'b.test.js (already exists)'] should result in unaccountedTestFiles returning []. The parenthetical normalization case is untested.",
+                "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-12-missing-test-for-already-exists",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "finding-4-ac14-missing-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-14-unlanded-repairs-basename-match.test.js)",
+                "claim": "AC-14 criterion has no test: unlandedRepairs must match tests_skipped entries with (already exists) notes to repairs by basename, but no behavioral test verifies this matching logic",
+                "evidence": "No k17-AC-14*.test.js file exists. AC-15 test only verifies wiring (that unlandedRepairs calls testFileBasename) but does not test the behavior: with repaired_tests [{ source: 'tests_ref', ref: '.artifacts/tests/t1/ci-workflow.test.js' }] and tests_skipped ['ci-workflow.test.js (already exists)'], unlandedRepairs should identify the match. The behavioral test is missing.",
+                "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-14-missing-test-for-unlanded-repairs",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F1",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/b8-AC-12-no-other-changes.test.js:55",
+            "claim": "The diff modifies a file outside the spec's touched_surfaces permission envelope",
+            "evidence": "The patch modifies substrate/test/b8-AC-12-no-other-changes.test.js at lines 55-57, updating the build-spec.js hash from the old value to 7765e9a... This file is not listed in spec.touched_surfaces, which explicitly restricts changes to only .claude/workflows/build-spec.js and .claude/workflows/build-implement.js. The spec note states 'substrate/test removed from touched_surfaces' confirming this file is outside the permission envelope.",
+            "dedupe_key": "substrate/test/b8-AC-12-no-other-changes.test.js:55|modifies file outside touched_surfaces",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "finding-1-ac1-missing-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-1-author-not-flagged.test.js)",
+            "claim": "AC-1 criterion has no test: codeRisk must return empty array for '.claude/agents/test-author.md' but no test verifies this negative case",
+            "evidence": "Glob pattern search for k17-AC-1*.test.js returns no files. AC-1 spec requires testing that refs naming 'author'/'authored'/'authority' are NOT flagged, but the existing k17-AC-2-still-flags-auth-terms.test.js only tests that actual auth terms ARE flagged, not the boundary case.",
+            "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-1-missing-test-for-author-exclusion",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "finding-2-ac3-missing-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-3-boundary-terms.test.js)",
+            "claim": "AC-3 criterion has no test: boundary test for HIGH_REF must verify authn/authenticate/authorized match while author/authored/authority/test-author do not",
+            "evidence": "No k17-AC-3*.test.js file exists. AC-3 spec explicitly requires testing refs like 'lib/authn.js', 'src/authenticate.js', 'docs/authorisation.md' (should match) against 'docs/author.md', 'src/authored.js', '.claude/agents/test-author.md' (should not match). This comprehensive boundary test is missing.",
+            "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-3-missing-boundary-test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "finding-3-ac12-missing-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-12-unaccounted-already-exists.test.js)",
+            "claim": "AC-12 criterion has no test: unaccountedTestFiles must handle lander-shape with tests_skipped entries like 'b.test.js (already exists)' but no dedicated test verifies this normalization",
+            "evidence": "No k17-AC-12*.test.js file exists. AC-13 test covers directory-carrying entries but does not test the specific (already exists) case from AC-12 spec: tests_skipped ['b5-wiring-helpers.js (already exists)', 'b.test.js (already exists)'] should result in unaccountedTestFiles returning []. The parenthetical normalization case is untested.",
+            "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-12-missing-test-for-already-exists",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "finding-4-ac14-missing-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-14-unlanded-repairs-basename-match.test.js)",
+            "claim": "AC-14 criterion has no test: unlandedRepairs must match tests_skipped entries with (already exists) notes to repairs by basename, but no behavioral test verifies this matching logic",
+            "evidence": "No k17-AC-14*.test.js file exists. AC-15 test only verifies wiring (that unlandedRepairs calls testFileBasename) but does not test the behavior: with repaired_tests [{ source: 'tests_ref', ref: '.artifacts/tests/t1/ci-workflow.test.js' }] and tests_skipped ['ci-workflow.test.js (already exists)'], unlandedRepairs should identify the match. The behavioral test is missing.",
+            "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-14-missing-test-for-unlanded-repairs",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Trace HIGH_REF regex /\\bauth(?!or\\b|ored\\b|ority\\b)\\w*|token|secret|credential|password|payment|billing|migrat/i against test boundary cases (AC-1,AC-3): author/authored/authority correctly excluded via negative lookahead; authn/authenticate(d)/authorisation/AUTH correctly matched. Tests AC-1,AC-2,AC-3,AC-4 all pass.",
+              "Verify testFileBasename normalizer edge cases: AC-11 tests 'x.js (already exists)','dir/x.js','substrate/test/x.js (skipped: exists)','  x.js  ' all return 'x.js'; AC-12 tests parenthetical reconciliation; AC-13 tests directory handling and missing file detection. All three pass.",
+              "Verify changeScopedCriteria implementation and wiring: AC-6 block evaluates cleanly; AC-7 correctly identifies change-scoped criteria; AC-8 handles empty/undefined; AC-9 recognizes six PANEL_PATTERNS phrases; AC-10 wiring into Test Author prompt correct with guard instructions. All pass."
+            ],
+            "findings": [
+              {
+                "id": "AC-14-no-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-14-*.test.js)",
+                "claim": "AC-14 criterion has no test to verify unlandedRepairs normalizes trailing parentheticals in tests_skipped entries",
+                "evidence": "No k17-AC-14-*.test.js file exists in the worktree. The spec requires: 'unlandedRepairs...called with tests_skipped [\"ci-workflow.test.js (already exists)\"]...returns a one-element list naming ci-workflow.test.js'. The implementation was modified to use testFileBasename normalizer (visible in diff lines 25-31 of build-implement.js), but no test verifies this specific behavior with parentheticals. The test coverage report lists AC-1..AC-13 and AC-15 only; AC-14 is absent. The preexisting test at dispute-unruled.test.js line 285-297 does not test with parentheticals.",
+                "target": "test",
+                "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-14 has no test",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "AC-14-no-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-14-*.test.js)",
+            "claim": "AC-14 criterion has no test to verify unlandedRepairs normalizes trailing parentheticals in tests_skipped entries",
+            "evidence": "No k17-AC-14-*.test.js file exists in the worktree. The spec requires: 'unlandedRepairs...called with tests_skipped [\"ci-workflow.test.js (already exists)\"]...returns a one-element list naming ci-workflow.test.js'. The implementation was modified to use testFileBasename normalizer (visible in diff lines 25-31 of build-implement.js), but no test verifies this specific behavior with parentheticals. The test coverage report lists AC-1..AC-13 and AC-15 only; AC-14 is absent. The preexisting test at dispute-unruled.test.js line 285-297 does not test with parentheticals.",
+            "target": "test",
+            "dedupe_key": ".artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-14 has no test",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "confidence": 0.92,
+            "attempts": [
+              "Attack 1: Verify HIGH_REF negative lookahead correctly excludes author/authored/authority (not authoritarians). The regex /\\bauth(?!or\\b|ored\\b|ority\\b)\\w*|.../ properly uses word boundaries to match only the exact exclusion words. Tests AC-1 (author unmatched), AC-3 (boundary group testing), and AC-2 (auth terms matched) all pass, confirming the negative lookahead works correctly for both matched auth-related terms and unmatched author-related terms.",
+              "Attack 2: Verify testFileBasename correctly normalizes all input variations for lander reconciliation. The function strips parentheticals with (/\\s*\\([^)]*)\\)\\s*$/) then extracts basename by splitting on /. All test cases in AC-11 pass (including 'x.js (already exists)', 'dir/x.js', multipath entries, and whitespace), and AC-12/AC-13 verify it integrates correctly with unaccountedTestFiles to eliminate false positives from skip notes.",
+              "Attack 3: Verify changeScopedCriteria correctly identifies change-scoped criteria and filters to task.criteria_ids. The function matches THEN text against PANEL_PHRASES for all six phrases (byte-identical, to before, changed paths, is/are added/removed/upgraded, unmodified, unchanged). AC-7 verifies filtering of behavioral criteria (AC-2 'the returned list contains x.js' excluded), AC-8 handles empty/undefined, AC-9 verifies all six PANEL_PATTERNS phrases, and AC-10 confirms wiring into Test Author prompt with correct task.criteria_ids filtering."
+            ],
+            "findings": [],
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      },
+      {
+        "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Regex injection and boundary testing of HIGH_REF: verified negative lookahead correctly excludes author/authored/authority while preserving authn/authz/authenticate/authorization detection; filenames matched against hardcoded regex, never used to construct it",
+              "Code injection via panelCriteriaIds interpolation: criterion IDs JSON.stringify'd before template insertion, all special characters safely escaped, no code execution possible",
+              "Path traversal in testFileBasename normalizer: function extracts basename only, directory prefixes and traversal attempts cannot escape, safely used in set membership reconciliation checks",
+              "ReDoS prevention in PANEL_PHRASES regexes: all six patterns use fixed atoms or optional groups with no nested quantifiers, no catastrophic backtracking risk even with large inputs",
+              "Test file normalization and set reconciliation logic: verified testFileBasename correctly handles both directory-carrying found entries and parenthetical-carrying skipped entries, no false positive/negative unaccounted files"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "impl-c13-b7-small-line-fixes-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k17",
+              "created_at": "2026-09-26T20:27:50Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 0,
+      "failed": 0,
+      "results_ref": ""
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "test_validity": [
+      {
+        "test": "substrate/test",
+        "criterion": "AC-6, AC-7, AC-8, AC-9",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": false
+        },
+        "class": "unclear"
+      }
+    ],
+    "import_escapes": [
+      {
+        "round": 1,
+        "file": "extract-fixloop.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-1-author-not-flagged.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-10-wiring-test-author-prompt.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-10-wiring-test-author-prompt.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-11-basename-normaliser.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-12-unaccounted-already-exists.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-13-unaccounted-directories-and-missing.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-14-unlanded-repairs-basename-match.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-15-shared-normaliser-and-purity.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-15-shared-normaliser-and-purity.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-2-still-flags-auth-terms.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-3-boundary-terms.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-4-other-sensitive-terms-intact.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-5-schema-infra-config.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-6-block-evaluates-cleanly.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-7-change-scoped-basic.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-8-change-scoped-empty.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-AC-9-panel-patterns-parity.test.js",
+        "specifier": "./k17-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-helpers.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k17-helpers.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "substrate/test/b6-schema-additions.test.js",
+        "specifier": "../lib/contracts.js"
+      },
+      {
+        "round": 2,
+        "file": "substrate/test/deploy.test.js",
+        "specifier": "../lib/deploy-metrics.js"
+      },
+      {
+        "round": 2,
+        "file": "substrate/test/finding-target-contract.test.js",
+        "specifier": "../lib/contracts.js"
+      },
+      {
+        "round": 2,
+        "file": "substrate/test/validator.test.js",
+        "specifier": "../lib/contracts.js"
+      }
+    ],
+    "boundary_repairs": [],
+    "escalations": [
+      {
+        "task_id": "impl-c13-b7-small-line-fixes",
+        "reason": "no_fresh_findings",
+        "history": [
+          "impl-c13-b7-small-line-fixes touched substrate/test/b8-AC-12-no-other-changes.test.js, which no task in the graph owns",
+          "r1: 17 TestSet file(s) imported outside /home/user/company-graph/.artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test/k17-AC-9-panel-patterns-parity.test.js; routed to the Test Author and this round's run marked invalid",
+          "r1 [spec_conformance,security,correctness]: fail (5 findings)",
+          "r1: deferred 1 findings past the fixer cap: finding-4-ac14-missing-test",
+          "r1: overruled spec_conformance at substrate/test/b8-AC-12-no-other-changes.test.js:55 (judge: updating the pinned build-spec.js hash is the minimal edit needed to keep the suite green under AC-16, so the exclusions clause allows it)",
+          "r1: overruled correctness at .artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test (missing k17-AC-3-boundary-terms.test.js) (judge: k17-AC-3-matched-and-unmatched-groups.test.js exists and covers AC-3's given/when/then)",
+          "r1: 2 test finding(s) repaired by the Test Author",
+          "r2: 4 TestSet file(s) imported outside .artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test; routed to the Test Author and this round's run marked invalid",
+          "r2 [correctness]: fail (1 findings)",
+          "r2: 1 test finding(s) repaired by the Test Author",
+          "r3: 1 failing test(s) classified unclear — reaching correctness as today",
+          "r3 [correctness]: pass (0 findings)",
+          "r3: confirming security",
+          "r3c [security]: pass (0 findings)",
+          "r3c: panel is green but 1 earlier finding(s) were never fixed or overruled (.artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test|AC-14-missing-test-for-unlanded-repairs) — escalating instead of passing on a lens's silence"
+        ],
+        "repeats": [],
+        "hypothesis": "The one open finding (finding-4, AC-14 'missing test') looks false in the same way as the AC-3 finding the judge overruled: /home/user/company-graph/.artifacts/worktrees/impl-c13-b7-small-line-fixes/substrate/test/k17-AC-14-unlanded-repairs-parenthetical.test.js exists and asserts AC-14's exact given/when/then, including the 'x.js (already exists)' match, the finding_location exclusion and empty inputs returning []. The lens only looked for a file named '...-basename-match'. Because the finding was deferred past the r1 fixer cap, no fixer or judge ever disputed or overruled it, and the green r3/r3c panels cannot close it. The loop therefore has no route to resolve it and escalates on silence. Separately, the human should audit an item the judge overruled: this task edited substrate/test/b8-AC-12-no-other-changes.test.js, outside touched_surfaces and outside every task's ownership, to re-pin the build-spec.js hash. The judge allowed it under the exclusions' 'needed to keep the suite green' carve-out.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 364981,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k17",
+      "created_at": "2026-09-26T20:27:50Z"
+    }
+  }
+}

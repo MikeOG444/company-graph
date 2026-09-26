@@ -1,0 +1,628 @@
+{
+  "entry": {
+    "id": "k8-build-spec",
+    "run_id": "k8",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-26T03:08:41.333Z",
+    "finished_at": "2026-09-26T03:12:02.000Z",
+    "wall_clock_sec": 201,
+    "result_ref": "ledger/runs/k8-build-spec.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 116457,
+    "tokens_by_model": {
+      "claude-opus-5-5": 72922,
+      "claude-haiku-4-5": 43535
+    },
+    "cost_est_usd": 0.47,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k8",
+      "created_at": "2026-09-26T03:08:23Z"
+    },
+    "trace_ref": ".artifacts/traces/k8-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-b5-sibling-value-repair",
+          "work_item_id": "wi-b5-sibling-value-repair",
+          "goal": "When a task needs a value that a parallel sibling creates, the fix should cost no human turn. Today boundaryCheck in .claude/workflows/build-implement.js detects the stray, but the only response is escalateBoundaryViolation, a strong-tier Escalation that a human then has to direct-drive (run k7, wi-a5, task t2 into t1's .claude/agents/). This change adds four things. (1) A pure, zero-token repair decision inside the fix-loop sentinel block, consulted at both boundary call sites. It discards the stray branch, waits for the owning siblings, and re-runs the strayer's implementer once on a fresh branch based on the owners' finished branches. It escalates only in named cases, and every attempt is recorded in the run output. (2) An optional ChangeSet.needs_from_sibling field that lets the implementer ask for a sibling's value instead of inventing it. The field is routed to the same decision before any lens, test runner, fixer or empty-diff gate. (3) A sixth graph-lint check in .claude/workflows/build-spec.js that catches a criterion coupling two tasks' owned paths when no depends_on path joins those tasks. (4) Two Integrate fixes: with zero passing tasks, neither integrate nor integrate:resolve runs, and the unaccounted-TestSet reconciliation counts only files from TestSet paths that were actually asked to land. The whole change is ONE implementation task that owns every touched surface below. Each run executes the committed copy of build-implement.js, so a split into two tasks would expose the run that builds this fix to the failure it fixes.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "the fix-loop decision block of .claude/workflows/build-implement.js, extracted from the whole-line sentinels '// ---- BEGIN fix-loop decisions ----' / '// ---- END fix-loop decisions ----' and evaluated with new Function (the substrate/test/extract-fixloop.js idiom)",
+              "when": "the block is evaluated and asked to return boundaryRepair and unaccountedTestFiles along with every function it exposes today (scopeOf ... fixOutcome, disputesToJudge, resolveRound, roundOutcome, testRepairTarget, unlandedRepairs)",
+              "then": "it evaluates without throwing and every named function is present. Neither new function's body refers to agent, log, args, A., phase, parallel, pipeline, budget, Date.now, Math.random, require, import, fs or a shell call",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "boundaryRepair({ task_id: 't2', strays: [{ref: '.claude/agents/x.md', owner: 't1'}], needs_from_sibling: [], siblings: [{id: 't1', owned_surfaces: [{kind: 'path', ref: '.claude/agents/'}]}], repair_used: false, violations: [], waiting_on: {}, owner_results: undefined })",
+              "when": "it is called before the owner has finished (owner_results absent)",
+              "then": "it returns { action: 'wait', owners: ['t1'] }. The owners list is deduplicated and in first-seen order: twelve strays all owned by t1 still yield owners ['t1']",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "the same inputs as AC-2 plus owner_results: { t1: { passed: true, branch: 'task/t1' } }",
+              "when": "boundaryRepair is called",
+              "then": "it returns action 'rerun' with owners ['t1'], base_branch 'task/t1' and merge_branches []. With two owners t1 and t3 that both passed, base_branch is the first owner's branch and merge_branches holds the other owner's branch",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a strayer whose owner_results contain an owner with passed !== true, or no entry at all for one owner",
+              "when": "boundaryRepair is called",
+              "then": "it returns action 'escalate' with reason 'owner_failed' and names the owners",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "repair_used: true (this task already spent its one repair) and strays or needs that are otherwise repairable",
+              "when": "boundaryRepair is called, with or without owner_results",
+              "then": "it returns action 'escalate' with reason 'repair_used' and never 'wait' or 'rerun'",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "a mutual case, in either of two shapes: (a) violations contains { straying_task_id: 't1', strays: [{ref, owner: 't2'}] }, meaning the owner t1 has itself strayed into t2; or (b) waiting_on maps 't1' to a list that includes 't2', meaning t1 awaits t2 through a depends_on chain or an active repair wait",
+              "when": "boundaryRepair is called for strayer t2 with owner t1",
+              "then": "it returns action 'escalate' with reason 'mutual' before any 'wait', so the script never awaits a sibling that is awaiting it",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "needs_from_sibling: [{surface: '.claude/agents/x.md', what: 'agentType names'}] with no strays, where sibling t1 owns '.claude/agents/'",
+              "when": "boundaryRepair is called without owner_results and then with owner_results { t1: { passed: true, branch: 'task/t1' } }",
+              "then": "it returns 'wait' with owners ['t1'], then 'rerun' with base_branch 'task/t1'. If any needs_from_sibling surface is owned by no sibling (withinOwned over every sibling's owned_surfaces), it returns action 'escalate' with reason 'need_unowned'. With no strays and an empty needs_from_sibling it returns action 'proceed'",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "the settled-ChangeSet boundary call site (the boundaryCheck( call after 'let changeSet1 = cs') and the round-level call site (the boundaryCheck( call after 'ctx.changeSet = { ...merged')",
+              "when": "the source text of .claude/workflows/build-implement.js is read",
+              "then": "a violation verdict at EACH site calls boundaryRepair( before escalateBoundaryViolation can be reached. A wiring test that removes either call must fail. The existing boundary-wiring.test.js assertions (AC-4 and AC-6 there: 'violation', 'passed: false', 'escalations.push', an existing reason value and owner wording near each site) still pass",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the wiring for a 'rerun' decision in build-implement.js",
+              "when": "the source text is read",
+              "then": "the re-run is an agent() call whose label uses the existing impl: prefix (for example `impl:${task.id}:repair`), so boundary-wiring.test.js AC-18's known-prefix list still holds. It creates a NEW branch that is not task/<task.id> (for example task/<task.id>-repair) in a new worktree, based on the decision's base_branch. It merges merge_branches and the task's original dependency branches before implementing. It reports base_commit as the sha after those merges, so the diff contains only the strayer's own work. The original task/<task.id> branch is never passed to integration",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "a task that strayed, was repaired, and then passed its panel",
+              "when": "the task result reaches Integrate",
+              "then": "the result's branch field is the fresh repair branch, and passingBranches merges that branch rather than task/<task.id>",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "the re-run's ChangeSet",
+              "when": "it returns",
+              "then": "boundaryCheck runs again on the new ChangeSet and boundaryRepair is consulted with repair_used true. So a second stray, or a non-empty needs_from_sibling, escalates through the existing escalateBoundaryViolation path with the existing Escalation shape and an existing reason value. A clean or unowned result proceeds to the panel with no extra escalate: call",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "a strayer that must wait on its owners",
+              "when": "the wiring awaits the owners",
+              "then": "it awaits the owners' existing taskDone promises (no new polling, no timer). Before awaiting, it records the strayer's owners in a run-level waiting registry, and it removes them after the wait. The waiting_on argument passed to boundaryRepair is built from that registry plus the transitive depends_on of each sibling",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "any repair attempt (wait, rerun or escalate reached through boundaryRepair)",
+              "when": "the workflow returns its EvidenceBundle-shaped output",
+              "then": "the output carries a boundary_repairs array. It has one entry per attempt, of shape { strayer, owners, base_branch, outcome }, where outcome is one of 'repaired', 'strayed_again', 'owner_failed', 'mutual', 'repair_used' or 'need_unowned', and base_branch is '' when none was chosen. The array is [] when no task strayed",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "the ChangeSet definition in contracts.schema.json and the inlined ChangeSet in build-implement.js",
+              "when": "both are read",
+              "then": "both declare an optional needs_from_sibling array. Each item is an object with additionalProperties false, required ['surface', 'what'], surface a string (repository-relative path) and what a string. The field is not in either object's required list. ChangeSet keeps additionalProperties false, and every other ChangeSet property and every other contract, including Escalation's five-value reason enum, is unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "the implementer agent() prompt in build-implement.js and .claude/agents/implementer.md",
+              "when": "both texts are read",
+              "then": "the prompt interpolates the sibling tasks' ids and owned_surfaces. Both texts say never to write inside a sibling's owned surfaces, and that when the task needs a value a sibling creates, the implementer returns needs_from_sibling instead of inventing the value. implementer.md still satisfies every assertion in substrate/test/AC-17-implementer-boundary-doc.test.js",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "the settled path in runTask",
+              "when": "the source text is read",
+              "then": "a non-empty needs_from_sibling on the implementer's ChangeSet is routed to boundaryRepair BEFORE the emptyDiffAction loop and before any run:, lens:, scope: or fix: label, because an implementer that asks instead of inventing may legitimately return an empty diff",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "the build-spec.js graph-lint block extracted between '// ---- BEGIN graph-lint ----' / '// ---- END graph-lint ----'",
+              "when": "it is evaluated and asked for checkCriterionCoupling",
+              "then": "the function exists and is pure, with the same shape as the other checks: ({ spec, graph }) returning { violations, warnings }. lintGraph includes its violations in violations, so gate_required becomes true when it fires. The block's header comment lists six checks",
+              "testable": true
+            },
+            {
+              "id": "AC-18",
+              "given": "a spec whose criterion AC-1 names 'a/x.js' and 'b/y.js', with task t1 owning 'a/x.js', task t2 owning 'b/y.js', and no depends_on between them",
+              "when": "checkCriterionCoupling runs",
+              "then": "it returns exactly one violation { check: 'criterion_coupling', criterion: 'AC-1', tasks: ['t1', 't2'], paths: { t1: ['a/x.js'], t2: ['b/y.js'] } }. When t2 depends_on t1, or depends on it transitively through a third task, or t1 depends on t2, it returns no violation",
+              "testable": true
+            },
+            {
+              "id": "AC-19",
+              "given": "a criterion that names paths owned by only one task, a path owned by no task, or no path at all",
+              "when": "checkCriterionCoupling runs",
+              "then": "it returns no criterion_coupling violation and no warning of its own. Only a path a task OWNS (withinOwned over that task's owned_surfaces) counts, so it never repeats the criterion_reachability false positive. Every existing substrate/test/graph-lint.test.js assertion still passes, including the zero-violation fixtures",
+              "testable": true
+            },
+            {
+              "id": "AC-20",
+              "given": "a build-implement run in which no task passed",
+              "when": "Integrate executes",
+              "then": "neither the 'integrate' agent nor the 'integrate:resolve' agent is called. A log line says there is no passing task and nothing to integrate. The returned output has suite { passed: 0, failed: 0, results_ref: '' }, tests_landed [], tests_skipped [] and an artifact_ref that says no task passed (not a merged branch name). The guard is a check on passing.length that sits before the 'integrate' agent() call in the source text",
+              "testable": true
+            },
+            {
+              "id": "AC-21",
+              "given": "unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped })",
+              "when": "it is called with requested_paths [] and tests_found holding 24 pre-existing substrate/test/*.test.js basenames",
+              "then": "it returns []. With non-empty requested_paths it returns the tests_found entries missing from tests_landed and tests_skipped. The Integrate code assigns the unaccounted list from unaccountedTestFiles( called with the passing TestSet paths, and that list still feeds the integrate:resolve guard and prompt",
+              "testable": true
+            },
+            {
+              "id": "AC-22",
+              "given": "the whole substrate/test suite after this change",
+              "when": "it runs with node --test from the repository root",
+              "then": "every pre-existing test still passes. The new tests resolve repository paths from process.cwd() or the existing sentinel extractors, never by counting '..' from the test file. No test shells out to npm test or runs a workflow live",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/implementer.md"
+            }
+          ],
+          "out_of_scope": [
+            "The tests under substrate/test/ (including any changes to extract-fixloop.js, fixloop-helpers.js or graph-lint-helpers.js return lists) are the Test Author's surface, not the implementer's, and are deliberately left out of touched_surfaces: graph-lint check 5 forbids a Spec from naming test_dir. A test can reach the new functions with its own new Function loader, as dispute-unruled.test.js does.",
+            "Any change to what a lens, the Tiebreak Judge, the dispute ruling or a fixer decides, or to their prompts and agent definitions (lens-*.md, fixer.md, test-author.md).",
+            "Any workflow other than build-implement.js and build-spec.js (create-project, launch, deploy, maintain-*, build-reentry, and others), including maintain-triage.js's inlined ChangeSetC.",
+            "New Escalation reason values or any other change to the Escalation contract. Repair escalations reuse the existing escalateBoundaryViolation path and shape.",
+            "Automatic re-decomposition or repair at spec time. The new graph-lint check only reports and gates, like the other five.",
+            "More than one repair per task, and repairing mutual strays (both escalate).",
+            "Changes to the ledger substrate (substrate/ledger*, ledger-from-output) to consume boundary_repairs. This change only records repairs in the run output.",
+            "Documentation updates to OPERATING_MODEL.md, HANDOFF.md, COMPANY.md or CLAUDE.md.",
+            "The empty-diff gate's own decisions (emptyDiffAction) and the verify_only and canary paths, apart from the needs_from_sibling routing that runs ahead of them."
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: contracts.schema.json",
+            "The needs_from_sibling field added to ChangeSet is optional and not in the required list (AC-14: 'The field is not in either object's required list'); existing clients using ChangeSet are unaffected.",
+            "AC-14 explicitly preserves all existing contract properties: 'every other ChangeSet property and every other contract, including Escalation's five-value reason enum, is unchanged'.",
+            "The boundary repair logic (boundaryRepair function) routes violations through existing escalateBoundaryViolation before calling escalateBoundaryViolation, preserving the existing escalation contract (AC-8, AC-11).",
+            "The new sixth graph-lint check (checkCriterionCoupling) is purely additive validation; AC-19 confirms: 'Every existing substrate/test/graph-lint.test.js assertion still passes, including the zero-violation fixtures'.",
+            "Integrate's zero-passing-tasks fix (AC-20) only affects the edge case where no task passes; existing runs with passing tasks are unaffected."
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k8",
+            "created_at": "2026-09-26T03:08:23Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-b5-sibling-value-repair",
+          "tasks": [
+            {
+              "id": "t1",
+              "spec_id": "spec-wi-b5-sibling-value-repair",
+              "description": "Implement sibling value repair in build workflows. Add boundaryRepair() and unaccountedTestFiles() to build-implement.js; wire them into fix-loop sentinel and both boundary call sites. Add checkCriterionCoupling() as sixth graph-lint check to build-spec.js. Add optional needs_from_sibling field to ChangeSet in contracts.schema.json and update EvidenceBundle to record boundary_repairs. Update implementer.md documentation. All four surfaces modified atomically as one task to avoid bootstrap circularity (workflows execute committed source).",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-spec.js"
+                },
+                {
+                  "kind": "schema",
+                  "ref": "contracts.schema.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/implementer.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17",
+                "AC-18",
+                "AC-19",
+                "AC-20",
+                "AC-21",
+                "AC-22"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k8",
+            "created_at": "2026-09-26T03:08:23Z"
+          }
+        },
+        "lint": {
+          "violations": [],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-1",
+              "path": "substrate/test/extract-fixloop.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-2",
+              "path": ".claude/agents/x.md"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-2",
+              "path": ".claude/agents"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-3",
+              "path": "task/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-4"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-5"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-6"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-7",
+              "path": ".claude/agents/x.md"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-7",
+              "path": ".claude/agents"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-7",
+              "path": "task/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-8",
+              "path": "boundary-wiring.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-9",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-9",
+              "path": "boundary-wiring.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-9",
+              "path": "task"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-10",
+              "path": "task"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-11"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-12"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-13"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-14",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-15",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-15",
+              "path": "implementer.md"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-15",
+              "path": "substrate/test/AC-17-implementer-boundary-doc.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-16"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-17",
+              "path": "build-spec.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-18",
+              "path": "a/x.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-18",
+              "path": "b/y.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-19",
+              "path": "substrate/test/graph-lint.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1",
+              "criterion": "AC-20"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-21",
+              "path": "substrate/test"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-21",
+              "path": "test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1",
+              "criterion": "AC-22",
+              "path": "substrate/test"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "test"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "test"
+            },
+            {
+              "id": "AC-9",
+              "verification": "test"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "test"
+            },
+            {
+              "id": "AC-12",
+              "verification": "test"
+            },
+            {
+              "id": "AC-13",
+              "verification": "test"
+            },
+            {
+              "id": "AC-14",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-15",
+              "verification": "test"
+            },
+            {
+              "id": "AC-16",
+              "verification": "test"
+            },
+            {
+              "id": "AC-17",
+              "verification": "test"
+            },
+            {
+              "id": "AC-18",
+              "verification": "test"
+            },
+            {
+              "id": "AC-19",
+              "verification": "test"
+            },
+            {
+              "id": "AC-20",
+              "verification": "test"
+            },
+            {
+              "id": "AC-21",
+              "verification": "test"
+            },
+            {
+              "id": "AC-22",
+              "verification": "test"
+            }
+          ],
+          "gate_required": false,
+          "provenance": {
+            "node": "graph_lint",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "n/a",
+            "run_id": "k8",
+            "created_at": "2026-09-26T03:08:23Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k8",
+      "created_at": "2026-09-26T03:08:23Z"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "entry": {
+    "id": "k17d-build-implement",
+    "run_id": "k17d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-26T21:25:00.000Z",
+    "finished_at": "2026-09-26T21:26:06.000Z",
+    "wall_clock_sec": 66,
+    "result_ref": "ledger/runs/k17d-build-implement.json",
+    "artifact_count": 19,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k17d",
+      "created_at": "2026-09-26T21:26:06.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k17: impl-c13-b7-small-line-fixes escalated no_fresh_findings (one deferred finding the packager itself judged false)",
+    "option_taken": "direct_drive (review-and-land), decided by the main session under the operating rule",
+    "landed": {
+      "commits": [
+        "5a2b380"
+      ],
+      "base_patch": "ledger/runs/k17/task-branch-*.patch (workflow files only)"
+    },
+    "not_landed": [
+      "fixer rewrites of validator.test.js, deploy.test.js, finding-target-contract.test.js, b6-schema-additions.test.js — legitimate '../' imports flagged only because tests_ref had become 'substrate/test'",
+      "the implementer's edit to b8-AC-12 (out of scope)"
+    ],
+    "root_cause": "a Test Author repair returned tests_ref 'substrate/test'; widenTestsRef adopted it (outside the current TestSet); B8's escape check then ran against the repo's own tests",
+    "fixed": [
+      "widenTestsRef ignores a repaired ref outside the artifact dir (threaded through resolveRound and both runTask sites)",
+      "b8-AC-12 retired (four change-scoped freeze tests; B7)"
+    ],
+    "verification": {
+      "root": "360/360",
+      "toy": "60/60",
+      "mutations": "5/5 caught"
+    }
+  }
+}

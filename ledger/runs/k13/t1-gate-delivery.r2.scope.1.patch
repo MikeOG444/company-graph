@@ -1,0 +1,9 @@
+diff --git a/substrate/notify.js b/substrate/notify.js
+new file mode 100644
+index 0000000..390734e
+--- /dev/null
++++ b/substrate/notify.js
+@@ -0,0 +103,3 @@
++function safeErrorMessage(err) {
++  const msg = err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || String(err)
++  return msg

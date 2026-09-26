@@ -11,7 +11,8 @@ import { readWorkflowText, FIXER_MD_PATH } from './extract-fixloop.js'
 test('AC-14: the scope: slicer is wired in after shouldEscalate is checked, in the fail branch, and round 1 still starts with every lens', () => {
   const text = readWorkflowText()
 
-  const scopeLabelMatches = [...text.matchAll(/scope:/g)]
+  // The agent LABEL, not every occurrence of the text: "out_of_scope:" in a comment is not a slicer (k11d).
+  const scopeLabelMatches = [...text.matchAll(/label:\s*`scope:/g)]
   assert.equal(scopeLabelMatches.length, 1, 'exactly one agent label starting "scope:" should exist')
 
   const escalateIdx = text.indexOf('const reason = shouldEscalate(')

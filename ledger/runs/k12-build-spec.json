@@ -1,0 +1,490 @@
+{
+  "entry": {
+    "id": "k12-build-spec",
+    "run_id": "k12",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-26T06:15:13.106Z",
+    "finished_at": "2026-09-26T06:18:07.000Z",
+    "wall_clock_sec": 174,
+    "result_ref": "ledger/runs/k12-build-spec.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 98738,
+    "tokens_by_model": {
+      "claude-opus-5-5": 26974,
+      "claude-haiku-4-5": 71764
+    },
+    "cost_est_usd": 0.25,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k12",
+      "created_at": "2026-09-26T06:15:00Z"
+    },
+    "trace_ref": ".artifacts/traces/k12-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-c5-gate-delivery",
+          "work_item_id": "wi-c5-gate-delivery",
+          "goal": "Make `node substrate/gates.js open` deliver a best-effort, non-blocking notification for every gate it opens, and record the result. A new module, substrate/notify.js, holds three things: a code-level severity routing table (sev1_page and budget-breach gates go to the `phone` channel; spec_gate and every other gate go to `queue`), a pluggable driver interface with the driver chosen by environment variable, and exactly one verified driver, which opens a labelled issue through the GitHub REST API using a token read from the environment (the API base URL can be overridden so tests can target 127.0.0.1). An optional generic webhook driver may also be included, but it must be documented as UNVERIFIED FROM CI. `gates open` writes the GateRecord to gates/open/<id>.json first, then attempts delivery, then stamps a `delivery` object on the record ({attempted, ok, channel, at, error?}). A delivery that fails, times out or has no driver configured never fails the gate, never changes the exit code (0) or the stdout (the bare gate id), and never stops the record being written. The token never appears in a GateRecord, stdout, stderr, an issue body or an error string. contracts.schema.json gains an optional `delivery` property on the GateRecord $def, so every existing record in gates/closed/ still validates. `gates decide` keeps the delivery field when it moves the record to gates/closed/. substrate/README.md documents the driver env vars, the routing table, the reachable-transport constraint (only api.github.com is reachable, and the other hosts get 403 at CONNECT) and the webhook driver's UNVERIFIED FROM CI status. Tests use a local HTTP server bound to 127.0.0.1 and make no real network calls.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "contracts.schema.json after the change, and every existing file in gates/closed/*.json (none of which has a `delivery` field)",
+              "when": "each record is validated against the GateRecord $def (for example via substrate/lib/contracts.js validate('GateRecord', rec) or `node substrate/validator.js`)",
+              "then": "every existing closed record validates; `delivery` is not in GateRecord.required; the `delivery` property is an object with additionalProperties false that requires attempted (boolean), ok (boolean), channel (string) and at (string, format date-time), and allows an optional error (string)",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "the GateRecord $def after the change",
+              "when": "these records are validated: (a) a record whose delivery is missing `ok`, (b) a record whose delivery.attempted is the string \"yes\", (c) a record whose delivery carries an unknown extra property",
+              "then": "all three are rejected, and a well-formed record with delivery {attempted:true, ok:true, channel:'phone', at:'2026-09-11T03:04:00.000Z'} is accepted",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "substrate/notify.js exports the routing function or table",
+              "when": "a channel is requested for gate names sev1_page, ratio_gate (the budget/ratio breach gate) and any gate name that marks a budget breach, then for spec_gate, launch_approval, escalation, roadmap_gate, brief_approval and an unknown gate name",
+              "then": "sev1_page and the budget-breach gates return 'phone'; spec_gate, launch_approval, escalation, roadmap_gate, brief_approval and the unknown name return 'queue'; the table is a literal in code and is not read from an env var or a config file",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a local HTTP server on 127.0.0.1 that answers the GitHub create-issue route (POST /repos/<owner>/<repo>/issues) with 201 and a JSON body containing html_url, plus env vars that select the GitHub driver, give a token, a repo and an API base URL pointing at that server, all passed to the gates CLI through substrate/test/helpers.js cli() with a tmpRoot()",
+              "when": "`gates open --gate sev1_page --run r1 --workflow maintain-triage --options rollback,hold --now 2026-09-11T03:04:00Z` runs",
+              "then": "the process exits 0; stdout is exactly `r1-sev1_page`; gates/open/r1-sev1_page.json exists and validates as a GateRecord; its delivery is {attempted:true, ok:true, channel:'phone', at: an ISO date-time} with no error; the server received exactly one POST whose Authorization header carries the token, whose labels include one identifying the phone channel, and whose body names the gate id and the record path gates/open/r1-sev1_page.json",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "the same setup as AC-4",
+              "when": "`gates open` runs with --gate spec_gate",
+              "then": "delivery.channel is 'queue', the issue the server received carries the queue-channel label rather than the phone label, and the exit code is 0",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "the GitHub driver pointed at a 127.0.0.1 server that answers the create-issue POST with HTTP 500 (or at a closed 127.0.0.1 port, so the connection is refused)",
+              "when": "`gates open --gate sev1_page ...` runs",
+              "then": "exit code 0; stdout is exactly the gate id; the record is written under gates/open/ and validates; delivery.attempted is true, delivery.ok is false and delivery.error is a non-empty string; any diagnostic goes to stderr, not stdout",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "the GitHub driver pointed at a 127.0.0.1 server that accepts the connection and never responds, with the notifier timeout set short through its documented env var (e.g. 300 ms)",
+              "when": "`gates open --gate sev1_page ...` runs",
+              "then": "the process exits 0 well before the server would close (within a few seconds); the record is written and validates; delivery.attempted is true, delivery.ok is false and delivery.error mentions a timeout",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "no notifier driver env var is set (the default), or a driver is selected but its required settings (token or repo) are missing, or the driver name is unknown",
+              "when": "`gates open` runs",
+              "then": "exit code 0; stdout is exactly the gate id; the record is written and validates; a delivery object is present with ok false, the correct channel for the gate, and a non-empty error saying delivery was not configured (attempted is false when no driver or an unknown driver is selected); no network connection is made",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "the notifier's driver is replaced by, or configured to use, a driver whose send throws synchronously or rejects (for example a test-injected driver passed to the exported notify function)",
+              "when": "notify is called for a GateRecord",
+              "then": "the call resolves (never rejects), returning a delivery object with attempted true, ok false and a non-empty error; in the CLI path the record is still written and the exit code is 0",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "a sentinel token string (e.g. 'ghp_SENTINEL_DO_NOT_LEAK') set as the GitHub driver token, run once against a server that returns 201, once against one that returns 401 with the Authorization header echoed back in the response body, and once against one that times out",
+              "when": "`gates open` runs in each case",
+              "then": "the sentinel does not appear in the written GateRecord file, in stdout, in stderr, or in the issue title or body the server received (it appears only in the Authorization request header)",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "a gate opened with a delivery field stamped (by any of the AC-4, AC-6 or AC-8 paths)",
+              "when": "`gates decide <id> <option>` runs",
+              "then": "the record moves to gates/closed/<id>.json, validates, and keeps the same delivery object unchanged; decide makes no notification attempt",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "the existing substrate/test/gates.test.js and the full suite run with `npm test` (node --test substrate/test/*.test.js), with no notifier env vars set, even if GITHUB_TOKEN happens to be present in the environment",
+              "when": "the suite runs",
+              "then": "all pre-existing tests still pass unchanged (for example `open.out === 'r1-spec_gate'`), and no test opens a connection to any host other than 127.0.0.1; a GitHub token alone never enables delivery, because the driver needs explicit selection",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "substrate/README.md after the change",
+              "when": "it is read",
+              "then": "it documents the driver-selection env var and each driver's env vars (token, repo, API base URL override, timeout); the phone/queue routing table; that delivery is best-effort and the record on disk is the source of truth; that the GitHub issue driver is the only transport verified from this container, because the egress policy answers 403 for ntfy.sh, hooks.slack.com, api.pushover.net, api.telegram.org and api.twilio.com; and, if a webhook driver ships, that it is marked UNVERIFIED FROM CI",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "a webhook driver is shipped in substrate/notify.js",
+              "when": "the test suite is inspected",
+              "then": "no test or README text claims the webhook driver is verified against a real external service; any webhook test only targets 127.0.0.1",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": "substrate/gates.js"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/notify.js"
+            },
+            {
+              "kind": "schema",
+              "ref": "contracts.schema.json"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/README.md"
+            },
+            {
+              "kind": "path",
+              "ref": "substrate/test/notify.test.js"
+            },
+            {
+              "kind": "config",
+              "ref": "env: notifier driver selection, GitHub token, repo, API base URL and timeout variables read by substrate/notify.js"
+            }
+          ],
+          "out_of_scope": [
+            "Calling the notifier from inside any workflow in .claude/workflows/ (it runs only beside `gates open`)",
+            "Changing the gate names, options or payload that any workflow passes to `gates open`",
+            "Backfilling a delivery field onto the existing records in gates/closed/ or gates/open/",
+            "Retry queues, re-sending, escalating unopened pages, or scheduled re-notification (including changes to `gates list --stale`)",
+            "Notifying on `gates decide`, `gates list` or `gates show`",
+            "Verified drivers for ntfy, Slack, Pushover, Telegram, Twilio or email (unreachable from this container); at most an optional generic webhook driver documented as UNVERIFIED FROM CI",
+            "Any real network call in tests, including to api.github.com",
+            "Adding new npm dependencies (use node's built-in fetch/http)",
+            "Writing delivery data into ledger rows or LedgerEntry schema changes",
+            "Edits to OPERATING_MODEL.md, HANDOFF.md, COMPANY.md or CLAUDE.md"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface kind schema: contracts.schema.json",
+            "rule: surface ref names a sensitive term: env: notifier driver selection, GitHub token, repo, API base URL and timeout variables read by substrate/notify.js",
+            "The spec adds an optional `delivery` field to GateRecord schema, which is explicitly backward-compatible: 'contracts.schema.json gains an optional `delivery` property on the GateRecord $def, so every existing record in gates/closed/ still validates' and AC-1 requires '`delivery` is not in GateRecord.required'. Per the classification rule, 'an additive route, field, or query parameter is low'.",
+            "Existing gate contracts are preserved: the goal requires 'never fails the gate, never changes the exit code (0) or the stdout (the bare gate id)', and AC-12 verifies 'all pre-existing tests still pass unchanged (for example `open.out === 'r1-spec_gate`)'.",
+            "Authentication handling is carefully controlled to prevent leaks: AC-10 requires 'The sentinel does not appear in the written GateRecord file, in stdout, in stderr, or in the issue title or body' and implementation only uses tokens in Authorization headers.",
+            "Delivery failures are non-blocking and safe: AC-8 and AC-9 show that if the driver is missing or fails, 'exit code 0; stdout is exactly the gate id; the record is written and validates', with errors safely recorded in the delivery object.",
+            "GitHub issue creation is optional and controlled: explicit environment variable selection is required to enable delivery, per AC-12: 'a GitHub token alone never enables delivery, because the driver needs explicit selection'.",
+            "graph lint: criterion_reachability {\"check\":\"criterion_reachability\",\"task\":\"t2-gates-integration\",\"criterion\":\"AC-14\",\"path\":\"substrate/notify.js\"}",
+            "graph lint: spec_names_test_surface {\"check\":\"spec_names_test_surface\",\"ref\":\"substrate/test/notify.test.js\"}"
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k12",
+            "created_at": "2026-09-26T06:15:00Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-c5-gate-delivery",
+          "tasks": [
+            {
+              "id": "t1-notify-module",
+              "spec_id": "spec-wi-c5-gate-delivery",
+              "description": "Create substrate/notify.js notification module with a code-level severity routing table that maps sev1_page and budget-breach gate names to the 'phone' channel and all others to 'queue', a pluggable driver interface configured by environment variable, a verified GitHub REST API driver that creates issues with labels and reads token/repo/base-URL from env vars, and an optional generic webhook driver marked UNVERIFIED FROM CI. Implement error handling for missing drivers, synchronous throws, and rejected promises, ensuring all errors are caught and returned as delivery objects rather than propagating. Write comprehensive tests using a local HTTP server on 127.0.0.1 to verify routing, driver interface contract, timeout handling, connection failures, and error cases — no external network calls.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": "substrate/notify.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/test/notify.test.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-3",
+                "AC-8",
+                "AC-9"
+              ]
+            },
+            {
+              "id": "t2-gates-integration",
+              "spec_id": "spec-wi-c5-gate-delivery",
+              "description": "Update contracts.schema.json to add an optional 'delivery' property to GateRecord with required fields (attempted: boolean, ok: boolean, channel: string, at: date-time) and optional error: string field. Integrate substrate/notify.js into substrate/gates.js so that `gates open` writes the record to gates/open/ first, then attempts delivery and stamps the delivery object on success or failure, never failing the gate if delivery fails. Update `gates decide` to preserve the delivery field when moving records from gates/open/ to gates/closed/. Ensure authentication tokens never appear in GateRecord files, stdout, stderr, or issue bodies. Update substrate/README.md to document driver selection env vars, each driver's configuration (token, repo, API base URL, timeout), the phone/queue routing table, the best-effort nature of delivery, the GitHub driver as the only verified transport, egress policy constraints (api.github.com reachable, others get 403), and webhook driver status as UNVERIFIED FROM CI if included. Verify existing tests still pass and make no external network calls.",
+              "owned_surfaces": [
+                {
+                  "kind": "schema",
+                  "ref": "contracts.schema.json"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/gates.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": "substrate/README.md"
+                }
+              ],
+              "depends_on": [
+                "t1-notify-module"
+              ],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k12",
+            "created_at": "2026-09-26T06:15:00Z"
+          }
+        },
+        "lint": {
+          "violations": [
+            {
+              "check": "criterion_reachability",
+              "task": "t2-gates-integration",
+              "criterion": "AC-14",
+              "path": "substrate/notify.js"
+            },
+            {
+              "check": "spec_names_test_surface",
+              "ref": "substrate/test/notify.test.js"
+            }
+          ],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t1-notify-module",
+              "criterion": "AC-3",
+              "path": "budget/ratio"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1-notify-module",
+              "criterion": "AC-8"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t1-notify-module",
+              "criterion": "AC-9"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-1",
+              "path": "gates/closed"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-1",
+              "path": "substrate/lib/contracts.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-1",
+              "path": "substrate/validator.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-gates-integration",
+              "criterion": "AC-2"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-4",
+              "path": "/repos"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-4",
+              "path": "substrate/test/helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-4",
+              "path": "gates/open/r1-sev1_page.json"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-gates-integration",
+              "criterion": "AC-5"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-6",
+              "path": "gates/open"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-gates-integration",
+              "criterion": "AC-7"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "t2-gates-integration",
+              "criterion": "AC-10"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-11",
+              "path": "gates/closed"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-12",
+              "path": "substrate/test/gates.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-12",
+              "path": "substrate/test"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-12",
+              "path": "test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "t2-gates-integration",
+              "criterion": "AC-13",
+              "path": "phone/queue"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "test"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "test"
+            },
+            {
+              "id": "AC-9",
+              "verification": "test"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-12",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-13",
+              "verification": "test"
+            },
+            {
+              "id": "AC-14",
+              "verification": "test"
+            }
+          ],
+          "gate_required": true,
+          "provenance": {
+            "node": "graph_lint",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "n/a",
+            "run_id": "k12",
+            "created_at": "2026-09-26T06:15:00Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k12",
+      "created_at": "2026-09-26T06:15:00Z"
+    }
+  }
+}

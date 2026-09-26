@@ -165,9 +165,12 @@ test('AC-16: a code Fixer\'s TEST-ONLY outcome is kept out of applied and re-rou
 
   // `applied` selects BY that outcome, so TEST-ONLY and DISPUTE are excluded by construction rather than by a
   // second filter — what matters is what the filter selects, not which literals sit near it in the source.
-  const appliedIdx = text.indexOf('const applied = fixes.filter(')
+  // B6 (k11d) split the selection in two — codeApplied selects by outcome, then refused fixes are removed — so
+  // follow `applied` back to the fixes.filter that selects by fixOutcome, rather than pinning one line's text.
+  const appliedIdx = text.search(/const (applied|codeApplied) = fixes\.filter\(/)
   assert.ok(appliedIdx >= 0, 'expected the existing applied-fixes filter')
   const appliedLine = text.slice(appliedIdx, text.indexOf('\n', appliedIdx))
+  if (/codeApplied/.test(appliedLine)) assert.match(text, /const applied = codeApplied\.filter\(/, 'applied must be derived from codeApplied')
   assert.match(appliedLine, /fixOutcome\([^)]*\)\s*===\s*'applied'/,
     'applied must select only fixes whose fixOutcome is "applied", excluding TEST-ONLY and DISPUTE by construction')
   assert.equal(plain, 'applied', 'a normal fix must classify as the exact value that filter selects')
@@ -201,6 +204,9 @@ test('AC-18: the only new agent() call sites are inside the boundary-violation b
   const KNOWN_PREFIXES = new Set([
     'gate', 'checkout', 'impl', 'tests', 'rediff', 'escalate', 'canary',
     'run', 'lens', 'tiebreak', 'scope', 'fix', 'testfix', 'dispute', 'merge', 'integrate',
+    // Added after this spec, each by name with its reason: validity: by spec-wi-b6-test-validity-before-blame (landed k11d) (the read-only
+    // failing-test detector).
+    'validity',
   ])
   const allPrefixes = [...text.matchAll(/label:\s*`([a-zA-Z_]+):/g)].map(m => m[1])
   for (const p of allPrefixes) {

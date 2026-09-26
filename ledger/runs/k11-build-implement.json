@@ -1,0 +1,409 @@
+{
+  "entry": {
+    "id": "k11-build-implement",
+    "run_id": "k11",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T04:49:53.449Z",
+    "finished_at": "2026-09-26T05:56:00.000Z",
+    "wall_clock_sec": 3967,
+    "result_ref": "ledger/runs/k11-build-implement.json",
+    "artifact_count": 8,
+    "escalations": 0,
+    "tokens": 1477373,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 760804,
+      "claude-sonnet-5": 666256,
+      "claude-opus-5-5": 50313
+    },
+    "cost_est_usd": 3.21,
+    "agents": 24,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k11",
+      "created_at": "2026-09-26T04:49:08Z"
+    },
+    "trace_ref": ".artifacts/traces/k11-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k11",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "integration/k11",
+    "integration_commit": "d52da7a4ceae79afc46acf5acbae2a4e8ed36568",
+    "specs": [
+      "spec-wi-b6-test-validity-before-blame"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "implement-test-validity-classification-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Tested testValidity with failsOnBaseSameReason=true and namesCriterionBehaviour=true (both signals firing), which per AC-5b should return unclear; confirmed the logic correctly skips all three if-branches and falls through to return unclear",
+              "Tested that test_defects are excluded from correctness verdict by verifying adjustedResults subtracts testDefectNames.length from failed count, and defectNote instructs lens not to raise findings citing test_defects",
+              "Tested that refused fixes don't enter applied by confirming fixRefused filters codeApplied when behaviour_changed===false AND cites_test_failure===true, and refusedKeys are used to filter them out before creating the applied array"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "implement-test-validity-classification-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Test Name Path Traversal via Detector: Attempted injection of sequences like '../../etc/passwd' or absolute paths through test names returned by the detector agent (used on line 1118). Blocked by testRepairTarget's strict validation on line 594 (rejects paths starting with '/' or containing '..').",
+              "Prompt Injection via Detector Facts: Attempted injection of control sequences through detector facts objects which are interpolated into prompts to Test Author agents (lines 1122-1127, 1343-1347). Blocked because facts objects are explicitly reconstructed (lines 1104-1105) to include only the four boolean properties, discarding any extra fields.",
+              "Data Leakage via testValidity Output: Attempted to leak sensitive information through the test_validity array in EvidenceBundle output (line 1680). Blocked because the array contains only non-sensitive metadata (test names, criterion IDs, boolean facts), no credentials or secrets are exposed, and extra fields from untrusted sources are filtered out."
+            ],
+            "findings": [],
+            "confidence": 0.92,
+            "change_set_id": "implement-test-validity-classification-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Verified that tests read from REPO (base commit) rather than worktree. The fixloop-helpers.js calculates REPO as path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..') which from .artifacts/tests/implement-test-validity-classification/ correctly resolves to /home/user/company-graph/. However, that directory contains the PRE-TASK commit, not the task's changed worktree at .artifacts/worktrees/implement-test-validity-classification/. All tests that check for testValidity, citesFailingTest, fixRefused, TestValidityEntry schema, behaviour_changed fields, and wiring-helper requirements fail because they inspect the base commit where these features don't exist.",
+              "Attempt 2: Confirmed tests read base-commit code: ran Grep and Read on base commit's .claude/workflows/build-implement.js and found END fix-loop-decisions sentinel at line 659 with no testValidity/citesFailingTest/fixRefused functions. The worktree's build-implement.js has these functions at lines 703-731 (testValidity), 720-722 (citesFailingTest), 729-731 (fixRefused), all within the extended sentinel block (lines 187-732). Tests calling fixLoop-helpers.js REPO are guaranteed to miss these implementations entirely.",
+              "Attempt 3: Verified all agent prompts and schema changes exist in worktree but not base commit: (1) fixer.md line 18 in worktree has 'behaviour_changed' / 'behaviour_rationale' rule; base commit fixer.md lines 1-18 lack this entirely. (2) test-author.md lines 15-16 in worktree name b5-wiring-helpers and the five call-structure functions; base commit test-author.md lines 1-16 has no such rules. (3) contracts.schema.json has TestValidityEntry schema definition at line 233 in worktree; base commit has no TestValidityEntry. Tests AC-14 and AC-15 explicitly check these agent files and schema via fs.readFileSync(FIXER_MD) and fs.readFileSync(TEST_AUTHOR_MD) against REPO paths, reading pre-task versions."
+            ],
+            "findings": [
+              {
+                "id": "F-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-test-validity-classification/fixloop-helpers.js:14",
+                "claim": "Tests cannot access changed implementation because helper resolves to base-commit repository root instead of worktree containing changes.",
+                "evidence": "fixloop-helpers.js calculates REPO as path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..') which from .artifacts/tests/ resolves to /home/user/company-graph/ (the PRE-TASK commit). The task spec (spec-wi-b6-test-validity-before-blame.json) says 'Your own working directory is the repository root at the PRE-TASK commit and does not contain the change. Open, read, grep and cite files under that worktree only.' The changed code is at .artifacts/worktrees/implement-test-validity-classification/, not in the repository root. All 19 failing tests attempt to verify code at REPO paths which don't have the new testValidity, citesFailingTest, fixRefused functions, behaviour_changed fields, or b5-wiring-helpers rules because those exist only in the worktree.",
+                "target": "test",
+                "dedupe_key": ".artifacts/tests/implement-test-validity-classification/fixloop-helpers.js:14|tests_read_base_commit_not_worktree",
+                "status": "open"
+              },
+              {
+                "id": "F-2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-test-validity-classification/b6-prompt-rules.test.js:17",
+                "claim": "Test AC-14 checks fixer.md at REPO path but fixer.md in base commit lacks behaviour_changed rule; AC-15 checks test-author.md which lacks b5-wiring-helpers rules in base commit.",
+                "evidence": "Line 17 reads fs.readFileSync(FIXER_MD, 'utf8') where FIXER_MD = path.join(REPO, '.claude', 'agents', 'fixer.md'). REPO points to base commit. Base commit's fixer.md lines 1-19 contain no mention of 'behaviour_changed' or 'behaviour_rationale' (test AC-14 line 43 asserts this with assert.match(doc, /behaviour_changed/)). The worktree's fixer.md line 18 has the required text. Same for test-author.md: test AC-15 line 62 checks assert.match(doc, /substrate\\/test\\/b5-wiring-helpers\\.js/) but base commit test-author.md lacks this entirely, while worktree has it at lines 15-16.",
+                "target": "test",
+                "dedupe_key": ".artifacts/tests/implement-test-validity-classification/b6-prompt-rules.test.js:17|prompt_tests_check_base_commit",
+                "status": "open"
+              },
+              {
+                "id": "F-3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-test-validity-classification/b6-test-validity-functions.test.js:21",
+                "claim": "Test AC-1 through AC-5 extract sentinel block from base commit's build-implement.js where testValidity function does not exist.",
+                "evidence": "readWorkflowText() at line 21 calls fs.readFileSync(WORKFLOW_PATH, 'utf8') where WORKFLOW_PATH = path.join(REPO, '.claude', 'workflows', 'build-implement.js'). REPO is the base commit. Base commit's build-implement.js has END fix-loop-decisions sentinel at line 659; extracting that block yields the seventeen pre-existing decision functions (scopeOf through fixOutcome) but NOT testValidity. Worktree's build-implement.js extends the block from line 187 to 732, adding testValidity at 703-714, citesFailingTest at 720-722, and fixRefused at 729-731. Test line 24 does new Function(block + '\\nreturn { testValidity }') which throws because testValidity is not in block extracted from base commit.",
+                "target": "test",
+                "dedupe_key": ".artifacts/tests/implement-test-validity-classification/b6-test-validity-functions.test.js:21|testvalidity_not_in_base_commit_block",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "implement-test-validity-classification-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "F-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-test-validity-classification/fixloop-helpers.js:14",
+            "claim": "Tests cannot access changed implementation because helper resolves to base-commit repository root instead of worktree containing changes.",
+            "evidence": "fixloop-helpers.js calculates REPO as path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..') which from .artifacts/tests/ resolves to /home/user/company-graph/ (the PRE-TASK commit). The task spec (spec-wi-b6-test-validity-before-blame.json) says 'Your own working directory is the repository root at the PRE-TASK commit and does not contain the change. Open, read, grep and cite files under that worktree only.' The changed code is at .artifacts/worktrees/implement-test-validity-classification/, not in the repository root. All 19 failing tests attempt to verify code at REPO paths which don't have the new testValidity, citesFailingTest, fixRefused functions, behaviour_changed fields, or b5-wiring-helpers rules because those exist only in the worktree.",
+            "target": "test",
+            "dedupe_key": ".artifacts/tests/implement-test-validity-classification/fixloop-helpers.js:14|tests_read_base_commit_not_worktree",
+            "status": "open"
+          },
+          {
+            "id": "F-2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-test-validity-classification/b6-prompt-rules.test.js:17",
+            "claim": "Test AC-14 checks fixer.md at REPO path but fixer.md in base commit lacks behaviour_changed rule; AC-15 checks test-author.md which lacks b5-wiring-helpers rules in base commit.",
+            "evidence": "Line 17 reads fs.readFileSync(FIXER_MD, 'utf8') where FIXER_MD = path.join(REPO, '.claude', 'agents', 'fixer.md'). REPO points to base commit. Base commit's fixer.md lines 1-19 contain no mention of 'behaviour_changed' or 'behaviour_rationale' (test AC-14 line 43 asserts this with assert.match(doc, /behaviour_changed/)). The worktree's fixer.md line 18 has the required text. Same for test-author.md: test AC-15 line 62 checks assert.match(doc, /substrate\\/test\\/b5-wiring-helpers\\.js/) but base commit test-author.md lacks this entirely, while worktree has it at lines 15-16.",
+            "target": "test",
+            "dedupe_key": ".artifacts/tests/implement-test-validity-classification/b6-prompt-rules.test.js:17|prompt_tests_check_base_commit",
+            "status": "open"
+          },
+          {
+            "id": "F-3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-test-validity-classification/b6-test-validity-functions.test.js:21",
+            "claim": "Test AC-1 through AC-5 extract sentinel block from base commit's build-implement.js where testValidity function does not exist.",
+            "evidence": "readWorkflowText() at line 21 calls fs.readFileSync(WORKFLOW_PATH, 'utf8') where WORKFLOW_PATH = path.join(REPO, '.claude', 'workflows', 'build-implement.js'). REPO is the base commit. Base commit's build-implement.js has END fix-loop-decisions sentinel at line 659; extracting that block yields the seventeen pre-existing decision functions (scopeOf through fixOutcome) but NOT testValidity. Worktree's build-implement.js extends the block from line 187 to 732, adding testValidity at 703-714, citesFailingTest at 720-722, and fixRefused at 729-731. Test line 24 does new Function(block + '\\nreturn { testValidity }') which throws because testValidity is not in block extracted from base commit.",
+            "target": "test",
+            "dedupe_key": ".artifacts/tests/implement-test-validity-classification/b6-test-validity-functions.test.js:21|testvalidity_not_in_base_commit_block",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "implement-test-validity-classification-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Checked whether testValidity function correctly classifies test facts (AC-1 through AC-5): passing tests confirm the decision logic is correct for all basic cases including edge cases with missing/non-boolean facts",
+              "Verified that test_validity is properly wired into runTask before fix: agents (AC-6): AC-6 test passes, confirming correct call ordering",
+              "Inspected TestValidityEntry schema definition for proper structure: the schema references TestValidityEntry via $ref but test expects inlined properties at items level"
+            ],
+            "findings": [
+              {
+                "id": "finding-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-test-validity-classification/.claude/workflows/build-implement.js:283-289,314-326",
+                "claim": "The fix-loop decisions sentinel block contains non-pure functions (graceRound, shouldEscalate) that reference ctx., violating AC-13 and the purity requirement for testValidity and fixRefused",
+                "evidence": "graceRound at line 283 contains 'ctx.grace_used', 'ctx.seen', 'ctx.lens_streaks', 'ctx.k_rounds' and shouldEscalate at line 314 contains 'ctx.tokens', 'ctx.task_tokens', 'ctx.last_round_tokens', etc. Test b6-fix-refusal-function.test.js line 38 asserts '!block.includes(\"ctx.\")' fails",
+                "dedupe_key": ".claude/workflows/build-implement.js:283|sentinel block references ctx in pre-existing functions",
+                "status": "open"
+              },
+              {
+                "id": "finding-2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-test-validity-classification/contracts.schema.json:423",
+                "claim": "EvidenceBundle's test_validity property uses $ref reference instead of inlining TestValidityEntry schema, preventing tests from directly accessing required properties",
+                "evidence": "Line 423 defines test_validity items as { \"$ref\": \"#/$defs/TestValidityEntry\" } but AC-11 test at b6-schema-additions.test.js:71 expects item.additionalProperties === false and item.properties to be directly accessible; $ref objects do not expose these properties at the reference level",
+                "dedupe_key": "contracts.schema.json:423|test_validity uses $ref instead of inlined properties",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "finding-3",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-test-validity-classification/b6-suite-hygiene.test.js:27-29",
+                "claim": "AC-16 requires new b6-*.test.js files to exist in substrate/test/ directory, but the implementation does not land them there",
+                "evidence": "Test b6-suite-hygiene.test.js line 29 asserts 'assert.ok(files.length > 0, \"expected at least one landed b6-*.test.js file\")' and b6TestFiles() at line 20-25 searches process.cwd()/substrate/test/ for b6-*.test.js files; no such files exist in the worktree's substrate/test/",
+                "dedupe_key": ".artifacts/worktrees/implement-test-validity-classification/substrate/test/|b6 test files missing from substrate/test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "finding-4",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/implement-test-validity-classification/.claude/workflows/build-implement.js:140",
+                "claim": "TestValidityReport schema references TestValidityFacts constant instead of inlining properties, causing AC-8 test to fail when extracting schema text from a 1200-character window",
+                "evidence": "Line 140 defines 'items: TestValidityFacts' as a reference to another const; test b6-validity-wiring.test.js line 118-119 searches for field names in schemaText window which only captures 1200 characters from const declaration, insufficient to capture inlined object structure; test fails with 'the tests[] schema must require locates_by_first_occurrence'",
+                "dedupe_key": ".claude/workflows/build-implement.js:140|TestValidityReport uses constant reference instead of inline schema",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.85,
+            "change_set_id": "implement-test-validity-classification-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "finding-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-test-validity-classification/.claude/workflows/build-implement.js:283-289,314-326",
+            "claim": "The fix-loop decisions sentinel block contains non-pure functions (graceRound, shouldEscalate) that reference ctx., violating AC-13 and the purity requirement for testValidity and fixRefused",
+            "evidence": "graceRound at line 283 contains 'ctx.grace_used', 'ctx.seen', 'ctx.lens_streaks', 'ctx.k_rounds' and shouldEscalate at line 314 contains 'ctx.tokens', 'ctx.task_tokens', 'ctx.last_round_tokens', etc. Test b6-fix-refusal-function.test.js line 38 asserts '!block.includes(\"ctx.\")' fails",
+            "dedupe_key": ".claude/workflows/build-implement.js:283|sentinel block references ctx in pre-existing functions",
+            "status": "open"
+          },
+          {
+            "id": "finding-2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-test-validity-classification/contracts.schema.json:423",
+            "claim": "EvidenceBundle's test_validity property uses $ref reference instead of inlining TestValidityEntry schema, preventing tests from directly accessing required properties",
+            "evidence": "Line 423 defines test_validity items as { \"$ref\": \"#/$defs/TestValidityEntry\" } but AC-11 test at b6-schema-additions.test.js:71 expects item.additionalProperties === false and item.properties to be directly accessible; $ref objects do not expose these properties at the reference level",
+            "dedupe_key": "contracts.schema.json:423|test_validity uses $ref instead of inlined properties",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "finding-3",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-test-validity-classification/b6-suite-hygiene.test.js:27-29",
+            "claim": "AC-16 requires new b6-*.test.js files to exist in substrate/test/ directory, but the implementation does not land them there",
+            "evidence": "Test b6-suite-hygiene.test.js line 29 asserts 'assert.ok(files.length > 0, \"expected at least one landed b6-*.test.js file\")' and b6TestFiles() at line 20-25 searches process.cwd()/substrate/test/ for b6-*.test.js files; no such files exist in the worktree's substrate/test/",
+            "dedupe_key": ".artifacts/worktrees/implement-test-validity-classification/substrate/test/|b6 test files missing from substrate/test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "finding-4",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/implement-test-validity-classification/.claude/workflows/build-implement.js:140",
+            "claim": "TestValidityReport schema references TestValidityFacts constant instead of inlining properties, causing AC-8 test to fail when extracting schema text from a 1200-character window",
+            "evidence": "Line 140 defines 'items: TestValidityFacts' as a reference to another const; test b6-validity-wiring.test.js line 118-119 searches for field names in schemaText window which only captures 1200 characters from const declaration, insufficient to capture inlined object structure; test fails with 'the tests[] schema must require locates_by_first_occurrence'",
+            "dedupe_key": ".claude/workflows/build-implement.js:140|TestValidityReport uses constant reference instead of inline schema",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "implement-test-validity-classification-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Verified testValidity function is correctly declared in the sentinel block between the required markers, correctly implements the decision logic for AC-1 through AC-5 (test_defect, code_defect, unclear classification), and the wiring tests (AC-6 through AC-10) all pass without failures",
+              "Verified that test files exist for all 17 acceptance criteria: b6-test-validity-functions (AC-1-5), b6-validity-wiring (AC-6-10), b6-schema-additions (AC-11-12), b6-fix-refusal-function (AC-13), b6-prompt-rules (AC-14-15), b6-suite-hygiene (AC-16), b6-regression-baseline (AC-17); no failures are reported for any b6-test file",
+              "Confirmed the implementation adds all required code: validity: detector agent on MODEL.cheap with guarded conditional (if failed > 0), behaviour_changed and behaviour_rationale fields added to ChangeSet schema and inline contract, test_defect routing to testRepairTarget with testfix: agent, and the four-boolean facts schema for the detector; all match spec requirements exactly"
+            ],
+            "confidence": 0.92,
+            "findings": [],
+            "change_set_id": "implement-test-validity-classification-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      },
+      {
+        "change_set_id": "implement-test-validity-classification-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Verified testValidity is a pure function declared in sentinel block implementing AC-1-AC-5: Confirmed function appears between exact sentinels, uses === true for boolean checks (handling missing/non-boolean as false), returns correct classifications for all specified fact combinations without referencing runtime handles",
+              "Verified detector runs only on failed > 0 per AC-8 and test_defect routing per AC-9: Confirmed guard at line 1087, detector runs once per round on MODEL.cheap, test_defects routed to testfix: agents (never fix:), correctness lens receives adjusted results with test_defects removed, testDefectRecheckUsed forces re-verification",
+              "Verified fix-refusal logic per AC-13 and ChangeSet schema per AC-12: Confirmed behaviour_changed/behaviour_rationale optional fields in both inline schema and contracts.schema.json, fixRefused correctly checks behaviour_changed===false AND cites_test_failure===true, refused fixes excluded from applied and re-routed to Test Author with revert instructions"
+            ],
+            "confidence": 0.98,
+            "findings": [],
+            "change_set_id": "implement-test-validity-classification-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Agent prompt injection via interpolated detector input blocked by schema validation",
+              "Privilege escalation via fixer behaviour_changed bypass blocked by fixRefused pure logic",
+              "Sensitive data exposure via test_validity output field blocked by boolean fact constraints",
+              "Malicious detector output escape from testValidity classification blocked by strict type checking",
+              "Secrets or credentials in code and prompts found to be absent",
+              "Path traversal in test file blocked by safe path resolution through extract-fixloop.js"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "implement-test-validity-classification-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k11",
+              "created_at": "2026-09-26T04:49:08Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 3
+      }
+    ],
+    "suite": {
+      "passed": 265,
+      "failed": 11,
+      "results_ref": ".artifacts/integration/k11.json"
+    },
+    "tests_landed": [
+      "b6-fix-refusal-function.test.js",
+      "b6-prompt-rules.test.js",
+      "b6-regression-baseline.test.js",
+      "b6-schema-additions.test.js",
+      "b6-suite-hygiene.test.js",
+      "b6-test-validity-functions.test.js"
+    ],
+    "tests_skipped": [
+      "b5-wiring-helpers.js",
+      "b6-validity-wiring.test.js",
+      "extract-fixloop.js",
+      "fixloop-helpers.js"
+    ],
+    "boundary_repairs": [],
+    "escalations": [],
+    "starved_items": [],
+    "spend": {
+      "tokens": 386741,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k11",
+      "created_at": "2026-09-26T04:49:08Z"
+    }
+  }
+}

@@ -1,0 +1,490 @@
+{
+  "entry": {
+    "id": "k14-build-spec",
+    "run_id": "k14",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-26T19:09:58.342Z",
+    "finished_at": "2026-09-26T19:12:34.000Z",
+    "wall_clock_sec": 156,
+    "result_ref": "ledger/runs/k14-build-spec.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 122441,
+    "tokens_by_model": {
+      "claude-opus-5-5": 29658,
+      "claude-haiku-4-5": 92783
+    },
+    "cost_est_usd": 0.3,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k14",
+      "created_at": "2026-09-26T19:09:38Z"
+    },
+    "trace_ref": ".artifacts/traces/k14-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [],
+    "gated": [
+      {
+        "spec": {
+          "id": "spec-wi-b8-tests-run-the-task-code",
+          "work_item_id": "wi-b8-tests-run-the-task-code",
+          "goal": "In build-implement.js, if any file in a TestSet imports through a relative path that leads outside the TestSet directory, the run is marked invalid. That round's test results then do not count against the implementation. Runs k7, k11 and k13 hit this: tests at .artifacts/tests/<task>/ imported '../../../substrate/test/helpers.js', which loaded the main checkout's pre-task code. The change has three parts. (1) The Test Runner agent (label run:${task.id}:${tag}) reports every relative import/require specifier in the TestSet files. (2) A pure function escapingImports({ tests_ref, imports }), added to the fix-loop decisions sentinel block, decides which of those imports escape. When any do, the escaping files go to the Test Author on the existing testfix: path, the correctness lens is told the run was invalid instead of being given its failures, and the round is recorded in the run output as import_escapes. (3) The tests: prompt in build-implement.js and .claude/agents/test-author.md tell the Test Author four things: never use a relative import that climbs out of the TestSet directory; import repo helpers as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js', because the TestSet lands beside them in substrate/test/; and a test that starts an in-process HTTP server must drive the CLI with an async child process, never spawnSync.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "The text of .claude/workflows/build-implement.js",
+              "when": "The block between the exact lines '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----' is extracted with extractBlock from substrate/test/extract-fixloop.js and evaluated with new Function(block + 'return { escapingImports }')",
+              "then": "escapingImports is a function. The block still evaluates without error, uses no import, require, fs, path module, Date.now or Math.random, and still exposes every existing decision function (the loadFixLoopDecisions call in substrate/test/extract-fixloop.js keeps working)",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "escapingImports loaded from the sentinel block",
+              "when": "It is called with { tests_ref: '.artifacts/tests/t1', imports: [{ file: '.artifacts/tests/t1/x.test.js', specifier: '../../../substrate/test/helpers.js' }] }",
+              "then": "It returns an array of exactly one entry, with file '.artifacts/tests/t1/x.test.js' and specifier '../../../substrate/test/helpers.js'",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "escapingImports loaded from the sentinel block and tests_ref '.artifacts/tests/t1'",
+              "when": "It is called with imports whose file is '.artifacts/tests/t1/x.test.js' and whose specifiers are './helpers.js' and './sub/y.js', plus a file '.artifacts/tests/t1/sub/y.js' importing '../helpers.js'",
+              "then": "It returns []. A specifier resolved against the importing file's own directory that stays inside the TestSet directory never escapes",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "escapingImports loaded from the sentinel block and tests_ref '.artifacts/tests/t1'",
+              "when": "It is called with imports from '.artifacts/tests/t1/x.test.js' whose specifiers are 'node:fs', 'assert' and a package name such as 'some-pkg/sub'",
+              "then": "It returns []. Package names and node: builtins never escape",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "escapingImports loaded from the sentinel block",
+              "when": "tests_ref is a file, e.g. '.artifacts/tests/t1/x.test.js', and imports are [{ file: '.artifacts/tests/t1/x.test.js', specifier: './helpers.js' }, { file: '.artifacts/tests/t1/x.test.js', specifier: '../t2/z.js' }]",
+              "then": "The TestSet directory is taken to be '.artifacts/tests/t1'. Only the '../t2/z.js' entry is returned",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "escapingImports loaded from the sentinel block",
+              "when": "It is called with imports missing or empty, or with entries that have no specifier",
+              "then": "It returns [] and does not throw",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "The TestResults schema in build-implement.js and the Test Runner agent call labelled run:${task.id}:${tag} inside runTask",
+              "when": "The schema object and the runner prompt are inspected",
+              "then": "TestResults has an imports property: an array of objects with string properties file and specifier. The runner prompt tells the agent to report every relative import/require specifier in every file under the TestSet it ran, and to report without judging",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "The source of runTask in build-implement.js, analyzed with substrate/test/b5-wiring-helpers.js (functionNamed, callSites, firstCallOf)",
+              "when": "Call sites inside runTask are located",
+              "then": "There is a call to escapingImports inside runTask whose arguments include the Test Runner result's imports. That call comes before the call that invokes the correctness lens (the lens('correctness', ...) call site) within the same round",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "A round in which escapingImports returns a non-empty list",
+              "when": "runTask handles that round",
+              "then": "Each escaping file is routed to the Test Author on the existing testfix: path: testRepairTarget reused, label beginning testfix:${task.id}:, AT('test-author'), TestRepair schema. The prompt tells the author that a TestSet lands in substrate/test/ beside helpers.js, so helpers are imported as './helpers.js'. The correctness lens prompt for that round says the run was invalid and does not include that round's failing results as evidence against the implementation",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "The final run output object built at the end of build-implement.js",
+              "when": "Its keys are inspected",
+              "then": "It has an import_escapes array of { round, file, specifier } entries, one per escaping import recorded across every task. The array is [] when no round saw an escape",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "The tests: prompt (label tests:${task.id}) in build-implement.js and .claude/agents/test-author.md",
+              "when": "Their text is read",
+              "then": "Both say to never import with a relative path that climbs out of the TestSet directory. Both say to import repo test helpers as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. Both say a test that starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "The diff of this change",
+              "when": "Lens verdict derivation (normalizeVerdict, adjudicate), the judges, testValidity, and every other workflow file are compared with the base",
+              "then": "None of them changed",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/agents/test-author.md"
+            }
+          ],
+          "out_of_scope": [
+            "Changing lens verdict derivation (normalizeVerdict, adjudicate, lensStreaks) or any judge or tiebreak logic",
+            "Changing testValidity or the B6 validity detector's facts or classification",
+            "Any workflow other than .claude/workflows/build-implement.js",
+            "Editing substrate/test/helpers.js, fixloop-helpers.js, extract-fixloop.js or b5-wiring-helpers.js (tests may import them but must not change them)",
+            "Having the script itself read files or resolve paths with node modules; the Test Runner agent does the file reading, and escapingImports is pure string logic",
+            "Any test that shells out to npm test",
+            "Rewriting existing TestSets or tests already in substrate/test/",
+            "Changing the integration or merge stage, or where TestSets are landed"
+          ],
+          "risk": "high",
+          "risk_reasons": [
+            "rule: surface ref names a sensitive term: .claude/agents/test-author.md",
+            "TestResults schema is extended with an optional imports property (array of {file, specifier} objects); no existing fields are removed or changed. Per the rules, additive schema changes are low risk.",
+            "Final run output gains an optional import_escapes array ({round, file, specifier} entries); this is additive to EvidenceBundle with no breaking changes to existing consumers.",
+            "The fix-loop decisions sentinel block (lines between '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----') gains a new escapingImports function. AC-1 confirms existing decision functions continue to work without error.",
+            "Touched surfaces are limited to .claude/workflows/build-implement.js and .claude/agents/test-author.md. AC-12 excludes changes to lens verdict derivation, judges, testValidity, and other workflows.",
+            "Test Author routing (testfix path) and correctness lens prompts receive enhanced instructions when escaping imports are detected; these are additive context, not contract breaks.",
+            "The change is corrective logic fixing a known gap (detecting TestSets that import outside their directory, as seen in runs k7, k11, k13), not a regression to existing functionality."
+          ],
+          "gate": "pending",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k14",
+            "created_at": "2026-09-26T19:09:38Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-b8-tests-run-the-task-code",
+          "tasks": [
+            {
+              "id": "wi-b8-impl-escaping-imports",
+              "spec_id": "spec-wi-b8-tests-run-the-task-code",
+              "description": "Detect test imports that escape the TestSet directory. Add escapingImports() pure function to fix-loop decisions sentinel block in build-implement.js (AC-1–AC-6). Add imports property to TestResults schema and update Test Runner agent to report relative imports/requires (AC-7). Integrate escapingImports() call into runTask before correctness lens, route escaping files to Test Author, mark run invalid, record import_escapes in output (AC-8–AC-10). Update tests: prompt in build-implement.js and test-author.md guidance with constraints on relative paths and HTTP server tests (AC-11). Verify no changes to other workflows or verdict derivation (AC-12).",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/agents/test-author.md"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k14",
+            "created_at": "2026-09-26T19:09:38Z"
+          }
+        },
+        "lint": {
+          "violations": [],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-1",
+              "path": "substrate/test/extract-fixloop.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-2",
+              "path": ".artifacts/tests/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-2",
+              "path": ".artifacts/tests/t1/x.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-2",
+              "path": "../../../substrate/test/helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": ".artifacts/tests/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": ".artifacts/tests/t1/x.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": "helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": "sub/y.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": ".artifacts/tests/t1/sub/y.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-3",
+              "path": "../helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-4",
+              "path": ".artifacts/tests/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-4",
+              "path": ".artifacts/tests/t1/x.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-4",
+              "path": "some-pkg/sub"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-5",
+              "path": ".artifacts/tests/t1/x.test.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-5",
+              "path": "helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-5",
+              "path": "../t2/z.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-5",
+              "path": ".artifacts/tests/t1"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-6"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-7",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-7",
+              "path": "import/require"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-8",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-8",
+              "path": "substrate/test/b5-wiring-helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-9",
+              "path": "substrate/test"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-9",
+              "path": "helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-10",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-11",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-11",
+              "path": "helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-11",
+              "path": "fixloop-helpers.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-11",
+              "path": "extract-fixloop.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "wi-b8-impl-escaping-imports",
+              "criterion": "AC-12"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "test"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "test"
+            },
+            {
+              "id": "AC-9",
+              "verification": "test"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "test"
+            },
+            {
+              "id": "AC-12",
+              "verification": "test"
+            }
+          ],
+          "gate_required": false,
+          "provenance": {
+            "node": "graph_lint",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "n/a",
+            "run_id": "k14",
+            "created_at": "2026-09-26T19:09:38Z"
+          }
+        }
+      }
+    ],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k14",
+      "created_at": "2026-09-26T19:09:38Z"
+    }
+  }
+}

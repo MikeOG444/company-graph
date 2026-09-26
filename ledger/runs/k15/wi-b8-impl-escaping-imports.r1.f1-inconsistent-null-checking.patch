@@ -1,0 +1,36 @@
+commit ed14e881ce25036badf7acc756098a51064b5e15
+Author: Claude <noreply@anthropic.com>
+Date:   Sat Sep 26 19:48:21 2026 +0000
+
+    wi-b8: guard escapingImports against imports entries missing file
+    
+    An imports entry lacking the file property flowed straight into
+    escapingImports' output as { file: undefined, specifier }, which then
+    surfaced as the literal string "undefined" in the per-file Test Author
+    repair prompt. Validate file the same way specifier is already validated,
+    and skip entries without one.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_019Y8PoKeAxY1UqCFsE9FZsw
+
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 72998fa..fcf77c0 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -792,12 +792,14 @@ function escapingImports({ tests_ref, imports }) {
+   const dir = testSetDirOf(tests_ref)
+   const out = []
+   for (const imp of imports ?? []) {
++    const file = imp?.file
+     const specifier = imp?.specifier
++    if (typeof file !== 'string' || !file) continue
+     if (typeof specifier !== 'string' || !specifier) continue
+     if (!(specifier.startsWith('./') || specifier.startsWith('../'))) continue
+-    const resolved = resolveSpecifier(dirOf(imp?.file), specifier)
++    const resolved = resolveSpecifier(dirOf(file), specifier)
+     const within = resolved === dir || (dir && resolved.startsWith(`${dir}/`))
+-    if (!within) out.push({ file: imp.file, specifier })
++    if (!within) out.push({ file, specifier })
+   }
+   return out
+ }

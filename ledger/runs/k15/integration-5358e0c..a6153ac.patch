@@ -1,0 +1,889 @@
+diff --git a/.claude/agents/test-author.md b/.claude/agents/test-author.md
+index d2039a7..bad9f55 100644
+--- a/.claude/agents/test-author.md
++++ b/.claude/agents/test-author.md
+@@ -14,5 +14,7 @@ Rules:
+ - Tests must be runnable by the repo's existing test runner without manual steps.
+ - **A source-text wiring test asserts CALLS, and their order, inside a named function — never the first textual occurrence of a name in the file.** Use `substrate/test/b5-wiring-helpers.js` (`functionNamed`, `enclosingFunction`, `callSites`, `reachersOf`, `firstCallOf`) to find the call sites you are checking. A test built on `indexOf` or a similar whole-file first-occurrence search finds a declaration or an unrelated mention just as easily as the call the test means to check — that is a test defect, not a correctness finding, and it is what run k9d's wiring fix replaced.
+ - **Require an exact literal only when the Spec quotes it.** Assert an identifier, string, or other literal exactly only when the Spec text itself quotes that literal; otherwise assert the behaviour, not incidental wording.
++- **Never use a relative import or require that climbs out of the TestSet directory you were given** (no `../` path that leaves it). A test whose import escapes that directory can end up running against the wrong code entirely, and the run is marked invalid. A TestSet lands in `substrate/test/` beside the repo's own `helpers.js`, `fixloop-helpers.js` and `extract-fixloop.js`, so import them as `./helpers.js`, `./fixloop-helpers.js` and `./extract-fixloop.js`.
++- **A test that starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync.**
+ - Write them under the directory you were given and return that path as `tests_ref`.
+ - Return only the TestSet fields the schema asks for.
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 2d05920..dd18a20 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -90,7 +90,12 @@ const TestSet = { type: 'object', additionalProperties: false, required: ['id',
+     criteria_coverage: { type: 'array', items: { type: 'string' } } } }
+ const TestResults = { type: 'object', additionalProperties: false, required: ['passed', 'failed', 'results_ref', 'criteria_covered'],
+   properties: { passed: { type: 'integer' }, failed: { type: 'integer' }, results_ref: { type: 'string' },
+-    criteria_covered: { type: 'array', items: { type: 'string' } } } }
++    criteria_covered: { type: 'array', items: { type: 'string' } },
++    // wi-b8: every relative import/require specifier the runner found in every file under the TestSet it ran,
++    // reported without judging — escapingImports (fix-loop decisions, below) decides which of these escape the
++    // TestSet directory. Optional/additive: an older runner result that never set it still validates.
++    imports: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'specifier'],
++      properties: { file: { type: 'string' }, specifier: { type: 'string' } } } } } }
+ const Finding = { type: 'object', additionalProperties: false,
+   required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
+   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
+@@ -740,6 +745,67 @@ function citesFailingTest(finding, failingTestNames) {
+ function fixRefused({ behaviour_changed, cites_test_failure }) {
+   return behaviour_changed === false && cites_test_failure === true
+ }
++
++// ---- wi-b8: tests that escape the TestSet directory ----
++// Runs k7, k11 and k13 all hit the same hole: a test at .artifacts/tests/<task>/ imported
++// '../../../substrate/test/helpers.js', a relative path that climbs OUT of the TestSet directory and loads the
++// main checkout's PRE-TASK code instead of the change under review — a green (or red) result that proves nothing
++// about the task. No node path module, no fs: pure string logic, exactly like scopeOf/testRepairTarget above.
++
++// The TestSet directory for containment purposes. tests_ref is sometimes a directory ('.artifacts/tests/t1') and
++// sometimes a single file ('.artifacts/tests/t1/x.test.js', AC-5) — a file's last path segment ends with a known
++// JS/TS source extension, a directory's does not. A generic "contains a dot" check would misidentify a directory
++// whose own name happens to carry a dot (e.g. 't1.backup') as a file, so the signal is narrowed to the actual
++// extensions test files are written with.
++const TEST_FILE_EXT_RE = /\.[mc]?[jt]sx?$/
++function testSetDirOf(tests_ref) {
++  const s = String(tests_ref ?? '').replace(/\/+$/, '')
++  const last = s.split('/').pop() ?? ''
++  if (!TEST_FILE_EXT_RE.test(last)) return s
++  const idx = s.lastIndexOf('/')
++  return idx === -1 ? '' : s.slice(0, idx)
++}
++
++// Everything before the last '/' in a path — the directory a file sits in. '' when there is none.
++function dirOf(p) {
++  const s = String(p ?? '')
++  const idx = s.lastIndexOf('/')
++  return idx === -1 ? '' : s.slice(0, idx)
++}
++
++// A relative specifier resolved against the IMPORTING FILE's own directory (AC-3), never against tests_ref
++// directly — a sibling file one level down resolving './helpers.js' or '../helpers.js' must land beside itself,
++// not beside the TestSet root. '..' pops the last collected segment; a '..' with nothing left to pop is kept
++// literally, which only ever shows up when a specifier climbs above the combined path entirely.
++function resolveSpecifier(fileDir, specifier) {
++  const segs = [...String(fileDir ?? '').split('/'), ...String(specifier ?? '').split('/')]
++  const out = []
++  for (const seg of segs) {
++    if (seg === '' || seg === '.') continue
++    if (seg === '..') { if (out.length && out[out.length - 1] !== '..') out.pop(); else out.push('..'); continue }
++    out.push(seg)
++  }
++  return out.join('/')
++}
++
++// Every { file, specifier } entry whose specifier is RELATIVE ('./' or '../' — a bare package name or a
++// node: builtin never escapes, AC-4) that resolves outside the TestSet directory. Missing/empty imports, or an
++// entry with no specifier, return [] without throwing (AC-6).
++function escapingImports({ tests_ref, imports }) {
++  const dir = testSetDirOf(tests_ref)
++  const out = []
++  for (const imp of imports ?? []) {
++    const file = imp?.file
++    const specifier = imp?.specifier
++    if (typeof file !== 'string' || !file) continue
++    if (typeof specifier !== 'string' || !specifier) continue
++    if (!(specifier.startsWith('./') || specifier.startsWith('../'))) continue
++    const resolved = resolveSpecifier(dirOf(file), specifier)
++    const within = resolved === dir || (dir && resolved.startsWith(`${dir}/`))
++    if (!within) out.push({ file, specifier })
++  }
++  return out
++}
+ // ---- END fix-loop decisions ----
+ 
+ // =====================================================================
+@@ -889,6 +955,11 @@ async function runTask({ spec, task, spec_ref }) {
+                  which finds a declaration or an unrelated mention just as easily as the call the test means to check, and a test built on
+                  it is a test defect, not a correctness finding. Require an exact literal (an identifier or string match) only when the
+                  Spec itself quotes that literal — never invent one merely because it makes the assertion easier to write.
++                 NEVER use a relative import or require that climbs out of the TestSet directory you were given (no './..' path that
++                 leaves it) — a test whose import escapes that directory can end up running against the wrong code entirely and the
++                 run is marked invalid. This TestSet lands in substrate/test/ beside the repo's own helpers.js, fixloop-helpers.js and
++                 extract-fixloop.js, so import them as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that
++                 starts a local HTTP server in-process must drive the CLI with an async child process, never spawnSync.
+                  Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `tests:${task.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestSet }),
+   ])
+@@ -917,6 +988,9 @@ async function runTask({ spec, task, spec_ref }) {
+                 // AC-11), from the detector's facts or a refused fixer's behaviour_changed:false. Emitted in the
+                 // run output as-is; [] when nothing was ever classified.
+                 testValidity: [],
++                // importEscapes: one { round, file, specifier } entry per escaping import recorded across this
++                // task's rounds (wi-b8, AC-10). Emitted in the run output as import_escapes; [] when no round saw one.
++                importEscapes: [],
+                 // testDefectRecheckUsed: this task's one forced extra confirm round after a test_defect repair
+                 // (AC-9) — the task must not pass in the very round a test_defect was found and routed to the Test
+                 // Author, before the Test Runner has re-run against the repair. Bounded at one, exactly like
+@@ -1047,7 +1121,11 @@ async function runTask({ spec, task, spec_ref }) {
+     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
+     const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
+                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
+-                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.`,
++                        Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.
++                        ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
++                        file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
++                        WITHOUT judging whether any of them is correct; that decision is made elsewhere. Omit a package name or a
++                        node: builtin; report only relative paths.`,
+       { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
+ 
+     const overruledNote = ctx.overruled.length
+@@ -1091,11 +1169,55 @@ async function runTask({ spec, task, spec_ref }) {
+       correctness: async () => {
+         const r = await runP
+         if (!r) return null
++        // ---- Tests that escape the TestSet directory (wi-b8, AC-8/AC-9/AC-10): checked BEFORE anything else this
++        // round touches — before the validity detector, before any fix: agent — because a test that ran against
++        // code outside this task's change (k7, k11, k13) makes every OTHER fact this round reported about it
++        // meaningless. escapingImports is pure string logic (fix-loop decisions, above); nothing here reads a file
++        // or resolves a path itself.
++        const escapes = escapingImports({ tests_ref: ctx.testSet.tests_ref, imports: r.imports })
++        let escapeNote = ''
++        if (escapes.length) {
++          escapes.forEach(e => ctx.importEscapes.push({ round: ctx.round, file: e.file, specifier: e.specifier }))
++          const escapingFiles = [...new Set(escapes.map(e => e.file))]
++          const specifiersOf = (file) => escapes.filter(e => e.file === file).map(e => e.specifier)
++          // Existing testfix: path, reused exactly (testRepairTarget, label beginning testfix:${task.id}:,
++          // AT('test-author'), TestRepair schema) — same repair path a test_defect uses below.
++          const repairs = (await parallel(escapingFiles.map(file => () => {
++            const target = testRepairTarget({ finding: { location: file }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
++            const targetNote = target.source === 'finding_location'
++              ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
++              : `Write it under the TestSet directory (create the file there if it does not exist yet).`
++            return agent(`The test file "${file}" imports through a relative path that ESCAPES the TestSet directory
++                   ${ctx.testSet.tests_ref} (specifier(s): ${JSON.stringify(specifiersOf(file))}) — it may have run against code outside
++                   this task's own change rather than testing it. Repair the test at ${target.ref} so every relative import/require stays
++                   inside the TestSet directory: never use a relative path that climbs out of it; do not read or modify the implementation.
++                   A TestSet lands in substrate/test/ at run time, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
++                   those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that starts a local HTTP server
++                   in-process must drive the CLI with an async child process, never spawnSync. ${targetNote} If the import is correct and
++                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and
++                   the criteria the tests now cover.`,
++              { label: `testfix:${task.id}:escape:${file}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
++              .then(p => p && { p, target })
++          }))).filter(Boolean)
++          repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
++          const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
++          if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef) }
++          ctx.history.push(`${tag}: ${escapingFiles.length} TestSet file(s) imported outside ${ctx.testSet.tests_ref}; routed to the Test Author and this round's run marked invalid`)
++          // The correctness lens is told the run was INVALID instead of being given this round's failures as
++          // evidence (AC-9) — an escaping import can make a real defect look fixed, or an unrelated failure look
++          // like this task's fault, so neither this round's pass nor its fail is trustworthy evidence either way.
++          // Recorded in escapeNote and folded into the one correctness-lens call below, rather than a second
++          // call site, so the round's failing-test facts (which may be nonsense) are never even read.
++          escapeNote = `This round's test run is INVALID: ${escapingFiles.length} TestSet file(s) imported a relative path that
++             escapes the TestSet directory (${JSON.stringify(escapingFiles)}), so the results may not reflect this task's own change
++             at all. Do NOT treat this round's pass or fail results as evidence for or against the implementation — the escaping
++             file(s) are already being repaired by the Test Author.`
++        }
+         // ---- Test validity before blame (wi-b6, AC-8/AC-9): before correctness gets to blame the implementation
+         // for ANY failing test, one cheap read-only detector runs ONCE, only because this round's Test Runner
+-        // reported failed > 0. It reports facts only; testValidity (the pure function, called next) derives the
+-        // class in script code.
+-        if (r.failed > 0) {
++        // reported failed > 0 AND no import already escaped this round (wi-b8: an escaping import already makes
++        // every fact this round reported about a failing test meaningless, so the detector never runs on it).
++        if (!escapes.length && r.failed > 0) {
+           const detected = (await agent(`Report FACTS ONLY about each currently FAILING test from this round's run — never a verdict, never
+                  a fix. Test results are at ${r.results_ref} (${r.failed} failing, ${r.passed} passing). The change under review is committed
+                  on branch ${branch} in worktree ${wt} (app at ${wt}/${APP}/); its BASE commit (before this task's change) is ${base}.
+@@ -1152,7 +1274,7 @@ async function runTask({ spec, task, spec_ref }) {
+              implementation: ${JSON.stringify(testDefectNames)}. They are not evidence against this change — do not raise a finding citing them.`
+           : ''
+         return lens('correctness', 'Do the tests exercise the acceptance criteria? Are passes meaningful? Is anything untested?',
+-          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote}`)
++          `Tests: ${JSON.stringify(ctx.testSet)}. Results: ${JSON.stringify(adjustedResults)}. ${defectNote} ${escapeNote}`)
+       },
+     }
+     const rawVerdicts = (await parallel(toRun.map(l => lensThunks[l]))).filter(Boolean)
+@@ -1689,6 +1811,9 @@ return {
+   // One entry per failing-test classification made across every task this run (wi-b6, AC-11): { test, criterion,
+   // facts, class }. [] when nothing was ever classified — no round ever saw failed > 0, or every task was skipped.
+   test_validity: finished.flatMap(f => f.testValidity ?? []),
++  // One { round, file, specifier } entry per escaping import recorded across every task this run (wi-b8, AC-10).
++  // [] when no round saw a TestSet file import a relative path outside its own TestSet directory.
++  import_escapes: finished.flatMap(f => f.importEscapes ?? []),
+   // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+   // [] when no task strayed.
+   boundary_repairs: boundaryRepairs,
+diff --git a/substrate/test/b8-AC-1-sentinel-block.test.js b/substrate/test/b8-AC-1-sentinel-block.test.js
+new file mode 100644
+index 0000000..645f981
+--- /dev/null
++++ b/substrate/test/b8-AC-1-sentinel-block.test.js
+@@ -0,0 +1,65 @@
++// spec-wi-b8-tests-run-the-task-code AC-1. Written from the Spec only.
++//
++// "The text of .claude/workflows/build-implement.js. The block between the exact lines
++// '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----' is extracted with
++// extractBlock from substrate/test/extract-fixloop.js and evaluated with
++// new Function(block + 'return { escapingImports }'). escapingImports is a function. The block still
++// evaluates without error, uses no import, require, fs, path module, Date.now or Math.random, and still
++// exposes every existing decision function (the loadFixLoopDecisions call in substrate/test/extract-fixloop.js
++// keeps working)."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadFixLoopDecisions } from './extract-fixloop.js'
++import { fixLoopBlockText, loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++const EXISTING_SEVENTEEN = [
++  'scopeOf', 'scopeTargets', 'nextLenses', 'lensesToRun', 'roundBudget', 'taskCeiling', 'emptyDiffAction', 'shouldEscalate',
++  'surfaceRef', 'withinOwned', 'boundaryCheck', 'criteriaScope', 'citedCriteria', 'isForeignCriterionFinding',
++  'stripForeignFindings', 'routeFinding', 'fixOutcome',
++]
++
++test('AC-1: escapingImports is a function exposed by the fix-loop decisions sentinel block, evaluated exactly as the spec prescribes', () => {
++  const escapingImports = loadEscapingImports()
++  assert.equal(typeof escapingImports, 'function')
++})
++
++test('AC-1: the sentinel block uses no import, require, fs, path module, Date.now or Math.random', () => {
++  const block = fixLoopBlockText()
++  // "no import" / "no require": banned outright, in any form, so any actual import/require statement fails this.
++  assert.doesNotMatch(block, /\bimport\s/, 'the block must not use import')
++  assert.doesNotMatch(block, /\brequire\s*\(/, 'the block must not use require(...)')
++  // "no fs" / "no path module": the block must never pull in Node's fs or path module. Since the block is
++  // evaluated in isolation (new Function has no closure over anything outside it), the only way it could reach
++  // either module is by importing/requiring it under its own or a re-exported name — already covered above — or
++  // by naming the module specifier explicitly. Checking for a bare identifier called `fs` or `path` followed by
++  // a `.` would also flag an unrelated local binding that merely happens to share that name (or prose like
++  // "...not a path." in a comment), which is not what the criterion means by "uses the fs / path module".
++  assert.doesNotMatch(block, /\bfs\s*=\s*require\s*\(\s*['"]node:fs['"]\s*\)/, 'the block must not require the fs module')
++  assert.doesNotMatch(block, /\bpath\s*=\s*require\s*\(\s*['"]node:path['"]\s*\)/, 'the block must not require the path module')
++  assert.doesNotMatch(block, /require\s*\(\s*['"](?:node:)?fs['"]\s*\)/, 'the block must not require the fs module')
++  assert.doesNotMatch(block, /require\s*\(\s*['"](?:node:)?path['"]\s*\)/, 'the block must not require the path module')
++  assert.doesNotMatch(block, /\bfrom\s+['"](?:node:)?fs['"]/, 'the block must not import the fs module')
++  assert.doesNotMatch(block, /\bfrom\s+['"](?:node:)?path['"]/, 'the block must not import the path module')
++  assert.doesNotMatch(block, /Date\.now\s*\(/, 'the block must not use Date.now()')
++  assert.doesNotMatch(block, /Math\.random\s*\(/, 'the block must not use Math.random()')
++})
++
++test('AC-1: escapingImports runs to completion without a ReferenceError for fs/path, confirming it never actually reaches into the fs or path module at call time', () => {
++  const escapingImports = loadEscapingImports()
++  // A call whose inputs would exercise real path-escaping logic. If the implementation reached for Node's fs or
++  // path module despite not importing it in this isolated scope, this call throws a ReferenceError rather than
++  // returning a value - the isolated `new Function` block has no closure over anything outside it.
++  assert.doesNotThrow(() => {
++    escapingImports({
++      tests_ref: '.artifacts/tests/t1',
++      imports: [{ file: '.artifacts/tests/t1/x.test.js', specifier: '../../../substrate/test/helpers.js' }],
++    })
++  })
++})
++
++test('AC-1: the block still evaluates without error and still exposes every existing decision function (loadFixLoopDecisions keeps working)', () => {
++  const decisions = loadFixLoopDecisions()
++  for (const name of EXISTING_SEVENTEEN) {
++    assert.equal(typeof decisions[name], 'function', `expected loadFixLoopDecisions() to still return ${name} as a function`)
++  }
++})
+diff --git a/substrate/test/b8-AC-10-run-output.test.js b/substrate/test/b8-AC-10-run-output.test.js
+new file mode 100644
+index 0000000..cba7a17
+--- /dev/null
++++ b/substrate/test/b8-AC-10-run-output.test.js
+@@ -0,0 +1,41 @@
++// spec-wi-b8-tests-run-the-task-code AC-10. Written from the Spec only.
++//
++// "The final run output object built at the end of build-implement.js. Its keys are inspected. It has an
++// import_escapes array of { round, file, specifier } entries, one per escaping import recorded across every
++// task. The array is [] when no round saw an escape."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++
++test('AC-10: the final run output declares an import_escapes: [] entry, of { round, file, specifier } shape', () => {
++  const text = readWorkflowText()
++  // Anchor on the existing phase('Evidence') marker and the final return statement it precedes, the same
++  // shape the pre-existing test_validity / boundary_repairs entries sit beside.
++  const phaseIdx = text.indexOf("phase('Evidence')")
++  assert.ok(phaseIdx > 0, "expected the phase('Evidence') marker before the final run output")
++  const returnIdx = text.indexOf('return {', phaseIdx)
++  assert.ok(returnIdx > phaseIdx, 'expected the final run output object literal after phase(\'Evidence\')')
++  const closeIdx = text.indexOf('provenance: stamp(', returnIdx)
++  assert.ok(closeIdx > returnIdx, 'expected the run output to still stamp provenance')
++  const block = text.slice(returnIdx, closeIdx + 400)
++
++  assert.match(block, /import_escapes\s*:/, 'expected an import_escapes key on the final run output')
++  // The value must be built from every task's own escaping-import records, mirroring how test_validity is
++  // built from finished.flatMap(f => f.testValidity ?? []) — some per-task array, flattened, defaulting to [].
++  const importEscapesLine = block.match(/import_escapes\s*:\s*([^\n]*)/)?.[1] ?? ''
++  assert.match(importEscapesLine, /flatMap|\?\?\s*\[\]/, 'import_escapes must be built from every task\'s records, defaulting to []')
++})
++
++test('AC-10: import_escapes entries are documented (or shaped) as { round, file, specifier }', () => {
++  const text = readWorkflowText()
++  const phaseIdx = text.indexOf("phase('Evidence')")
++  const returnIdx = text.indexOf('return {', phaseIdx)
++  const closeIdx = text.indexOf('provenance: stamp(', returnIdx)
++  const block = text.slice(Math.max(0, returnIdx - 500), closeIdx + 400)
++  const importEscapesIdx = block.indexOf('import_escapes')
++  assert.ok(importEscapesIdx >= 0, 'expected import_escapes in the run output region')
++  const window = block.slice(Math.max(0, importEscapesIdx - 300), importEscapesIdx + 300)
++  for (const field of ['round', 'file', 'specifier']) {
++    assert.match(window, new RegExp(`\\b${field}\\b`), `expected ${field} to be named near import_escapes`)
++  }
++})
+diff --git a/substrate/test/b8-AC-11-prompt-and-doc.test.js b/substrate/test/b8-AC-11-prompt-and-doc.test.js
+new file mode 100644
+index 0000000..303cbfd
+--- /dev/null
++++ b/substrate/test/b8-AC-11-prompt-and-doc.test.js
+@@ -0,0 +1,98 @@
++// spec-wi-b8-tests-run-the-task-code AC-11. Written from the Spec only.
++//
++// "The tests: prompt (label tests:${task.id}) in build-implement.js and .claude/agents/test-author.md. Their
++// text is read. Both say to never import with a relative path that climbs out of the TestSet directory. Both
++// say to import repo test helpers as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. Both
++// say a test that starts a local HTTP server in-process must drive the CLI with an async child process, never
++// spawnSync."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { readWorkflowText } from './extract-fixloop.js'
++import { callSites, codeMask } from './b5-wiring-helpers.js'
++
++const REPO = process.cwd()
++const TEST_AUTHOR_MD = path.join(REPO, '.claude', 'agents', 'test-author.md')
++
++// Matches the '(' at `open` to its closing ')', skipping characters codeMask marks as non-code
++// (inside a string, a template literal's literal text, or a comment), so a ')' that only appears
++// inside the prompt text itself can't end the call early.
++function matchParen(text, open) {
++  if (text[open] !== '(') throw new Error(`matchParen: no ( at ${open}`)
++  const mask = codeMask(text)
++  let depth = 0
++  for (let i = open; i < text.length; i++) {
++    if (!mask[i]) continue
++    const c = text[i]
++    if (c === '(') depth++
++    else if (c === ')') { depth--; if (depth === 0) return i + 1 }
++  }
++  throw new Error(`matchParen: unbalanced ( at ${open}`)
++}
++
++// The text of the one agent(...) call labelled `tests:${task.id}`. Found by locating every CALL to
++// `agent` via callSites (never a declaration, never a mention inside a comment or string) and keeping
++// the call whose own bounded text carries that label — never by searching the whole file for the
++// label first and walking outward from it, which would find a declaration or an unrelated mention of
++// the label just as easily as the real call.
++function testsAgentCallText(text) {
++  const sites = callSites(text, 'agent')
++  const calls = sites.map(at => {
++    const parenAt = text.indexOf('(', at)
++    return text.slice(at, matchParen(text, parenAt))
++  })
++  const matches = calls.filter(call => /`tests:\$\{task\.id\}`/.test(call))
++  assert.strictEqual(matches.length, 1,
++    `expected exactly one agent() call labelled tests:\${task.id}, found ${matches.length}`)
++  return matches[0]
++}
++
++test('AC-11: both the tests: prompt in build-implement.js and test-author.md say never to use a relative import that climbs out of the TestSet directory', () => {
++  const text = readWorkflowText()
++  const testsCall = testsAgentCallText(text)
++  const testAuthorMd = fs.readFileSync(TEST_AUTHOR_MD, 'utf8')
++  for (const doc of [testsCall, testAuthorMd]) {
++    assert.match(doc, /relative\s+(import|path)/i, 'must mention a relative import/path')
++    assert.match(doc, /climb|escape|outside|leaves?\s+the\s+TestSet|out\s+of\s+the\s+TestSet/i,
++      'must say a relative import must never climb out of / escape the TestSet directory')
++  }
++})
++
++test('AC-11: both docs say to import repo test helpers as \'./helpers.js\', \'./fixloop-helpers.js\' and \'./extract-fixloop.js\'', () => {
++  // The Spec quotes the literal specifiers themselves ('./helpers.js', './fixloop-helpers.js',
++  // './extract-fixloop.js') -- it does not mandate which punctuation the prose wraps them in
++  // (straight quotes, backticks, etc. are all valid markdown/prompt conventions). So require the
++  // literal path text, tolerant of whatever quoting/backtick character surrounds it.
++  const text = readWorkflowText()
++  const testsCall = testsAgentCallText(text)
++  const testAuthorMd = fs.readFileSync(TEST_AUTHOR_MD, 'utf8')
++  for (const doc of [testsCall, testAuthorMd]) {
++    assert.match(doc, /['"`]\.\/helpers\.js['"`]/, "must name './helpers.js'")
++    assert.match(doc, /['"`]\.\/fixloop-helpers\.js['"`]/, "must name './fixloop-helpers.js'")
++    assert.match(doc, /['"`]\.\/extract-fixloop\.js['"`]/, "must name './extract-fixloop.js'")
++  }
++})
++
++test('AC-11: both docs say a test starting a local HTTP server in-process must drive the CLI with an async child process, never spawnSync', () => {
++  // The Spec's "then" text is prose describing the required BEHAVIOUR (drive the CLI via an
++  // asynchronous child process, not the synchronous spawnSync call) -- it puts no quote marks
++  // around "async", "child process" or "spawnSync", so a compliant doc is free to phrase this
++  // however it likes as long as it conveys that behaviour. In particular, a natural way to name
++  // the mechanism is Node's own module name `child_process` (underscore, one word) rather than
++  // the two-word English phrase "child process" -- e.g. "drive it via child_process.spawn, never
++  // spawnSync". A regex that only accepts a whitespace separator between "child" and "process"
++  // would reject that substantively correct doc, so tolerate underscore/hyphen/space alike, and
++  // accept "asynchronous" alongside "async" for the same reason.
++  const text = readWorkflowText()
++  const testsCall = testsAgentCallText(text)
++  const testAuthorMd = fs.readFileSync(TEST_AUTHOR_MD, 'utf8')
++  const childProcess = /child[\s_-]*process/i
++  const asyncIndication = /\basync\b|asynchronous/i
++  for (const doc of [testsCall, testAuthorMd]) {
++    assert.match(doc, /HTTP\s+server/i, 'must mention an HTTP server')
++    assert.match(doc, childProcess, 'must mention a child process')
++    assert.match(doc, asyncIndication, 'must say the child process is asynchronous')
++    assert.match(doc, /never\s+spawnSync|not\s+spawnSync|spawnSync[^.]*never/i, 'must say never spawnSync')
++  }
++})
+diff --git a/substrate/test/b8-AC-12-no-other-changes.test.js b/substrate/test/b8-AC-12-no-other-changes.test.js
+new file mode 100644
+index 0000000..f75e8f7
+--- /dev/null
++++ b/substrate/test/b8-AC-12-no-other-changes.test.js
+@@ -0,0 +1,86 @@
++// spec-wi-b8-tests-run-the-task-code AC-12. Written from the Spec only.
++//
++// "The diff of this change. Lens verdict derivation (normalizeVerdict, adjudicate), the judges, testValidity,
++// and every other workflow file are compared with the base. None of them changed."
++//
++// The BASELINE text below is transcribed from .claude/workflows/build-implement.js and the other
++// .claude/workflows/*.js files as they stood going into this work item (the pre-task commit) — the only way a
++// test can assert "unchanged" after the fact, exactly the technique substrate/test/b6-regression-baseline.test.js
++// already uses for the same normalizeVerdict/adjudicate functions.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import crypto from 'node:crypto'
++import { readWorkflowText } from './extract-fixloop.js'
++
++const REPO = process.cwd()
++
++const BASELINE_NORMALIZE_VERDICT = `function normalizeVerdict(v, tag) {
++  const defects = (v.findings ?? []).filter(f => !SPEC_LEVEL.test(String(f.claim)))
++  const derived = defects.length ? 'fail' : 'pass'
++  if (v.verdict !== derived) {
++    log(\`\${tag} \${v.lens}: said \${v.verdict} but \${defects.length} defect(s) remain; recorded as \${derived}\`)
++    return { ...v, verdict: derived }
++  }
++  return v
++}`
++
++const BASELINE_ADJUDICATE = `function adjudicate(panelVerdicts) {
++  const veto = panelVerdicts.find(v => v.lens === VETO_LENS && v.verdict === 'fail')
++  if (veto) return { result: 'fail', veto_by: veto.lens, split: false }
++  const fails = panelVerdicts.filter(v => v.verdict === 'fail')
++  if (!fails.length) return { result: 'pass', split: false }
++  if (fails.every(v => v.confidence < LOW_CONFIDENCE)) return { result: null, split: true }
++  return { result: 'fail', split: false }
++}`
++
++const BASELINE_TEST_VALIDITY = `function testValidity(facts) {
++  const f = facts ?? {}
++  const is = (v) => v === true
++  const locatesByFirstOccurrence = is(f.locates_by_first_occurrence)
++  const requiresUnquotedLiteral = is(f.requires_unquoted_literal)
++  const failsOnBaseSameReason = is(f.fails_on_base_same_reason)
++  const namesCriterionBehaviour = is(f.names_criterion_behaviour)
++  if (locatesByFirstOccurrence || requiresUnquotedLiteral) return 'test_defect'
++  if (failsOnBaseSameReason && !namesCriterionBehaviour) return 'test_defect'
++  if (namesCriterionBehaviour && !failsOnBaseSameReason) return 'code_defect'
++  return 'unclear'
++}`
++
++// Pre-task sha256 of every OTHER workflow file (everything besides build-implement.js, the one surface this
++// work item touches, per touched_surfaces).
++const BASELINE_OTHER_WORKFLOW_HASHES = {
++  'build-reentry.js': '2138be913df0179ceeed71bf60862ad21bd001364e9095d0bdeb7d0384a93d3b',
++  'build-spec.js': '70af514c1ab9de41f39ec4b137c88ca5026bc4fd2259e559780e806ab3097590',
++  'create-project.js': '567a58cdfb5074c0f4fe48347e08dff12088222d60abfdaddf086111d7133060',
++  'deploy.js': 'dd68bfba792f1ee9646258e748a1a340e859a13109706351cfe0c3c57604a0f1',
++  'improve-analyze.js': '5b1eeda996e0cde2e5b76b21e9e530e0a8cab8ba4ec647766bd9d22af3aea2e1',
++  'launch.js': 'af291894fee896ee2404c0dda8e994468a73c5f81e4231072dba58c46c05c53f',
++  'maintain-triage.js': '5953356f01d82f214b4a4be6495da3009351b3aefe974e1f2b17d5703636fa2f',
++  'memory-roll.js': '846507fbb93218616a484daa383b51e264459339512ecb3acbe569ae15a72f87',
++}
++
++test('AC-12: normalizeVerdict is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_NORMALIZE_VERDICT), 'normalizeVerdict must be unchanged; lens verdict derivation is out of scope for this work item')
++})
++
++test('AC-12: adjudicate is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_ADJUDICATE), 'adjudicate must be unchanged; lens verdict derivation is out of scope for this work item')
++})
++
++test('AC-12: testValidity is byte-for-byte unchanged from its pre-task baseline', () => {
++  const text = readWorkflowText()
++  assert.ok(text.includes(BASELINE_TEST_VALIDITY), 'testValidity (the B6 validity detector\'s classification) must be unchanged, per this work item\'s own exclusions')
++})
++
++test('AC-12: no workflow file other than build-implement.js changed', () => {
++  for (const [name, hash] of Object.entries(BASELINE_OTHER_WORKFLOW_HASHES)) {
++    const filePath = path.join(REPO, '.claude', 'workflows', name)
++    const text = fs.readFileSync(filePath, 'utf8')
++    const actual = crypto.createHash('sha256').update(text).digest('hex')
++    assert.equal(actual, hash, `${name} must be byte-for-byte unchanged; this work item touches only .claude/workflows/build-implement.js`)
++  }
++})
+diff --git a/substrate/test/b8-AC-2-single-escape.test.js b/substrate/test/b8-AC-2-single-escape.test.js
+new file mode 100644
+index 0000000..c689fd2
+--- /dev/null
++++ b/substrate/test/b8-AC-2-single-escape.test.js
+@@ -0,0 +1,20 @@
++// spec-wi-b8-tests-run-the-task-code AC-2. Written from the Spec only.
++//
++// "escapingImports loaded from the sentinel block. It is called with { tests_ref: '.artifacts/tests/t1',
++// imports: [{ file: '.artifacts/tests/t1/x.test.js', specifier: '../../../substrate/test/helpers.js' }] }.
++// It returns an array of exactly one entry, with file '.artifacts/tests/t1/x.test.js' and specifier
++// '../../../substrate/test/helpers.js'."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++test('AC-2: a specifier that climbs out of the TestSet directory (the exact k7/k11/k13 shape) is reported as escaping', () => {
++  const escapingImports = loadEscapingImports()
++  const result = escapingImports({
++    tests_ref: '.artifacts/tests/t1',
++    imports: [{ file: '.artifacts/tests/t1/x.test.js', specifier: '../../../substrate/test/helpers.js' }],
++  })
++  assert.equal(result.length, 1)
++  assert.equal(result[0].file, '.artifacts/tests/t1/x.test.js')
++  assert.equal(result[0].specifier, '../../../substrate/test/helpers.js')
++})
+diff --git a/substrate/test/b8-AC-3-resolved-within-testset.test.js b/substrate/test/b8-AC-3-resolved-within-testset.test.js
+new file mode 100644
+index 0000000..874a0f2
+--- /dev/null
++++ b/substrate/test/b8-AC-3-resolved-within-testset.test.js
+@@ -0,0 +1,23 @@
++// spec-wi-b8-tests-run-the-task-code AC-3. Written from the Spec only.
++//
++// "escapingImports loaded from the sentinel block and tests_ref '.artifacts/tests/t1'. It is called with
++// imports whose file is '.artifacts/tests/t1/x.test.js' and whose specifiers are './helpers.js' and
++// './sub/y.js', plus a file '.artifacts/tests/t1/sub/y.js' importing '../helpers.js'. It returns []. A
++// specifier resolved against the importing file's own directory that stays inside the TestSet directory
++// never escapes."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++test('AC-3: specifiers resolved against their own importing file that stay inside the TestSet directory never escape', () => {
++  const escapingImports = loadEscapingImports()
++  const result = escapingImports({
++    tests_ref: '.artifacts/tests/t1',
++    imports: [
++      { file: '.artifacts/tests/t1/x.test.js', specifier: './helpers.js' },
++      { file: '.artifacts/tests/t1/x.test.js', specifier: './sub/y.js' },
++      { file: '.artifacts/tests/t1/sub/y.js', specifier: '../helpers.js' },
++    ],
++  })
++  assert.deepEqual(result, [])
++})
+diff --git a/substrate/test/b8-AC-4-packages-and-builtins.test.js b/substrate/test/b8-AC-4-packages-and-builtins.test.js
+new file mode 100644
+index 0000000..4726770
+--- /dev/null
++++ b/substrate/test/b8-AC-4-packages-and-builtins.test.js
+@@ -0,0 +1,21 @@
++// spec-wi-b8-tests-run-the-task-code AC-4. Written from the Spec only.
++//
++// "escapingImports loaded from the sentinel block and tests_ref '.artifacts/tests/t1'. It is called with
++// imports from '.artifacts/tests/t1/x.test.js' whose specifiers are 'node:fs', 'assert' and a package name
++// such as 'some-pkg/sub'. It returns []. Package names and node: builtins never escape."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++test('AC-4: node: builtins and bare package specifiers never escape', () => {
++  const escapingImports = loadEscapingImports()
++  const result = escapingImports({
++    tests_ref: '.artifacts/tests/t1',
++    imports: [
++      { file: '.artifacts/tests/t1/x.test.js', specifier: 'node:fs' },
++      { file: '.artifacts/tests/t1/x.test.js', specifier: 'assert' },
++      { file: '.artifacts/tests/t1/x.test.js', specifier: 'some-pkg/sub' },
++    ],
++  })
++  assert.deepEqual(result, [])
++})
+diff --git a/substrate/test/b8-AC-5-tests-ref-as-file.test.js b/substrate/test/b8-AC-5-tests-ref-as-file.test.js
+new file mode 100644
+index 0000000..dc743de
+--- /dev/null
++++ b/substrate/test/b8-AC-5-tests-ref-as-file.test.js
+@@ -0,0 +1,22 @@
++// spec-wi-b8-tests-run-the-task-code AC-5. Written from the Spec only.
++//
++// "escapingImports loaded from the sentinel block. tests_ref is a file, e.g. '.artifacts/tests/t1/x.test.js',
++// and imports are [{ file: '.artifacts/tests/t1/x.test.js', specifier: './helpers.js' },
++// { file: '.artifacts/tests/t1/x.test.js', specifier: '../t2/z.js' }]. The TestSet directory is taken to be
++// '.artifacts/tests/t1'. Only the '../t2/z.js' entry is returned."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++test('AC-5: when tests_ref names a file, the TestSet directory is taken to be its containing directory', () => {
++  const escapingImports = loadEscapingImports()
++  const result = escapingImports({
++    tests_ref: '.artifacts/tests/t1/x.test.js',
++    imports: [
++      { file: '.artifacts/tests/t1/x.test.js', specifier: './helpers.js' },
++      { file: '.artifacts/tests/t1/x.test.js', specifier: '../t2/z.js' },
++    ],
++  })
++  assert.equal(result.length, 1)
++  assert.equal(result[0].specifier, '../t2/z.js')
++})
+diff --git a/substrate/test/b8-AC-6-missing-or-empty.test.js b/substrate/test/b8-AC-6-missing-or-empty.test.js
+new file mode 100644
+index 0000000..dedccd5
+--- /dev/null
++++ b/substrate/test/b8-AC-6-missing-or-empty.test.js
+@@ -0,0 +1,32 @@
++// spec-wi-b8-tests-run-the-task-code AC-6. Written from the Spec only.
++//
++// "escapingImports loaded from the sentinel block. It is called with imports missing or empty, or with
++// entries that have no specifier. It returns [] and does not throw."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadEscapingImports } from './b8-escaping-imports-helpers.js'
++
++test('AC-6: a missing imports property returns [] without throwing', () => {
++  const escapingImports = loadEscapingImports()
++  assert.doesNotThrow(() => {
++    const result = escapingImports({ tests_ref: '.artifacts/tests/t1' })
++    assert.deepEqual(result, [])
++  })
++})
++
++test('AC-6: an empty imports array returns []', () => {
++  const escapingImports = loadEscapingImports()
++  const result = escapingImports({ tests_ref: '.artifacts/tests/t1', imports: [] })
++  assert.deepEqual(result, [])
++})
++
++test('AC-6: entries with no specifier are ignored, not thrown on', () => {
++  const escapingImports = loadEscapingImports()
++  assert.doesNotThrow(() => {
++    const result = escapingImports({
++      tests_ref: '.artifacts/tests/t1',
++      imports: [{ file: '.artifacts/tests/t1/x.test.js' }, { file: '.artifacts/tests/t1/x.test.js', specifier: '' }],
++    })
++    assert.deepEqual(result, [])
++  })
++})
+diff --git a/substrate/test/b8-AC-7-schema-and-prompt.test.js b/substrate/test/b8-AC-7-schema-and-prompt.test.js
+new file mode 100644
+index 0000000..58a7c07
+--- /dev/null
++++ b/substrate/test/b8-AC-7-schema-and-prompt.test.js
+@@ -0,0 +1,42 @@
++// spec-wi-b8-tests-run-the-task-code AC-7. Written from the Spec only.
++//
++// "The TestResults schema in build-implement.js and the Test Runner agent call labelled run:${task.id}:${tag}
++// inside runTask. The schema object and the runner prompt are inspected. TestResults has an imports property:
++// an array of objects with string properties file and specifier. The runner prompt tells the agent to report
++// every relative import/require specifier in every file under the TestSet it ran, and to report without
++// judging."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed } from './b5-wiring-helpers.js'
++
++test('AC-7: the inline TestResults const declares an imports property: array of { file, specifier } strings', () => {
++  const text = readWorkflowText()
++  const start = text.indexOf('const TestResults = {')
++  assert.ok(start >= 0, 'expected the inline TestResults const')
++  const end = text.indexOf('\nconst ', start + 1)
++  const block = text.slice(start, end > start ? end : start + 2000)
++  const importsMatch = block.match(/imports\s*:\s*\{[^}]*type\s*:\s*'array'[^}]*\}/s)
++  assert.ok(importsMatch, "expected TestResults.imports typed as an array, found: " + block)
++  // items must require file and specifier as strings — search a generous window after the imports: key for its
++  // items object (which may itself contain nested braces), rather than relying on the coarse importsMatch above.
++  const importsKeyIdx = block.indexOf('imports')
++  const itemsWindow = block.slice(importsKeyIdx, importsKeyIdx + 400)
++  assert.match(itemsWindow, /file\s*:\s*\{\s*type\s*:\s*'string'/, 'imports items must declare file: { type: "string" }')
++  assert.match(itemsWindow, /specifier\s*:\s*\{\s*type\s*:\s*'string'/, 'imports items must declare specifier: { type: "string" }')
++})
++
++test('AC-7: the Test Runner agent call (label run:${task.id}:${tag}) tells the agent to report every relative import/require specifier in every TestSet file, without judging', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const labelIdx = text.indexOf('`run:${task.id}:${tag}`', rt.bodyStart)
++  assert.ok(labelIdx > rt.bodyStart && labelIdx < rt.bodyEnd, 'expected the run:${task.id}:${tag} label inside runTask')
++  const callStart = text.lastIndexOf('agent(', labelIdx)
++  assert.ok(callStart > rt.bodyStart, 'expected an agent( call owning the run: label')
++  const prompt = text.slice(callStart, labelIdx)
++  assert.match(prompt, /relative\s+import|import\s*\/\s*require|import.*require.*specifier/is,
++    'the runner prompt must ask for relative import/require specifiers')
++  assert.match(prompt, /every\s+file|each\s+file|all\s+files/i, 'the runner prompt must ask about every file under the TestSet, not just one')
++  assert.match(prompt, /without\s+judg|report[^.]*\bfacts?\b|never\s+judge|no\s+judg/i,
++    'the runner prompt must ask the agent to report without judging')
++})
+diff --git a/substrate/test/b8-AC-8-wiring-order.test.js b/substrate/test/b8-AC-8-wiring-order.test.js
+new file mode 100644
+index 0000000..274c484
+--- /dev/null
++++ b/substrate/test/b8-AC-8-wiring-order.test.js
+@@ -0,0 +1,51 @@
++// spec-wi-b8-tests-run-the-task-code AC-8. Written from the Spec only.
++//
++// "The source of runTask in build-implement.js, analyzed with substrate/test/b5-wiring-helpers.js
++// (functionNamed, callSites, firstCallOf). Call sites inside runTask are located. There is a call to
++// escapingImports inside runTask whose arguments include the Test Runner result's imports. That call comes
++// before the call that invokes the correctness lens (the lens('correctness', ...) call site) within the same
++// round."
++//
++// Uses b5-wiring-helpers (functionNamed, callSites, firstCallOf) to find CALLS, never text.indexOf's first
++// textual occurrence of a name — a call to escapingImports could otherwise be confused with its own
++// declaration inside the fix-loop decisions sentinel block, which sits earlier in the file than runTask.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed, callSites, firstCallOf } from './b5-wiring-helpers.js'
++
++test('AC-8: escapingImports is CALLED inside runTask, and that call precedes the correctness lens invocation in the same round', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++
++  const escapingCalls = callSites(text, 'escapingImports', rt.bodyStart, rt.bodyEnd)
++  assert.ok(escapingCalls.length > 0, 'expected at least one call to escapingImports inside runTask\'s body')
++
++  // The correctness lens invocation: the existing lens('correctness', ...) call site.
++  const correctnessCalls = callSites(text, 'lens', rt.bodyStart, rt.bodyEnd)
++    .filter(i => text.startsWith("lens('correctness'", i))
++  assert.ok(correctnessCalls.length > 0, 'expected the existing lens(\'correctness\', ...) call inside runTask')
++
++  const firstEscaping = Math.min(...escapingCalls)
++  const firstCorrectness = firstCallOf(text, ['lens'], rt.bodyStart, rt.bodyEnd) >= 0
++    ? Math.min(...correctnessCalls)
++    : -1
++  assert.ok(firstCorrectness >= 0, 'expected to locate the correctness lens call')
++  assert.ok(firstEscaping < firstCorrectness,
++    `expected the escapingImports( call (at ${firstEscaping}) to precede the correctness lens invocation (at ${firstCorrectness})`)
++})
++
++test('AC-8: the escapingImports( call\'s arguments include the Test Runner result\'s imports', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const escapingCalls = callSites(text, 'escapingImports', rt.bodyStart, rt.bodyEnd)
++  assert.ok(escapingCalls.length > 0, 'expected at least one call to escapingImports inside runTask')
++  // Grab a generous window of each call's argument list (a fixed character span rather than paren-matching,
++  // since arguments may themselves contain nested parens) and check at least one references `.imports` (the
++  // property the Test Runner's TestResults now reports, per AC-7) rather than asserting one fixed variable name.
++  const sawImportsArg = escapingCalls.some(at => {
++    const window = text.slice(at, Math.min(text.length, at + 300))
++    return /\.imports\b/.test(window) || /\bimports\s*[,:)]/.test(window)
++  })
++  assert.ok(sawImportsArg, 'expected at least one escapingImports( call to pass the Test Runner result\'s imports')
++})
+diff --git a/substrate/test/b8-AC-9-routing-and-invalid-lens.test.js b/substrate/test/b8-AC-9-routing-and-invalid-lens.test.js
+new file mode 100644
+index 0000000..71aa05e
+--- /dev/null
++++ b/substrate/test/b8-AC-9-routing-and-invalid-lens.test.js
+@@ -0,0 +1,70 @@
++// spec-wi-b8-tests-run-the-task-code AC-9. Written from the Spec only.
++//
++// "A round in which escapingImports returns a non-empty list. runTask handles that round. Each escaping file
++// is routed to the Test Author on the existing testfix: path: testRepairTarget reused, label beginning
++// testfix:${task.id}:, AT('test-author'), TestRepair schema. The prompt tells the author that a TestSet lands
++// in substrate/test/ beside helpers.js, so helpers are imported as './helpers.js'. The correctness lens prompt
++// for that round says the run was invalid and does not include that round's failing results as evidence
++// against the implementation."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed, callSites, reachersOf, enclosingFunction } from './b5-wiring-helpers.js'
++
++test('AC-9: escapingImports reaches the existing testfix: repair path (testRepairTarget, AT(\'test-author\'), TestRepair schema)', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++
++  // Every function reachable from runTask (runTask itself, or a helper it calls) that also calls escapingImports.
++  const reach = reachersOf(text, 'escapingImports')
++  const escapingCallSites = callSites(text, 'escapingImports', rt.bodyStart, rt.bodyEnd)
++  assert.ok(escapingCallSites.length > 0, 'expected escapingImports to be called inside runTask')
++
++  // From the call site, walk forward within runTask's body to find a testfix: label and confirm it carries
++  // AT('test-author') and schema: TestRepair, and that testRepairTarget is called somewhere in reach.
++  const testRepairTargetCalls = callSites(text, 'testRepairTarget', rt.bodyStart, rt.bodyEnd)
++  assert.ok(testRepairTargetCalls.length > 0, 'expected testRepairTarget to still be called (the EXISTING repair path, reused)')
++
++  const testfixLabelRe = /`testfix:\$\{task\.id\}:/g
++  const testfixLabels = []
++  let m
++  while ((m = testfixLabelRe.exec(text))) if (m.index > rt.bodyStart && m.index < rt.bodyEnd) testfixLabels.push(m.index)
++  assert.ok(testfixLabels.length > 0, 'expected at least one testfix:${task.id}: labelled agent call inside runTask')
++
++  // At least one testfix: call must sit in a function reachable from the escapingImports call (runTask itself,
++  // or a helper it calls that escapingImports's own caller also reaches) — every existing testfix: call site
++  // must carry AT('test-author') and schema: TestRepair, exactly like the pre-existing test-repair paths do.
++  for (const label of testfixLabels) {
++    const fn = (() => { try { return enclosingFunction(text, label) } catch { return null } })()
++    if (!fn || !reach.has(fn.name) && fn.name !== 'runTask') continue
++    const window = text.slice(label, text.indexOf('})', label) + 2)
++    assert.match(window, /AT\('test-author'\)/, `testfix: call at ${label} must carry AT('test-author')`)
++    assert.match(window, /schema:\s*TestRepair/, `testfix: call at ${label} must carry schema: TestRepair`)
++  }
++})
++
++test('AC-9: the Test Author prompt reached by an escaping-imports repair tells the author a TestSet lands in substrate/test/ beside helpers.js, importable as \'./helpers.js\'', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const escapingCallSites = callSites(text, 'escapingImports', rt.bodyStart, rt.bodyEnd)
++  assert.ok(escapingCallSites.length > 0, 'expected escapingImports to be called inside runTask')
++  // Search a generous window following the FIRST escapingImports( call for a testfix: prompt naming
++  // substrate/test/ and './helpers.js' — the exact wording the spec's summary quotes.
++  const from = Math.min(...escapingCallSites)
++  const window = text.slice(from, Math.min(text.length, from + 6000))
++  assert.match(window, /substrate\/test\//, 'expected the repair prompt to name substrate/test/')
++  assert.match(window, /'\.\/helpers\.js'/, "expected the repair prompt to say helpers are imported as './helpers.js'")
++})
++
++test('AC-9: the correctness lens prompt for a round with escaping imports says the run was invalid, rather than being fed that round\'s failing results as evidence', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const correctnessIdx = text.indexOf("lens('correctness'", rt.bodyStart)
++  assert.ok(correctnessIdx > 0 && correctnessIdx < rt.bodyEnd, 'expected the existing correctness lens call inside runTask')
++  const escapingCallSites = callSites(text, 'escapingImports', rt.bodyStart, rt.bodyEnd)
++  assert.ok(escapingCallSites.length > 0, 'expected escapingImports to be called inside runTask')
++  const firstEscaping = Math.min(...escapingCallSites)
++  assert.ok(firstEscaping < correctnessIdx, 'the escapingImports( call must precede the correctness lens invocation')
++  const between = text.slice(firstEscaping, correctnessIdx + 6000)
++  assert.match(between, /invalid/i, 'the correctness lens\'s evidence-building code must reference the run being invalid when imports escape')
++})
+diff --git a/substrate/test/b8-escaping-imports-helpers.js b/substrate/test/b8-escaping-imports-helpers.js
+new file mode 100644
+index 0000000..daf55cf
+--- /dev/null
++++ b/substrate/test/b8-escaping-imports-helpers.js
+@@ -0,0 +1,29 @@
++// Shared helper for the b8- TestSet (spec-wi-b8-tests-run-the-task-code / wi-b8-impl-escaping-imports).
++//
++// Loads escapingImports directly from the fix-loop decisions sentinel block in build-implement.js, the
++// same way substrate/test/extract-fixloop.js's loadFixLoopDecisions loads the pre-existing seventeen
++// functions (AC-1 requires escapingImports be ADDED to that same block, and that block's own
++// extractBlock/BEGIN_SENTINEL/END_SENTINEL machinery is reused here, unmodified, rather than
++// reinvented). extract-fixloop.js itself is out of scope to edit, so this is a small ADDITIONAL loader
++// living beside it in this TestSet rather than a change to it.
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++// Returns the raw block text between the sentinel lines (or throws), so AC-1's own "still evaluates
++// without error" and "uses no forbidden construct" checks can inspect the TEXT directly, not just the
++// evaluated function.
++export function fixLoopBlockText() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  return block
++}
++
++// Evaluates the sentinel block exactly as AC-1 prescribes (new Function(block + 'return { escapingImports }'))
++// and returns escapingImports itself.
++export function loadEscapingImports() {
++  const block = fixLoopBlockText()
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + 'return { escapingImports }')
++  const { escapingImports } = factory()
++  if (typeof escapingImports !== 'function') throw new Error('escapingImports was not exposed by the sentinel block')
++  return escapingImports
++}

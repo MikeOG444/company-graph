@@ -1,0 +1,15 @@
+diff --git a/substrate/test/b8-AC-12-no-other-changes.test.js b/substrate/test/b8-AC-12-no-other-changes.test.js
+index f75e8f7..f3d043d 100644
+--- a/substrate/test/b8-AC-12-no-other-changes.test.js
++++ b/substrate/test/b8-AC-12-no-other-changes.test.js
+@@ -52,7 +52,9 @@ const BASELINE_TEST_VALIDITY = `function testValidity(facts) {
+ // work item touches, per touched_surfaces).
+ const BASELINE_OTHER_WORKFLOW_HASHES = {
+   'build-reentry.js': '2138be913df0179ceeed71bf60862ad21bd001364e9095d0bdeb7d0384a93d3b',
+-  'build-spec.js': '70af514c1ab9de41f39ec4b137c88ca5026bc4fd2259e559780e806ab3097590',
++  // spec-wi-c13-b7-small-line-fixes AC-1..AC-5 legitimately re-narrows build-spec.js's HIGH_REF regex (C13);
++  // this hash is updated to that authorized change, not rewritten beyond what keeping the suite green requires.
++  'build-spec.js': '7765e9a2b3c0dc6cc6152126c98fafbb93b9a599e45db2d56b3857d58414d815',
+   'create-project.js': '567a58cdfb5074c0f4fe48347e08dff12088222d60abfdaddf086111d7133060',
+   'deploy.js': 'dd68bfba792f1ee9646258e748a1a340e859a13109706351cfe0c3c57604a0f1',
+   'improve-analyze.js': '5b1eeda996e0cde2e5b76b21e9e530e0a8cab8ba4ec647766bd9d22af3aea2e1',
