@@ -696,6 +696,14 @@ without saying so. Reverted; the `k7` row alone was re-priced by hand ($1.38 →
 ledger total $84.89 → $85.82. *Fix:* recost only `cost_est_usd` in both places, surgically, and have a check that
 fails when `index.jsonl` and `runs/<id>.json` disagree on anything but that field.
 
+**C12 — The spec-gate check's mechanical reader copied the gate's `id` into `gate`, and the build refused.**
+Run `k9` (build-implement, B5): `gates/closed/k8-spec_gate.json` says `id: "k8-spec_gate"`, `gate: "spec_gate"`,
+`status: "decided"`, `decision.option: "approve"`. The haiku `gate:spec_gate` agent returned `gate: "k8-spec_gate"`,
+so `ok` was false and the run refused at 12k tokens before any task started. Failing closed is correct; the defect is
+that the `GateCheck` schema has no `id` field, so the one value on the record that looks most like "the gate" has
+nowhere to go but `gate`. *Fix:* add `id` to `GateCheck` and check `g.id === A.gate.gate_id` as well, so a miscopy
+fails on a named field instead of a plausible-looking one. Re-run unchanged as `k9b`.
+
 ### D. Measurement gaps
 
 **D1 — The Lens Calibrator has no honest sample.** `ledger/runs/mr2-memory-roll.json` → `roll.lens_catch_rates`: `catch_rate: null`, `unavailable_reason: "no escaped-defect denominator exists"`. 30 panels, 39 findings raised, 39 upheld, 0 attributable escapes. **Phase 4's planted defects are not lens misses and must never be counted as any.** Covered by `opp-p5-7`.

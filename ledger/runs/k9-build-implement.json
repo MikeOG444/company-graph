@@ -1,0 +1,41 @@
+{
+  "entry": {
+    "id": "k9-build-implement",
+    "run_id": "k9",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T03:18:46.824Z",
+    "finished_at": "2026-09-26T03:19:26.000Z",
+    "wall_clock_sec": 39,
+    "result_ref": "ledger/runs/k9-build-implement.json",
+    "artifact_count": 1,
+    "escalations": 0,
+    "tokens": 12276,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 12276
+    },
+    "cost_est_usd": 0.02,
+    "agents": 1,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k9",
+      "created_at": "2026-09-26T03:18:02Z"
+    },
+    "trace_ref": ".artifacts/traces/k9-build-implement.jsonl"
+  },
+  "result": {
+    "refused": true,
+    "reason": "spec_gate k8-spec_gate does not authorise this build: {\"found\":true,\"status\":\"decided\",\"gate\":\"k8-spec_gate\",\"option\":\"approve\",\"decided_by\":\"human_employee\",\"decided_at\":\"2026-09-26T03:17:31.000Z\",\"note\":\"Approved by the human in chat: options 1+2+3 plus both k7 integrate fixes, one task as specced.\"}. Required: found, status \"decided\", gate \"spec_gate\", option \"approve\".",
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k9",
+      "created_at": "2026-09-26T03:18:02Z"
+    }
+  }
+}
