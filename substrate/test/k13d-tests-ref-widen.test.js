@@ -38,3 +38,16 @@ test('both places runTask reassigns ctx.testSet go through widenTestsRef', () =>
   const rr = functionNamed(text, 'resolveRound')
   assert.ok(callSites(text, 'widenTestsRef', rr.bodyStart, rr.bodyEnd).length, 'resolveRound must widen, not replace')
 })
+
+test('k17d: a repair path outside the artifact dir never becomes the TestSet', () => {
+  const { widenTestsRef, resolveRound } = load()
+  const dir = '.artifacts/tests/t1'
+  assert.equal(widenTestsRef(dir, 'substrate/test'), dir, 'the repo test dir must never replace the TestSet')
+  assert.equal(widenTestsRef(dir, 'substrate/test/x.test.js'), dir)
+  assert.equal(widenTestsRef(dir, '.artifacts/tests/t1-repair'), '.artifacts/tests/t1-repair', 'a new TestSet under the artifact dir may')
+  assert.equal(widenTestsRef(dir, '/home/u/cg/.artifacts/tests/t2'), '/home/u/cg/.artifacts/tests/t2')
+  assert.equal(widenTestsRef('b/tests/t1', 'b/tests/t2', 'b'), 'b/tests/t2', 'a non-default artifact dir is honoured')
+  const r = resolveRound({ findings: [], carried_in: [], deferred: [], rulings: [], tests_ref: dir,
+    repairs: [{ dedupe_key: 'k', path: 'test', target_source: 'tests_ref', notes: 'repaired', tests_ref: 'substrate/test' }] })
+  assert.equal(r.tests_ref, dir)
+})

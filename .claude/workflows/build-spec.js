@@ -34,7 +34,7 @@ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, mo
 // are high outright; config and any other kind only when the ref names a sensitive term. Free text is never matched: an r4 goal
 // tripped a keyword regex on an unrelated word, and a read-only package.json labelled `config` tripped the kind check.
 const HIGH_KINDS = new Set(['schema', 'infra'])
-const HIGH_REF = /\bauth|authz|authn|token|secret|credential|password|payment|billing|migrat/i
+const HIGH_REF = /\bauth(?!or\b|ored\b|ority\b)\w*|token|secret|credential|password|payment|billing|migrat/i
 const codeRisk = (spec) => {
   const reasons = []
   for (const s of spec.touched_surfaces ?? []) {

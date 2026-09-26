@@ -517,14 +517,20 @@ function disputesToJudge(repairs) {
 // inside the current TestSet directory must not narrow the run to that file: on k13 it did, and the runner then
 // ran 3 of 14 criteria's tests for every later round while criteria_coverage still claimed all 14. A repaired
 // ref inside (or equal to) the current one keeps the current one; a ref elsewhere replaces it, as before.
-function widenTestsRef(current, repaired) {
+function widenTestsRef(current, repaired, artifact_dir) {
   if (!repaired) return current
+  // k17d: a repair that names a path OUTSIDE the artifact dir (e.g. 'substrate/test', the repo's own test dir)
+  // must never become the TestSet — on k17 it did, the escape check then flagged the repo's legitimate
+  // '../lib/...' imports, and fixers rewrote four repo tests. Repairs on the branch are carried by the rediff.
+  const art = String(artifact_dir ?? '.artifacts').replace(/\/+$/, '')
+  const underArt = (p) => { const s = String(p); return s === art || s.startsWith(art + '/') || s.includes('/' + art + '/') }
   if (!current) return repaired
+  if (!underArt(repaired)) return current
   const dir = String(current).replace(/\/+$/, '')
   return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
 }
 
-function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref }) {
+function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref, artifact_dir }) {
   const resolution = {}
   const rulingByKey = new Map((rulings ?? []).filter(r => r && r.dedupe_key != null).map(r => [r.dedupe_key, r.ruling]))
   const deferredKeys = new Set((deferred ?? []).map(f => f.dedupe_key))
@@ -573,7 +579,7 @@ function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_
   }
   let nextTestsRef = tests_ref
   for (const r of repairs ?? []) {
-    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = widenTestsRef(nextTestsRef, r.tests_ref)
+    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = widenTestsRef(nextTestsRef, r.tests_ref, artifact_dir)
   }
 
   const needs_rediff = (repairs ?? []).some(r => {
@@ -611,14 +617,25 @@ function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
   return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
 }
 
+// A lander reports tests_found / tests_landed / tests_skipped entries as bare filenames, but a skip note carries a
+// trailing parenthetical ("x.js (already exists)", "x.js (skipped: exists)") and a found entry may carry the
+// directory it was found under (e.g. under a scan root) while landed/skipped entries are already bare. Reducing
+// every entry to a bare basename before comparing is the one normalisation both reconciliation checks below need,
+// so a lander's parenthetical note or path prefix never manufactures a false unaccounted-file finding.
+function testFileBasename(p) {
+  let s = String(p ?? '').trim()
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim()
+  const parts = s.split('/')
+  return parts[parts.length - 1]
+}
+
 // A basename integration reported as tests_skipped (already exists in the repo test dir, never overwritten) that a
 // repair path actually edited in the artifact TestSet is not a stale duplicate — it is a lost fix. Matched by
 // basename only against repairs whose target was the artifact TestSet (tests_ref); a repair that edited a file on
 // the task branch (finding_location) is excluded because the branch merge already carries it.
 function unlandedRepairs({ tests_skipped, repaired_tests }) {
-  const basename = (p) => String(p ?? '').split('/').pop()
-  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
-  return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
+  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => testFileBasename(r.ref)))
+  return (tests_skipped ?? []).filter(name => targeted.has(testFileBasename(name)))
 }
 
 // ---- Sibling value repair (wi-b5): the response to a boundary violation or a needs_from_sibling ask, when the
@@ -696,8 +713,33 @@ function boundaryRepair({ task_id, strays, needs_from_sibling, siblings, repair_
 // answer is simply tests_found minus whatever was landed or skipped.
 function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped }) {
   if (!(requested_paths ?? []).length) return []
-  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])])
-  return (tests_found ?? []).filter(f => !accounted.has(f))
+  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])].map(testFileBasename))
+  return (tests_found ?? []).filter(f => !accounted.has(testFileBasename(f)))
+}
+
+// A copy of graph-lint's PANEL_PATTERNS phrase list (build-spec.js) — copied, not shared, because the two live in
+// separate workflow files the runtime forbids from importing each other. A criterion whose THEN matches one of
+// these phrases asserts something is unchanged / identical to before / not added-removed relative to the base, and
+// is verified by the verifier panel at build time (graph-lint's classifyCriterion), not by a test.
+const PANEL_PHRASES = [
+  /\bbyte[- ]identical\b/i,
+  /\bto before\b/i,
+  /\bchanged paths?\b/i,
+  /\b(?:\w+\s+)?(?:is|are)\s+(?:added|removed|upgraded)\b/i,
+  /\bunmodified\b/i,
+  /\bunchanged\b/i,
+]
+// Ids of every criterion in `acceptance` whose THEN is change-scoped, in acceptance order. THEN only — a GIVEN or
+// WHEN that happens to mention "unchanged" as filler does not exempt a criterion the way graph-lint's
+// classifyCriterion (which reads given+when+then together) can; the fix-loop only ever tells the Test Author about
+// a task's OWN criteria, so THEN is the narrower and safer read here.
+function changeScopedCriteria(acceptance) {
+  const ids = []
+  for (const c of acceptance ?? []) {
+    const text = String(c?.then ?? '')
+    if (PANEL_PHRASES.some(re => re.test(text))) ids.push(c.id)
+  }
+  return ids
 }
 
 // ---- Test validity before blame (wi-b6): a failing test counts against the implementation only once it is
@@ -937,6 +979,12 @@ async function runTask({ spec, task, spec_ref }) {
   // needs_from_sibling instead of guessing, and so it never invents a reason to write there instead.
   const siblingSurfaces = siblingTasks.map(t => ({ id: t.id, owned_surfaces: t.owned_surfaces }))
 
+  // Criteria whose THEN is change-scoped (unchanged/identical-to-before/not-added-removed relative to base) are
+  // verified by the verifier panel at build time (graph-lint's classifyCriterion, build-spec.js), not by a test —
+  // told to the Test Author so it does not spend a test on what the panel already covers. Restricted to this
+  // task's own criteria_ids: a sibling task's change-scoped criteria are none of this Test Author's business.
+  const panelCriteriaIds = changeScopedCriteria(spec.acceptance ?? []).filter(id => (task.criteria_ids ?? []).includes(id))
+
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
     () => vo ? agent(`VERIFY ONLY: the change already exists on branch ${branch}. Check it out: git worktree add ${wt} ${branch} (skip if ${wt} exists).
@@ -959,6 +1007,9 @@ async function runTask({ spec, task, spec_ref }) {
                  Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
+                 ${panelCriteriaIds.length ? `Of those, ${JSON.stringify(panelCriteriaIds)} are change-scoped: each one's THEN asserts
+                 something is unchanged, identical to before, or not added/removed relative to the base. Those are verified by the
+                 verifier panel at build time, not by a test — do NOT write a test for any criterion in that list. ` : ''}
                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
                  A source-text WIRING test — one that checks which calls happen, in which order, inside a named function — must use
                  substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf) to find those
@@ -1212,7 +1263,7 @@ async function runTask({ spec, task, spec_ref }) {
           }))).filter(Boolean)
           repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
           const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
-          if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef) }
+          if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef, ART) }
           ctx.history.push(`${tag}: ${escapingFiles.length} TestSet file(s) imported outside ${ctx.testSet.tests_ref}; routed to the Test Author and this round's run marked invalid`)
           // The correctness lens is told the run was INVALID instead of being given this round's failures as
           // evidence (AC-9) — an escaping import can make a real defect look fixed, or an unrelated failure look
@@ -1274,7 +1325,7 @@ async function runTask({ spec, task, spec_ref }) {
             }))).filter(Boolean)
             repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
             const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
-            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef) }
+            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef, ART) }
             ctx.history.push(`${tag}: ${roundTestDefects.length} failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran`)
           }
         }
@@ -1549,7 +1600,7 @@ async function runTask({ spec, task, spec_ref }) {
     // (AC-3 through AC-9): every dedupe_key here gets an entry, 'nobody resolved it' included, so a test dispute
     // the judge never ruled on reads 'unresolved' rather than silently vanishing the moment the lens stops
     // re-raising it (k1v).
-    const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref })
+    const round = resolveRound({ findings, carried_in: ctx.carried, deferred, repairs: repairRecords, rulings: rulingsForResolve, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART })
     ctx.carried = round.carried
     ctx.testSet = { ...ctx.testSet, tests_ref: round.tests_ref }
     const repairedCount = repairRecords.filter(r => r.path === 'test' && fixOutcome(r.notes) !== 'dispute').length
