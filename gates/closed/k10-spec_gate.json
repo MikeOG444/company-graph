@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k10",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-26T04:30:57.000Z",
   "options": [
     "approve",
@@ -69,5 +69,11 @@
     "graph_ref": "ledger/runs/k10/graph-wi-b6-test-validity-before-blame.json",
     "durable_ref": "ledger/runs/k10-build-spec.json",
     "estimate": "1 task; B5 (22 criteria) cost $2.83 at k9b; expect $2-4."
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T04:49:05.000Z",
+    "note": "Approved by the human in chat. Spec as revised at k10h (substrate/test removed from surfaces)."
   }
 }
