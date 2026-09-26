@@ -855,6 +855,12 @@
                                              "description": "Ids the human picked when the decision is more than one word - e.g. the approved Opportunity ids at the roadmap_gate, where decision.option carries the VentureVerdict recommendation. Structured, so the next workflow reads a list instead of parsing note." },
                                            "decided_by": { "$ref": "#/$defs/Executor" }, "decided_at": {"type":"string","format":"date-time"} },
                            "required": ["option", "decided_by", "decided_at"] },
+        "delivery":      { "type": "object", "additionalProperties": false,
+                           "description": "Best-effort notification outcome stamped by `gates open` after the record is written (substrate/notify.js). Never affects the gate itself; the record on disk remains the source of truth.",
+                           "properties": { "attempted": {"type":"boolean"}, "ok": {"type":"boolean"},
+                                           "channel": {"type":"string"}, "at": {"type":"string","format":"date-time"},
+                                           "error": {"type":"string"} },
+                           "required": ["attempted", "ok", "channel", "at"] },
         "provenance":    { "$ref": "#/$defs/Provenance" }
       },
       "required": ["id", "gate", "run_id", "workflow", "status", "opened_at", "options", "provenance"]

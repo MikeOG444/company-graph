@@ -508,6 +508,17 @@ function disputesToJudge(repairs) {
 // appears ANYWHERE in the inputs gets an entry — 'nobody resolved it' is the explicit value 'unresolved', never an
 // absent key a caller could mistake for settled. `carried` is what a round-outcome guard must treat as still open:
 // everything except a finding this round actually fixed or a judge actually overruled.
+// The TestSet the next round runs, after a Test Author repair returned `repaired` (k13d). A repair of ONE file
+// inside the current TestSet directory must not narrow the run to that file: on k13 it did, and the runner then
+// ran 3 of 14 criteria's tests for every later round while criteria_coverage still claimed all 14. A repaired
+// ref inside (or equal to) the current one keeps the current one; a ref elsewhere replaces it, as before.
+function widenTestsRef(current, repaired) {
+  if (!repaired) return current
+  if (!current) return repaired
+  const dir = String(current).replace(/\/+$/, '')
+  return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
+}
+
 function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref }) {
   const resolution = {}
   const rulingByKey = new Map((rulings ?? []).filter(r => r && r.dedupe_key != null).map(r => [r.dedupe_key, r.ruling]))
@@ -557,7 +568,7 @@ function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_
   }
   let nextTestsRef = tests_ref
   for (const r of repairs ?? []) {
-    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = r.tests_ref
+    if (r?.target_source === 'tests_ref' && fixOutcome(r.notes) !== 'dispute' && r.tests_ref && isSafeTestsRef(r.tests_ref)) nextTestsRef = widenTestsRef(nextTestsRef, r.tests_ref)
   }
 
   const needs_rediff = (repairs ?? []).some(r => {
@@ -1130,7 +1141,7 @@ async function runTask({ spec, task, spec_ref }) {
             }))).filter(Boolean)
             repairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
             const lastGoodRef = [...repairs].reverse().find(x => fixOutcome(x.p.notes) !== 'dispute' && x.p.tests_ref)?.p.tests_ref
-            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: lastGoodRef }
+            if (lastGoodRef) ctx.testSet = { ...ctx.testSet, tests_ref: widenTestsRef(ctx.testSet.tests_ref, lastGoodRef) }
             ctx.history.push(`${tag}: ${roundTestDefects.length} failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran`)
           }
         }

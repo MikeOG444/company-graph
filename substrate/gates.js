@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { GATES, ensureDir, parseArgs, die, readJson, writeJson, nowIso } from './lib/paths.js'
 import { validate, formatErrors } from './lib/contracts.js'
+import { notify } from './notify.js'
 
 const OPEN = path.join(GATES, 'open'), CLOSED = path.join(GATES, 'closed')
 const { pos, opts } = parseArgs(process.argv.slice(2))
@@ -54,7 +55,13 @@ switch (cmd) {
     if (opts['payload-ref']) rec.payload_ref = opts['payload-ref']
     if (opts.payload) rec.payload = readJson(opts.payload)
     assertValid(rec)
-    writeJson(path.join(OPEN, `${id}.json`), rec)
+    const recPath = path.join(OPEN, `${id}.json`)
+    writeJson(recPath, rec)
+    // Delivery is best-effort and never blocking: the record above is already the source of truth. A failed,
+    // timed-out or unconfigured delivery never changes the exit code or stdout, and the record is always rewritten
+    // with the outcome after the fact.
+    rec.delivery = await notify(rec)
+    writeJson(recPath, rec)
     console.log(id)
     break
   }
