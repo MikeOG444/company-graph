@@ -1,0 +1,120 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 38df3a6..7759028 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -611,14 +611,25 @@ function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
+   return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
+ }
+ 
++// A lander reports tests_found / tests_landed / tests_skipped entries as bare filenames, but a skip note carries a
++// trailing parenthetical ("x.js (already exists)", "x.js (skipped: exists)") and a found entry may carry the
++// directory it was found under (e.g. under a scan root) while landed/skipped entries are already bare. Reducing
++// every entry to a bare basename before comparing is the one normalisation both reconciliation checks below need,
++// so a lander's parenthetical note or path prefix never manufactures a false unaccounted-file finding.
++function testFileBasename(p) {
++  let s = String(p ?? '').trim()
++  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim()
++  const parts = s.split('/')
++  return parts[parts.length - 1]
++}
++
+ // A basename integration reported as tests_skipped (already exists in the repo test dir, never overwritten) that a
+ // repair path actually edited in the artifact TestSet is not a stale duplicate — it is a lost fix. Matched by
+ // basename only against repairs whose target was the artifact TestSet (tests_ref); a repair that edited a file on
+ // the task branch (finding_location) is excluded because the branch merge already carries it.
+ function unlandedRepairs({ tests_skipped, repaired_tests }) {
+-  const basename = (p) => String(p ?? '').split('/').pop()
+-  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
+-  return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
++  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => testFileBasename(r.ref)))
++  return (tests_skipped ?? []).filter(name => targeted.has(testFileBasename(name)))
+ }
+ 
+ // ---- Sibling value repair (wi-b5): the response to a boundary violation or a needs_from_sibling ask, when the
+@@ -696,8 +707,33 @@ function boundaryRepair({ task_id, strays, needs_from_sibling, siblings, repair_
+ // answer is simply tests_found minus whatever was landed or skipped.
+ function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped }) {
+   if (!(requested_paths ?? []).length) return []
+-  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])])
+-  return (tests_found ?? []).filter(f => !accounted.has(f))
++  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])].map(testFileBasename))
++  return (tests_found ?? []).filter(f => !accounted.has(testFileBasename(f)))
++}
++
++// A copy of graph-lint's PANEL_PATTERNS phrase list (build-spec.js) — copied, not shared, because the two live in
++// separate workflow files the runtime forbids from importing each other. A criterion whose THEN matches one of
++// these phrases asserts something is unchanged / identical to before / not added-removed relative to the base, and
++// is verified by the verifier panel at build time (graph-lint's classifyCriterion), not by a test.
++const PANEL_PHRASES = [
++  /\bbyte[- ]identical\b/i,
++  /\bto before\b/i,
++  /\bchanged paths?\b/i,
++  /\b(?:\w+\s+)?(?:is|are)\s+(?:added|removed|upgraded)\b/i,
++  /\bunmodified\b/i,
++  /\bunchanged\b/i,
++]
++// Ids of every criterion in `acceptance` whose THEN is change-scoped, in acceptance order. THEN only — a GIVEN or
++// WHEN that happens to mention "unchanged" as filler does not exempt a criterion the way graph-lint's
++// classifyCriterion (which reads given+when+then together) can; the fix-loop only ever tells the Test Author about
++// a task's OWN criteria, so THEN is the narrower and safer read here.
++function changeScopedCriteria(acceptance) {
++  const ids = []
++  for (const c of acceptance ?? []) {
++    const text = String(c?.then ?? '')
++    if (PANEL_PHRASES.some(re => re.test(text))) ids.push(c.id)
++  }
++  return ids
+ }
+ 
+ // ---- Test validity before blame (wi-b6): a failing test counts against the implementation only once it is
+@@ -937,6 +973,12 @@ async function runTask({ spec, task, spec_ref }) {
+   // needs_from_sibling instead of guessing, and so it never invents a reason to write there instead.
+   const siblingSurfaces = siblingTasks.map(t => ({ id: t.id, owned_surfaces: t.owned_surfaces }))
+ 
++  // Criteria whose THEN is change-scoped (unchanged/identical-to-before/not-added-removed relative to base) are
++  // verified by the verifier panel at build time (graph-lint's classifyCriterion, build-spec.js), not by a test —
++  // told to the Test Author so it does not spend a test on what the panel already covers. Restricted to this
++  // task's own criteria_ids: a sibling task's change-scoped criteria are none of this Test Author's business.
++  const panelCriteriaIds = changeScopedCriteria(spec.acceptance ?? []).filter(id => (task.criteria_ids ?? []).includes(id))
++
+   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
+   const [changeSet0, testSet] = await parallel([
+     () => vo ? agent(`VERIFY ONLY: the change already exists on branch ${branch}. Check it out: git worktree add ${wt} ${branch} (skip if ${wt} exists).
+@@ -959,6 +1001,9 @@ async function runTask({ spec, task, spec_ref }) {
+                  Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
+     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
++                 ${panelCriteriaIds.length ? `Of those, ${JSON.stringify(panelCriteriaIds)} are change-scoped: each one's THEN asserts
++                 something is unchanged, identical to before, or not added/removed relative to the base. Those are verified by the
++                 verifier panel at build time, not by a test — do NOT write a test for any criterion in that list. ` : ''}
+                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
+                  A source-text WIRING test — one that checks which calls happen, in which order, inside a named function — must use
+                  substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf) to find those
+diff --git a/.claude/workflows/build-spec.js b/.claude/workflows/build-spec.js
+index 662c987..0be57a8 100644
+--- a/.claude/workflows/build-spec.js
++++ b/.claude/workflows/build-spec.js
+@@ -34,7 +34,7 @@ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, mo
+ // are high outright; config and any other kind only when the ref names a sensitive term. Free text is never matched: an r4 goal
+ // tripped a keyword regex on an unrelated word, and a read-only package.json labelled `config` tripped the kind check.
+ const HIGH_KINDS = new Set(['schema', 'infra'])
+-const HIGH_REF = /\bauth|authz|authn|token|secret|credential|password|payment|billing|migrat/i
++const HIGH_REF = /\bauth(?!or\b|ored\b|ority\b)\w*|token|secret|credential|password|payment|billing|migrat/i
+ const codeRisk = (spec) => {
+   const reasons = []
+   for (const s of spec.touched_surfaces ?? []) {
+diff --git a/substrate/test/b8-AC-12-no-other-changes.test.js b/substrate/test/b8-AC-12-no-other-changes.test.js
+index f75e8f7..f3d043d 100644
+--- a/substrate/test/b8-AC-12-no-other-changes.test.js
++++ b/substrate/test/b8-AC-12-no-other-changes.test.js
+@@ -52,7 +52,9 @@ const BASELINE_TEST_VALIDITY = `function testValidity(facts) {
+ // work item touches, per touched_surfaces).
+ const BASELINE_OTHER_WORKFLOW_HASHES = {
+   'build-reentry.js': '2138be913df0179ceeed71bf60862ad21bd001364e9095d0bdeb7d0384a93d3b',
+-  'build-spec.js': '70af514c1ab9de41f39ec4b137c88ca5026bc4fd2259e559780e806ab3097590',
++  // spec-wi-c13-b7-small-line-fixes AC-1..AC-5 legitimately re-narrows build-spec.js's HIGH_REF regex (C13);
++  // this hash is updated to that authorized change, not rewritten beyond what keeping the suite green requires.
++  'build-spec.js': '7765e9a2b3c0dc6cc6152126c98fafbb93b9a599e45db2d56b3857d58414d815',
+   'create-project.js': '567a58cdfb5074c0f4fe48347e08dff12088222d60abfdaddf086111d7133060',
+   'deploy.js': 'dd68bfba792f1ee9646258e748a1a340e859a13109706351cfe0c3c57604a0f1',
+   'improve-analyze.js': '5b1eeda996e0cde2e5b76b21e9e530e0a8cab8ba4ec647766bd9d22af3aea2e1',

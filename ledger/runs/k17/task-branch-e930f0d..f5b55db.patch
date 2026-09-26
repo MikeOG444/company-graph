@@ -1,0 +1,793 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 38df3a6..7759028 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -611,14 +611,25 @@ function testRepairTarget({ finding, tests_ref, artifact_dir, worktree }) {
+   return { ref: worktree ? `${worktree}/${file}` : file, source: 'finding_location' }
+ }
+ 
++// A lander reports tests_found / tests_landed / tests_skipped entries as bare filenames, but a skip note carries a
++// trailing parenthetical ("x.js (already exists)", "x.js (skipped: exists)") and a found entry may carry the
++// directory it was found under (e.g. under a scan root) while landed/skipped entries are already bare. Reducing
++// every entry to a bare basename before comparing is the one normalisation both reconciliation checks below need,
++// so a lander's parenthetical note or path prefix never manufactures a false unaccounted-file finding.
++function testFileBasename(p) {
++  let s = String(p ?? '').trim()
++  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim()
++  const parts = s.split('/')
++  return parts[parts.length - 1]
++}
++
+ // A basename integration reported as tests_skipped (already exists in the repo test dir, never overwritten) that a
+ // repair path actually edited in the artifact TestSet is not a stale duplicate — it is a lost fix. Matched by
+ // basename only against repairs whose target was the artifact TestSet (tests_ref); a repair that edited a file on
+ // the task branch (finding_location) is excluded because the branch merge already carries it.
+ function unlandedRepairs({ tests_skipped, repaired_tests }) {
+-  const basename = (p) => String(p ?? '').split('/').pop()
+-  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
+-  return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
++  const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => testFileBasename(r.ref)))
++  return (tests_skipped ?? []).filter(name => targeted.has(testFileBasename(name)))
+ }
+ 
+ // ---- Sibling value repair (wi-b5): the response to a boundary violation or a needs_from_sibling ask, when the
+@@ -696,8 +707,33 @@ function boundaryRepair({ task_id, strays, needs_from_sibling, siblings, repair_
+ // answer is simply tests_found minus whatever was landed or skipped.
+ function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped }) {
+   if (!(requested_paths ?? []).length) return []
+-  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])])
+-  return (tests_found ?? []).filter(f => !accounted.has(f))
++  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])].map(testFileBasename))
++  return (tests_found ?? []).filter(f => !accounted.has(testFileBasename(f)))
++}
++
++// A copy of graph-lint's PANEL_PATTERNS phrase list (build-spec.js) — copied, not shared, because the two live in
++// separate workflow files the runtime forbids from importing each other. A criterion whose THEN matches one of
++// these phrases asserts something is unchanged / identical to before / not added-removed relative to the base, and
++// is verified by the verifier panel at build time (graph-lint's classifyCriterion), not by a test.
++const PANEL_PHRASES = [
++  /\bbyte[- ]identical\b/i,
++  /\bto before\b/i,
++  /\bchanged paths?\b/i,
++  /\b(?:\w+\s+)?(?:is|are)\s+(?:added|removed|upgraded)\b/i,
++  /\bunmodified\b/i,
++  /\bunchanged\b/i,
++]
++// Ids of every criterion in `acceptance` whose THEN is change-scoped, in acceptance order. THEN only — a GIVEN or
++// WHEN that happens to mention "unchanged" as filler does not exempt a criterion the way graph-lint's
++// classifyCriterion (which reads given+when+then together) can; the fix-loop only ever tells the Test Author about
++// a task's OWN criteria, so THEN is the narrower and safer read here.
++function changeScopedCriteria(acceptance) {
++  const ids = []
++  for (const c of acceptance ?? []) {
++    const text = String(c?.then ?? '')
++    if (PANEL_PHRASES.some(re => re.test(text))) ids.push(c.id)
++  }
++  return ids
+ }
+ 
+ // ---- Test validity before blame (wi-b6): a failing test counts against the implementation only once it is
+@@ -937,6 +973,12 @@ async function runTask({ spec, task, spec_ref }) {
+   // needs_from_sibling instead of guessing, and so it never invents a reason to write there instead.
+   const siblingSurfaces = siblingTasks.map(t => ({ id: t.id, owned_surfaces: t.owned_surfaces }))
+ 
++  // Criteria whose THEN is change-scoped (unchanged/identical-to-before/not-added-removed relative to base) are
++  // verified by the verifier panel at build time (graph-lint's classifyCriterion, build-spec.js), not by a test —
++  // told to the Test Author so it does not spend a test on what the panel already covers. Restricted to this
++  // task's own criteria_ids: a sibling task's change-scoped criteria are none of this Test Author's business.
++  const panelCriteriaIds = changeScopedCriteria(spec.acceptance ?? []).filter(id => (task.criteria_ids ?? []).includes(id))
++
+   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
+   const [changeSet0, testSet] = await parallel([
+     () => vo ? agent(`VERIFY ONLY: the change already exists on branch ${branch}. Check it out: git worktree add ${wt} ${branch} (skip if ${wt} exists).
+@@ -959,6 +1001,9 @@ async function runTask({ spec, task, spec_ref }) {
+                  Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
+     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
++                 ${panelCriteriaIds.length ? `Of those, ${JSON.stringify(panelCriteriaIds)} are change-scoped: each one's THEN asserts
++                 something is unchanged, identical to before, or not added/removed relative to the base. Those are verified by the
++                 verifier panel at build time, not by a test — do NOT write a test for any criterion in that list. ` : ''}
+                  Write them under ${ART}/tests/${task.id}/ and return the path as tests_ref. ${A.test_hint ?? ''}
+                  A source-text WIRING test — one that checks which calls happen, in which order, inside a named function — must use
+                  substrate/test/b5-wiring-helpers.js (functionNamed, enclosingFunction, callSites, reachersOf, firstCallOf) to find those
+diff --git a/.claude/workflows/build-spec.js b/.claude/workflows/build-spec.js
+index 662c987..0be57a8 100644
+--- a/.claude/workflows/build-spec.js
++++ b/.claude/workflows/build-spec.js
+@@ -34,7 +34,7 @@ const stamp = (node, model, method) => ({ node, executor: 'ai_agent', method, mo
+ // are high outright; config and any other kind only when the ref names a sensitive term. Free text is never matched: an r4 goal
+ // tripped a keyword regex on an unrelated word, and a read-only package.json labelled `config` tripped the kind check.
+ const HIGH_KINDS = new Set(['schema', 'infra'])
+-const HIGH_REF = /\bauth|authz|authn|token|secret|credential|password|payment|billing|migrat/i
++const HIGH_REF = /\bauth(?!or\b|ored\b|ority\b)\w*|token|secret|credential|password|payment|billing|migrat/i
+ const codeRisk = (spec) => {
+   const reasons = []
+   for (const s of spec.touched_surfaces ?? []) {
+diff --git a/substrate/test/b6-schema-additions.test.js b/substrate/test/b6-schema-additions.test.js
+index 2d841d9..32db618 100644
+--- a/substrate/test/b6-schema-additions.test.js
++++ b/substrate/test/b6-schema-additions.test.js
+@@ -16,12 +16,19 @@ import fs from 'node:fs'
+ import path from 'node:path'
+ import { readWorkflowText } from './extract-fixloop.js'
+ import { REPO } from './fixloop-helpers.js'
+-import { validate } from '../lib/contracts.js'
+ 
+ function loadSchema() {
+   return JSON.parse(fs.readFileSync(path.join(REPO, 'contracts.schema.json'), 'utf8'))
+ }
+ 
++// Loaded via an absolute path built from REPO (resolved at run time, never by counting ".." from this
++// file's own location — see fixloop-helpers.js), and via a dynamic import rather than a static relative
++// specifier, so this test's own import never climbs out of the substrate/test/ TestSet directory. Mirrors
++// the same pattern already used by this suite's own c5-AC-*.test.js files for the identical module.
++let validate
++;({ validate } = await import(path.join(REPO, 'substrate', 'lib', 'contracts.js')))
++
++
+ test('AC-12: contracts.schema.json\'s ChangeSet declares optional behaviour_changed (boolean) and behaviour_rationale (string), neither required, and a ChangeSet without them still validates', () => {
+   const schema = loadSchema()
+   const ChangeSet = schema.$defs.ChangeSet
+diff --git a/substrate/test/b8-AC-12-no-other-changes.test.js b/substrate/test/b8-AC-12-no-other-changes.test.js
+index f75e8f7..f3d043d 100644
+--- a/substrate/test/b8-AC-12-no-other-changes.test.js
++++ b/substrate/test/b8-AC-12-no-other-changes.test.js
+@@ -52,7 +52,9 @@ const BASELINE_TEST_VALIDITY = `function testValidity(facts) {
+ // work item touches, per touched_surfaces).
+ const BASELINE_OTHER_WORKFLOW_HASHES = {
+   'build-reentry.js': '2138be913df0179ceeed71bf60862ad21bd001364e9095d0bdeb7d0384a93d3b',
+-  'build-spec.js': '70af514c1ab9de41f39ec4b137c88ca5026bc4fd2259e559780e806ab3097590',
++  // spec-wi-c13-b7-small-line-fixes AC-1..AC-5 legitimately re-narrows build-spec.js's HIGH_REF regex (C13);
++  // this hash is updated to that authorized change, not rewritten beyond what keeping the suite green requires.
++  'build-spec.js': '7765e9a2b3c0dc6cc6152126c98fafbb93b9a599e45db2d56b3857d58414d815',
+   'create-project.js': '567a58cdfb5074c0f4fe48347e08dff12088222d60abfdaddf086111d7133060',
+   'deploy.js': 'dd68bfba792f1ee9646258e748a1a340e859a13109706351cfe0c3c57604a0f1',
+   'improve-analyze.js': '5b1eeda996e0cde2e5b76b21e9e530e0a8cab8ba4ec647766bd9d22af3aea2e1',
+diff --git a/substrate/test/deploy.test.js b/substrate/test/deploy.test.js
+index 92b9019..d1e1027 100644
+--- a/substrate/test/deploy.test.js
++++ b/substrate/test/deploy.test.js
+@@ -2,8 +2,13 @@ import { test } from 'node:test'
+ import assert from 'node:assert/strict'
+ import fs from 'node:fs'
+ import path from 'node:path'
++import { pathToFileURL } from 'node:url'
+ import { cli, REPO } from './helpers.js'
+-import { summarize, percentile } from '../lib/deploy-metrics.js'
++
++// deploy-metrics.js lives outside this TestSet directory (substrate/lib/, not substrate/test/), so it cannot be
++// reached with a relative specifier that climbs out ('../lib/...'). Resolve it as an absolute file URL built from
++// REPO (computed by helpers.js by walking up from cwd) and load it with a dynamic import instead.
++const { summarize, percentile } = await import(pathToFileURL(path.join(REPO, 'substrate', 'lib', 'deploy-metrics.js')).href)
+ 
+ test('summarize: 5xx and unreachable both count as errors; latency percentiles over answered requests', () => {
+   const recs = [
+diff --git a/substrate/test/finding-target-contract.test.js b/substrate/test/finding-target-contract.test.js
+index 939b62a..4ee62ec 100644
+--- a/substrate/test/finding-target-contract.test.js
++++ b/substrate/test/finding-target-contract.test.js
+@@ -10,10 +10,13 @@ import { test } from 'node:test'
+ import assert from 'node:assert/strict'
+ import fs from 'node:fs'
+ import path from 'node:path'
+-import { validate } from '../lib/contracts.js'
+ import { REPO, cli, tmpRoot } from './helpers.js'
+ import { readWorkflowText } from './extract-fixloop.js'
+ 
++// Import lib/contracts.js by absolute path derived from the repo root (REPO), rather than a
++// relative specifier that would climb out of this TestSet directory (substrate/test/).
++const { validate } = await import(path.join(REPO, 'substrate', 'lib', 'contracts.js'))
++
+ test('AC-14: Finding.target is optional, enum ["implementation","test"], and Escalation is unchanged at HEAD', () => {
+   const schema = JSON.parse(fs.readFileSync(path.join(REPO, 'contracts.schema.json'), 'utf8'))
+   const findingDef = schema.$defs.Finding
+diff --git a/substrate/test/k17-AC-10-wiring-test-author-prompt.test.js b/substrate/test/k17-AC-10-wiring-test-author-prompt.test.js
+new file mode 100644
+index 0000000..c302a26
+--- /dev/null
++++ b/substrate/test/k17-AC-10-wiring-test-author-prompt.test.js
+@@ -0,0 +1,87 @@
++// AC-10: runTask contains a call to changeScopedCriteria whose argument is derived from spec.acceptance,
++// and the prompt of the agent() call labelled `tests:${task.id}` inside runTask interpolates that call's
++// result (restricted to or alongside task.criteria_ids) and contains an instruction that a criterion whose
++// THEN asserts something is unchanged, identical to before, or not added/removed relative to the base is
++// verified by the verifier panel at build time and must NOT get a test.
++//
++// Call sites are located with substrate/test/b5-wiring-helpers.js (functionNamed / callSites /
++// enclosingFunction), never by first textual occurrence of a name.
++//
++// Written from the spec ONLY.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { functionNamed, callSites } from './b5-wiring-helpers.js'
++
++// Balances parens from an opening '(' at `openIdx`, skipping string and template literal contents (a
++// generic argument-list extractor, not a call-site finder — the CALL itself is already located via
++// callSites()).
++function matchParen(text, openIdx) {
++  let depth = 0
++  for (let i = openIdx; i < text.length; i++) {
++    const c = text[i]
++    if (c === '"' || c === "'" || c === '`') {
++      const q = c
++      i++
++      while (i < text.length && text[i] !== q) { if (text[i] === '\\') i++; i++ }
++      continue
++    }
++    if (c === '(') depth++
++    else if (c === ')') { depth--; if (depth === 0) return i + 1 }
++  }
++  throw new Error(`matchParen: unbalanced ( at ${openIdx}`)
++}
++
++test('AC-10: runTask calls changeScopedCriteria(spec.acceptance-derived) and wires its result into the tests: prompt', () => {
++  const text = readWorkflowText()
++  const rt = functionNamed(text, 'runTask')
++  const body = text.slice(rt.bodyStart, rt.bodyEnd)
++
++  // changeScopedCriteria is CALLED inside runTask (not merely declared elsewhere).
++  const calls = callSites(body, 'changeScopedCriteria')
++  assert.ok(calls.length >= 1, 'expected runTask to call changeScopedCriteria')
++  const callStart = calls[0]
++  const openParen = body.indexOf('(', callStart)
++  const callEnd = matchParen(body, openParen)
++  const argText = body.slice(openParen + 1, callEnd - 1)
++  assert.match(argText, /spec\.acceptance/, 'expected the changeScopedCriteria call argument to derive from spec.acceptance')
++
++  // The variable the call result is bound to (const/let NAME = changeScopedCriteria(...)).
++  const bindMatch = body.slice(0, callStart).match(/(?:const|let)\s+(\w+)\s*=\s*$/) ||
++    body.slice(0, callStart).match(/(?:const|let)\s+(\w+)\s*=\s*[\s\S]{0,80}$/)
++  assert.ok(bindMatch, 'expected changeScopedCriteria(...) to be assigned to a const/let binding')
++  const varName = bindMatch[1]
++
++  // Find the agent() call labelled `tests:${task.id}` inside runTask, via callSites (never indexOf on a
++  // whole-file scan for the call itself), then contain-check the label against each candidate call's span.
++  const agentCalls = callSites(body, 'agent')
++  const labelIdx = body.indexOf('`tests:${task.id}`')
++  assert.ok(labelIdx >= 0, 'expected a label literal `tests:${task.id}` inside runTask')
++  let testsCallSpan = null
++  for (const start of agentCalls) {
++    const open = body.indexOf('(', start)
++    const end = matchParen(body, open)
++    if (labelIdx > start && labelIdx < end) { testsCallSpan = body.slice(start, end); break }
++  }
++  assert.ok(testsCallSpan, 'expected to find the agent() call whose options contain the tests: label')
++
++  // Split the prompt (first argument) from the options object (which starts at `label:`), so the
++  // interpolation and instruction-text checks below are about the PROMPT specifically.
++  const optionsStart = testsCallSpan.search(/\{\s*label:/)
++  assert.ok(optionsStart > 0, 'expected an options object starting with label: in the tests: agent() call')
++  const promptPart = testsCallSpan.slice(0, optionsStart)
++
++  // The prompt interpolates the changeScopedCriteria result (bound to varName above).
++  const interpolates = new RegExp('\\$\\{[^}]*\\b' + varName + '\\b[^}]*\\}').test(promptPart)
++  assert.ok(interpolates, `expected the tests: prompt to interpolate ${varName} (the changeScopedCriteria result)`)
++
++  // The prompt also still names task.criteria_ids somewhere (restricted to or alongside it).
++  assert.match(promptPart, /criteria_ids/, 'expected the tests: prompt to still reference task.criteria_ids')
++
++  // The prompt instructs the Test Author not to write a test for a change-scoped criterion, verified by the
++  // panel at build time.
++  assert.match(promptPart, /verifier panel/i, 'expected the prompt to name the verifier panel')
++  assert.match(promptPart, /unchanged|identical to before|not (?:be )?added|added\/removed|added or removed/i,
++    'expected the prompt to describe the unchanged/identical/not-added-or-removed condition')
++  assert.match(promptPart, /must not|do not|never/i, 'expected the prompt to instruct against writing such a test')
++})
+diff --git a/substrate/test/k17-AC-11-basename-normaliser.test.js b/substrate/test/k17-AC-11-basename-normaliser.test.js
+new file mode 100644
+index 0000000..af6f113
+--- /dev/null
++++ b/substrate/test/k17-AC-11-basename-normaliser.test.js
+@@ -0,0 +1,32 @@
++// AC-11: testFileBasename, called with 'x.js (already exists)', 'dir/x.js', 'x.js',
++// 'substrate/test/x.js (skipped: exists)' and '  x.js  ', returns 'x.js' for every input.
++//
++// Written from the spec ONLY. Extracts the fix-loop decisions block from
++// .claude/workflows/build-implement.js (via this TestSet's own extract-fixloop.js) and evaluates
++// testFileBasename directly, rather than importing a sibling helper file that is not part of this
++// TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++function loadTestFileBasename() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + '\nreturn { testFileBasename }')
++  return factory().testFileBasename
++}
++
++test('AC-11: testFileBasename strips trailing parentheticals and directories to a bare basename', () => {
++  const testFileBasename = loadTestFileBasename()
++  const inputs = [
++    'x.js (already exists)',
++    'dir/x.js',
++    'x.js',
++    'substrate/test/x.js (skipped: exists)',
++    '  x.js  ',
++  ]
++  for (const input of inputs) {
++    assert.equal(testFileBasename(input), 'x.js', `expected testFileBasename(${JSON.stringify(input)}) === 'x.js'`)
++  }
++})
+diff --git a/substrate/test/k17-AC-13-unaccounted-directories-and-missing.test.js b/substrate/test/k17-AC-13-unaccounted-directories-and-missing.test.js
+new file mode 100644
+index 0000000..5ef5489
+--- /dev/null
++++ b/substrate/test/k17-AC-13-unaccounted-directories-and-missing.test.js
+@@ -0,0 +1,42 @@
++// AC-13: unaccountedTestFiles, called with tests_found entries carrying directories
++// ('substrate/test/a.test.js') and landed/skipped entries as bare basenames, accounts for the
++// directory-carrying entries; a genuinely missing file ('stray.test.js' in tests_found only) is still
++// returned; and requested_paths [] still returns [] regardless of tests_found (existing AC-21 behaviour).
++//
++// Written from the spec ONLY. Extracts the fix-loop decisions block from
++// .claude/workflows/build-implement.js (via this TestSet's own extract-fixloop.js) and evaluates
++// unaccountedTestFiles directly, rather than importing a sibling helper file that is not part of this
++// TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++function loadUnaccountedTestFiles() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + '\nreturn { unaccountedTestFiles }')
++  return factory().unaccountedTestFiles
++}
++
++test('AC-13: directory-carrying tests_found entries are accounted for; a genuinely missing file is still reported', () => {
++  const unaccountedTestFiles = loadUnaccountedTestFiles()
++  const result = unaccountedTestFiles({
++    requested_paths: ['.artifacts/tests/t1/a.test.js'],
++    tests_found: ['substrate/test/a.test.js', 'stray.test.js'],
++    tests_landed: ['a.test.js'],
++    tests_skipped: [],
++  })
++  assert.deepEqual(result, ['stray.test.js'])
++})
++
++test('AC-13: requested_paths [] returns [] regardless of tests_found', () => {
++  const unaccountedTestFiles = loadUnaccountedTestFiles()
++  const result = unaccountedTestFiles({
++    requested_paths: [],
++    tests_found: ['substrate/test/a.test.js', 'stray.test.js'],
++    tests_landed: [],
++    tests_skipped: [],
++  })
++  assert.deepEqual(result, [])
++})
+diff --git a/substrate/test/k17-AC-15-shared-normaliser-and-purity.test.js b/substrate/test/k17-AC-15-shared-normaliser-and-purity.test.js
+new file mode 100644
+index 0000000..0194d4e
+--- /dev/null
++++ b/substrate/test/k17-AC-15-shared-normaliser-and-purity.test.js
+@@ -0,0 +1,41 @@
++// AC-15: the bodies of unaccountedTestFiles and unlandedRepairs both call testFileBasename (a single
++// shared normaliser), and the fix-loop decisions block (including changeScopedCriteria and
++// testFileBasename) uses no import, require, fs, path module, Date.now or Math.random.
++//
++// Call sites located via b5-wiring-helpers (functionNamed/callSites), never by first textual occurrence.
++//
++// Written from the spec ONLY. Extracts the fix-loop decisions block from
++// .claude/workflows/build-implement.js (via this TestSet's own extract-fixloop.js), rather than
++// importing a sibling helper file that is not part of this TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++import { functionNamed, callSites } from './b5-wiring-helpers.js'
++
++test('AC-15: unaccountedTestFiles and unlandedRepairs both call testFileBasename', () => {
++  const { block } = extractBlock(readWorkflowText())
++  assert.ok(block, 'expected the fix-loop decisions block to be extractable')
++
++  const unaccounted = functionNamed(block, 'unaccountedTestFiles')
++  const unaccountedBody = block.slice(unaccounted.bodyStart, unaccounted.bodyEnd)
++  assert.ok(callSites(unaccountedBody, 'testFileBasename').length >= 1,
++    'expected unaccountedTestFiles to call testFileBasename')
++
++  const unlanded = functionNamed(block, 'unlandedRepairs')
++  const unlandedBody = block.slice(unlanded.bodyStart, unlanded.bodyEnd)
++  assert.ok(callSites(unlandedBody, 'testFileBasename').length >= 1,
++    'expected unlandedRepairs to call testFileBasename')
++})
++
++test('AC-15: the fix-loop block uses no import, require, fs, path module, Date.now or Math.random', () => {
++  const { block } = extractBlock(readWorkflowText())
++  assert.ok(block, 'expected the fix-loop decisions block to be extractable')
++  assert.doesNotMatch(block, /\bimport\s*(?:\{|\*|[\w$]+\s*,?\s*(?:\{[^}]*\})?\s*from\b|\()/,
++    'no import statement or dynamic import() allowed in the fix-loop block')
++  assert.doesNotMatch(block, /\brequire\s*\(\s*['"]/, 'no require(...) call allowed in the fix-loop block')
++  assert.doesNotMatch(block, /\bfs\.\w/, 'no fs module usage allowed in the fix-loop block')
++  assert.doesNotMatch(block, /\bpath\.(join|resolve|dirname|basename|extname|sep)\b/,
++    'no node:path module usage allowed in the fix-loop block')
++  assert.doesNotMatch(block, /Date\.now\s*\(/, 'no Date.now() allowed in the fix-loop block')
++  assert.doesNotMatch(block, /Math\.random\s*\(/, 'no Math.random() allowed in the fix-loop block')
++})
+diff --git a/substrate/test/k17-AC-2-still-flags-auth-terms.test.js b/substrate/test/k17-AC-2-still-flags-auth-terms.test.js
+new file mode 100644
+index 0000000..aab6a1a
+--- /dev/null
++++ b/substrate/test/k17-AC-2-still-flags-auth-terms.test.js
+@@ -0,0 +1,52 @@
++// AC-2: codeRisk, called with a single path-kind surface whose ref is, in turn, 'src/auth/login.js',
++// 'lib/authz.js', 'docs/authentication.md', 'api/authorization.ts', returns exactly one reason each time,
++// and that reason contains the ref and the text 'surface ref names a sensitive term'.
++//
++// Written from the spec ONLY. Extracts the HIGH_KINDS/HIGH_REF/codeRisk declarations from
++// .claude/workflows/build-spec.js directly and evaluates codeRisk, rather than importing a sibling
++// helper file that is not part of this TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import { REPO } from './fixloop-helpers.js'
++
++const BUILD_SPEC_PATH = `${REPO}/.claude/workflows/build-spec.js`
++
++// Slices out `const HIGH_KINDS = ...` through the closing `}` of `const codeRisk = (spec) => { ... }`,
++// located by exact anchor lines (not a first-occurrence scan for an unrelated mention — HIGH_KINDS,
++// HIGH_REF and codeRisk are each declared exactly once in this file, so their own declaration lines ARE
++// the thing being extracted).
++function extractRiskRouterSource(text) {
++  const startAnchor = "const HIGH_KINDS = new Set(['schema', 'infra'])"
++  const startIdx = text.indexOf(startAnchor)
++  if (startIdx < 0) throw new Error('HIGH_KINDS declaration not found')
++  const fnAnchor = 'const codeRisk = (spec) => {'
++  const fnIdx = text.indexOf(fnAnchor, startIdx)
++  if (fnIdx < 0) throw new Error('codeRisk declaration not found after HIGH_KINDS')
++  const braceOpen = text.indexOf('{', fnIdx)
++  let depth = 0, i = braceOpen
++  for (; i < text.length; i++) {
++    if (text[i] === '{') depth++
++    else if (text[i] === '}') { depth--; if (depth === 0) { i++; break } }
++  }
++  return text.slice(startIdx, i)
++}
++
++function loadRiskRouter() {
++  const src = extractRiskRouterSource(fs.readFileSync(BUILD_SPEC_PATH, 'utf8'))
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(src + '\nreturn { HIGH_KINDS, HIGH_REF, codeRisk }')
++  return factory()
++}
++
++test('AC-2: codeRisk still flags refs naming auth, authz, authentication, authorization', () => {
++  const { codeRisk } = loadRiskRouter()
++  const refs = ['src/auth/login.js', 'lib/authz.js', 'docs/authentication.md', 'api/authorization.ts']
++  for (const ref of refs) {
++    const reasons = codeRisk({ touched_surfaces: [{ kind: 'path', ref }] })
++    assert.equal(reasons.length, 1, `expected exactly one reason for ${ref}`)
++    assert.ok(reasons[0].includes(ref), `expected the reason for ${ref} to include the ref`)
++    assert.ok(reasons[0].includes('surface ref names a sensitive term'),
++      `expected the reason for ${ref} to include 'surface ref names a sensitive term'`)
++  }
++})
+diff --git a/substrate/test/k17-AC-4-other-sensitive-terms-intact.test.js b/substrate/test/k17-AC-4-other-sensitive-terms-intact.test.js
+new file mode 100644
+index 0000000..7452bb4
+--- /dev/null
++++ b/substrate/test/k17-AC-4-other-sensitive-terms-intact.test.js
+@@ -0,0 +1,53 @@
++// AC-4: codeRisk, called with path-kind refs naming each of the other existing sensitive terms
++// ('src/token.js', 'cfg/secret.json', 'lib/credential.js', 'lib/password.js', 'src/payment.js',
++// 'src/billing.js', 'db/migrations/001.sql'), still yields exactly one high reason each (no existing term
++// was dropped by the author/authored/authority refinement).
++//
++// Written from the spec ONLY. Extracts the HIGH_KINDS/HIGH_REF/codeRisk declarations from
++// .claude/workflows/build-spec.js directly and evaluates codeRisk, rather than importing a sibling
++// helper file that is not part of this TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import { REPO } from './fixloop-helpers.js'
++
++const BUILD_SPEC_PATH = `${REPO}/.claude/workflows/build-spec.js`
++
++// Slices out `const HIGH_KINDS = ...` through the closing `}` of `const codeRisk = (spec) => { ... }`,
++// located by exact anchor lines (not a first-occurrence scan for an unrelated mention — HIGH_KINDS,
++// HIGH_REF and codeRisk are each declared exactly once in this file, so their own declaration lines ARE
++// the thing being extracted).
++function extractRiskRouterSource(text) {
++  const startAnchor = "const HIGH_KINDS = new Set(['schema', 'infra'])"
++  const startIdx = text.indexOf(startAnchor)
++  if (startIdx < 0) throw new Error('HIGH_KINDS declaration not found')
++  const fnAnchor = 'const codeRisk = (spec) => {'
++  const fnIdx = text.indexOf(fnAnchor, startIdx)
++  if (fnIdx < 0) throw new Error('codeRisk declaration not found after HIGH_KINDS')
++  const braceOpen = text.indexOf('{', fnIdx)
++  let depth = 0, i = braceOpen
++  for (; i < text.length; i++) {
++    if (text[i] === '{') depth++
++    else if (text[i] === '}') { depth--; if (depth === 0) { i++; break } }
++  }
++  return text.slice(startIdx, i)
++}
++
++function loadRiskRouter() {
++  const src = extractRiskRouterSource(fs.readFileSync(BUILD_SPEC_PATH, 'utf8'))
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(src + '\nreturn { HIGH_KINDS, HIGH_REF, codeRisk }')
++  return factory()
++}
++
++test('AC-4: token/secret/credential/password/payment/billing/migrat terms are still flagged', () => {
++  const { codeRisk } = loadRiskRouter()
++  const refs = [
++    'src/token.js', 'cfg/secret.json', 'lib/credential.js', 'lib/password.js',
++    'src/payment.js', 'src/billing.js', 'db/migrations/001.sql',
++  ]
++  for (const ref of refs) {
++    const reasons = codeRisk({ touched_surfaces: [{ kind: 'path', ref }] })
++    assert.equal(reasons.length, 1, `expected exactly one reason for ${ref}`)
++  }
++})
+diff --git a/substrate/test/k17-AC-5-schema-infra-config.test.js b/substrate/test/k17-AC-5-schema-infra-config.test.js
+new file mode 100644
+index 0000000..77e0213
+--- /dev/null
++++ b/substrate/test/k17-AC-5-schema-infra-config.test.js
+@@ -0,0 +1,54 @@
++// AC-5: codeRisk, called with { kind: 'schema', ref: 'contracts.schema.json' } and separately with
++// { kind: 'infra', ref: 'deploy/stack.yml' }, each yields exactly one reason of the form
++// 'surface kind <kind>: <ref>'; and { kind: 'config', ref: 'package.json' } yields no reason — the rule's
++// shape (schema/infra high outright, other kinds only when the ref names a sensitive term) is unchanged.
++//
++// Written from the spec ONLY. Extracts the HIGH_KINDS/HIGH_REF/codeRisk declarations from
++// .claude/workflows/build-spec.js directly and evaluates codeRisk, rather than importing a sibling
++// helper file that is not part of this TestSet directory.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import { REPO } from './fixloop-helpers.js'
++
++const BUILD_SPEC_PATH = `${REPO}/.claude/workflows/build-spec.js`
++
++// Slices out `const HIGH_KINDS = ...` through the closing `}` of `const codeRisk = (spec) => { ... }`,
++// located by exact anchor lines (not a first-occurrence scan for an unrelated mention — HIGH_KINDS,
++// HIGH_REF and codeRisk are each declared exactly once in this file, so their own declaration lines ARE
++// the thing being extracted).
++function extractRiskRouterSource(text) {
++  const startAnchor = "const HIGH_KINDS = new Set(['schema', 'infra'])"
++  const startIdx = text.indexOf(startAnchor)
++  if (startIdx < 0) throw new Error('HIGH_KINDS declaration not found')
++  const fnAnchor = 'const codeRisk = (spec) => {'
++  const fnIdx = text.indexOf(fnAnchor, startIdx)
++  if (fnIdx < 0) throw new Error('codeRisk declaration not found after HIGH_KINDS')
++  const braceOpen = text.indexOf('{', fnIdx)
++  let depth = 0, i = braceOpen
++  for (; i < text.length; i++) {
++    if (text[i] === '{') depth++
++    else if (text[i] === '}') { depth--; if (depth === 0) { i++; break } }
++  }
++  return text.slice(startIdx, i)
++}
++
++function loadRiskRouter() {
++  const src = extractRiskRouterSource(fs.readFileSync(BUILD_SPEC_PATH, 'utf8'))
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(src + '\nreturn { HIGH_KINDS, HIGH_REF, codeRisk }')
++  return factory()
++}
++
++test('AC-5: schema/infra kinds are high outright; config with no sensitive term is not', () => {
++  const { codeRisk } = loadRiskRouter()
++
++  const schemaReasons = codeRisk({ touched_surfaces: [{ kind: 'schema', ref: 'contracts.schema.json' }] })
++  assert.deepEqual(schemaReasons, ['surface kind schema: contracts.schema.json'])
++
++  const infraReasons = codeRisk({ touched_surfaces: [{ kind: 'infra', ref: 'deploy/stack.yml' }] })
++  assert.deepEqual(infraReasons, ['surface kind infra: deploy/stack.yml'])
++
++  const configReasons = codeRisk({ touched_surfaces: [{ kind: 'config', ref: 'package.json' }] })
++  assert.deepEqual(configReasons, [])
++})
+diff --git a/substrate/test/k17-AC-6-block-evaluates-cleanly.test.js b/substrate/test/k17-AC-6-block-evaluates-cleanly.test.js
+new file mode 100644
+index 0000000..2cf001a
+--- /dev/null
++++ b/substrate/test/k17-AC-6-block-evaluates-cleanly.test.js
+@@ -0,0 +1,51 @@
++// AC-6: the fix-loop decisions block of .claude/workflows/build-implement.js, extracted with
++// extract-fixloop.js's readWorkflowText()/extractBlock() and evaluated with `new Function`, evaluates
++// without throwing, the BEGIN and END sentinels each appear exactly once, changeScopedCriteria and
++// testFileBasename are functions, and every decision function the existing loaders expose (including
++// unaccountedTestFiles, unlandedRepairs, boundaryRepair, escapingImports) is still a function.
++//
++// Written from the spec ONLY. Extracts and evaluates the block itself via this TestSet's own
++// extract-fixloop.js, rather than importing a sibling helper file that is not part of this TestSet
++// directory once landed in substrate/test/.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++// Every decision function name declared inside the fix-loop sentinel block as of the base commit this task
++// starts from, plus the two this task adds (changeScopedCriteria, testFileBasename).
++const ALL_DECISION_NAMES = [
++  'scopeOf', 'scopeTargets', 'nextLenses', 'lensesToRun', 'roundBudget', 'taskCeiling', 'lensStreaks',
++  'stuckLens', 'graceRound', 'emptyDiffAction', 'shouldEscalate', 'surfaceRef', 'withinOwned', 'boundaryCheck',
++  'criteriaScope', 'citedCriteria', 'isForeignCriterionFinding', 'stripForeignFindings', 'routeFinding',
++  'fixOutcome', 'disputesToJudge', 'widenTestsRef', 'resolveRound', 'roundOutcome', 'testRepairTarget',
++  'unlandedRepairs', 'repairOwners', 'isMutualWait', 'boundaryRepair', 'unaccountedTestFiles', 'testValidity',
++  'citesFailingTest', 'fixRefused', 'testSetDirOf', 'dirOf', 'resolveSpecifier', 'anchorAtArtifacts',
++  'escapingImports', 'changeScopedCriteria', 'testFileBasename',
++]
++
++function loadAllFixLoopDecisions() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  const returnObj = `return { ${ALL_DECISION_NAMES.join(', ')} }`
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + returnObj)
++  return factory()
++}
++
++test('AC-6: sentinels appear exactly once, and every decision function (old and new) evaluates as a function', () => {
++  const text = readWorkflowText()
++  const { block, beginCount, endCount } = extractBlock(text)
++  assert.equal(beginCount, 1, 'BEGIN sentinel must appear exactly once')
++  assert.equal(endCount, 1, 'END sentinel must appear exactly once')
++  assert.ok(block, 'expected a non-null block between the sentinels')
++
++  const decisions = loadAllFixLoopDecisions()
++  assert.equal(typeof decisions.changeScopedCriteria, 'function')
++  assert.equal(typeof decisions.testFileBasename, 'function')
++  for (const name of ['unaccountedTestFiles', 'unlandedRepairs', 'boundaryRepair', 'escapingImports']) {
++    assert.equal(typeof decisions[name], 'function', `expected ${name} to still be a function`)
++  }
++  for (const name of ALL_DECISION_NAMES) {
++    assert.equal(typeof decisions[name], 'function', `expected ${name} to be a function`)
++  }
++})
+diff --git a/substrate/test/k17-AC-7-change-scoped-basic.test.js b/substrate/test/k17-AC-7-change-scoped-basic.test.js
+new file mode 100644
+index 0000000..07443c9
+--- /dev/null
++++ b/substrate/test/k17-AC-7-change-scoped-basic.test.js
+@@ -0,0 +1,48 @@
++// AC-7: changeScopedCriteria(acceptance), called with a plain acceptance array of contract-shaped criteria
++// (AC-1 'every other ChangeSet property is unchanged', AC-2 'the returned list contains x.js', AC-3 'no
++// other agent() site is added', AC-4 'the output is byte-identical to before', AC-5 'the file is
++// unmodified'), returns the ids ['AC-1', 'AC-3', 'AC-4', 'AC-5'] in acceptance order, and does not include
++// the behavioural AC-2.
++//
++// Written from the spec ONLY. Extracts and evaluates the fix-loop decisions block itself via this
++// TestSet's own extract-fixloop.js, rather than importing a sibling helper file that is not part of this
++// TestSet directory once landed in substrate/test/.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++// Every decision function name declared inside the fix-loop sentinel block as of the base commit this task
++// starts from, plus the two this task adds (changeScopedCriteria, testFileBasename).
++const ALL_DECISION_NAMES = [
++  'scopeOf', 'scopeTargets', 'nextLenses', 'lensesToRun', 'roundBudget', 'taskCeiling', 'lensStreaks',
++  'stuckLens', 'graceRound', 'emptyDiffAction', 'shouldEscalate', 'surfaceRef', 'withinOwned', 'boundaryCheck',
++  'criteriaScope', 'citedCriteria', 'isForeignCriterionFinding', 'stripForeignFindings', 'routeFinding',
++  'fixOutcome', 'disputesToJudge', 'widenTestsRef', 'resolveRound', 'roundOutcome', 'testRepairTarget',
++  'unlandedRepairs', 'repairOwners', 'isMutualWait', 'boundaryRepair', 'unaccountedTestFiles', 'testValidity',
++  'citesFailingTest', 'fixRefused', 'testSetDirOf', 'dirOf', 'resolveSpecifier', 'anchorAtArtifacts',
++  'escapingImports', 'changeScopedCriteria', 'testFileBasename',
++]
++
++function loadAllFixLoopDecisions() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  const returnObj = `return { ${ALL_DECISION_NAMES.join(', ')} }`
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + returnObj)
++  return factory()
++}
++
++const crit = (id, then) => ({ id, given: 'the described precondition holds', when: 'the described action happens', then, testable: true })
++
++test('AC-7: changeScopedCriteria lists only the change-scoped criteria, in acceptance order', () => {
++  const { changeScopedCriteria } = loadAllFixLoopDecisions()
++  const acceptance = [
++    crit('AC-1', 'every other ChangeSet property is unchanged'),
++    crit('AC-2', 'the returned list contains x.js'),
++    crit('AC-3', 'no other agent() site is added'),
++    crit('AC-4', 'the output is byte-identical to before'),
++    crit('AC-5', 'the file is unmodified'),
++  ]
++  const result = changeScopedCriteria(acceptance)
++  assert.deepEqual(result, ['AC-1', 'AC-3', 'AC-4', 'AC-5'])
++})
+diff --git a/substrate/test/k17-AC-8-change-scoped-empty.test.js b/substrate/test/k17-AC-8-change-scoped-empty.test.js
+new file mode 100644
+index 0000000..799e3e6
+--- /dev/null
++++ b/substrate/test/k17-AC-8-change-scoped-empty.test.js
+@@ -0,0 +1,30 @@
++// AC-8: changeScopedCriteria, called with [], undefined, or an acceptance array whose every THEN is
++// behavioural (e.g. 'the function returns 3', 'the prompt names the file'), returns [] without throwing.
++//
++// Written from the spec ONLY. Extracts and evaluates the fix-loop decisions block itself via this
++// TestSet's own extract-fixloop.js, rather than importing a sibling helper file that is not part of
++// this TestSet directory once landed in substrate/test/.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++function loadChangeScopedCriteria() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + 'return { changeScopedCriteria }')
++  return factory().changeScopedCriteria
++}
++
++const crit = (id, then) => ({ id, given: 'the described precondition holds', when: 'the described action happens', then, testable: true })
++
++test('AC-8: changeScopedCriteria returns [] for empty, undefined, or all-behavioural input', () => {
++  const changeScopedCriteria = loadChangeScopedCriteria()
++  assert.deepEqual(changeScopedCriteria([]), [])
++  assert.deepEqual(changeScopedCriteria(undefined), [])
++  const behavioural = [
++    crit('AC-1', 'the function returns 3'),
++    crit('AC-2', 'the prompt names the file'),
++  ]
++  assert.deepEqual(changeScopedCriteria(behavioural), [])
++})
+diff --git a/substrate/test/k17-AC-9-panel-patterns-parity.test.js b/substrate/test/k17-AC-9-panel-patterns-parity.test.js
+new file mode 100644
+index 0000000..d2d0d5d
+--- /dev/null
++++ b/substrate/test/k17-AC-9-panel-patterns-parity.test.js
+@@ -0,0 +1,36 @@
++// AC-9: changeScopedCriteria's phrase list is a copy of build-spec.js's PANEL_PATTERNS. Each of the six
++// patterns (byte-identical, to before, changed path(s), '<noun> is/are added/removed/upgraded',
++// unmodified, unchanged) exercised by a THEN containing its phrase is recognised by changeScopedCriteria.
++//
++// Written from the spec ONLY. Extracts and evaluates the fix-loop decisions block itself via this
++// TestSet's own extract-fixloop.js, rather than importing a sibling helper file that is not part of
++// this TestSet directory once landed in substrate/test/.
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++function loadChangeScopedCriteria() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + 'return { changeScopedCriteria }')
++  return factory().changeScopedCriteria
++}
++
++const crit = (id, then) => ({ id, given: 'the described precondition holds', when: 'the described action happens', then, testable: true })
++
++test('AC-9: changeScopedCriteria recognises each of the six PANEL_PATTERNS phrases', () => {
++  const changeScopedCriteria = loadChangeScopedCriteria()
++  const cases = [
++    ['byte-identical', 'the output is byte-identical to the input'],
++    ['to before', 'the value reverts to before'],
++    ['changed path(s)', 'the changed paths list is empty'],
++    ['<noun> is/are added/removed/upgraded', 'no dependency is added'],
++    ['unmodified', 'the file is unmodified'],
++    ['unchanged', 'the config is unchanged'],
++  ]
++  for (const [label, then] of cases) {
++    const result = changeScopedCriteria([crit('AC-1', then)])
++    assert.deepEqual(result, ['AC-1'], `expected the ${label} phrase to be classified as change-scoped`)
++  }
++})
+diff --git a/substrate/test/validator.test.js b/substrate/test/validator.test.js
+index fb9515a..f5def75 100644
+--- a/substrate/test/validator.test.js
++++ b/substrate/test/validator.test.js
+@@ -1,8 +1,11 @@
+ import { test } from 'node:test'
+ import assert from 'node:assert/strict'
+ import path from 'node:path'
+-import { validate, listDefs } from '../lib/contracts.js'
+-import { cli, FIX } from './helpers.js'
++import { cli, FIX, REPO } from './helpers.js'
++
++// Loaded via an absolute path built from REPO (resolved at run time via helpers.js), never by a
++// relative import that climbs out of this TestSet directory (substrate/test/) into substrate/lib/.
++const { validate, listDefs } = await import(path.join(REPO, 'substrate', 'lib', 'contracts.js'))
+ 
+ test('every $def compiles', () => {
+   for (const d of listDefs()) validate(d, {})

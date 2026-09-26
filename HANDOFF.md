@@ -196,8 +196,8 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 ### Current order of work
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
-that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`.
-**Next: C13 + B7 (small; both keep costing a hand on every build), then B1+B2 → C10's remainder.** B6 moved to the
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`; C13 + B7 part 1 at `k17d`.
+**Next: B1+B2 → C10's remainder → B7 part 2 (convert the remaining freeze tests to named extension lists).** B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -696,6 +696,17 @@ string compare would have declared every round invalid — both sides are now an
 skipped helpers as "x.js (already exists)", so reconciliation counted them unaccounted and pulled in the
 strong-tier `integrate:resolve` for nothing — carried under B7's clean-up.
 
+*C13 and B7 part 1 landed at `k17d`* (spec `k16`, revised `k16h` — risk low, lint clean, so no Spec Gate; build
+`k17`). `HIGH_REF` no longer reads `test-author.md` as auth; `changeScopedCriteria` tells the Test Author which of
+its criteria the panel verifies, so no new freeze tests should land; the lander's "x.js (already exists)" entries no
+longer trigger a strong-tier `integrate:resolve`. `k17` cost $3.58 (sonnet $2.70, haiku $0.78, opus-5-5 $0.10); total
+with `k16` $3.92. **What the line could not do:** a Test Author repair returned `tests_ref: substrate/test`,
+`widenTestsRef` adopted it, B8's escape check then ran against the repo's own tests and flagged their legitimate
+`../lib` imports, and fixers rewrote four repo tests — none of which landed. `widenTestsRef` now refuses any ref
+outside the artifact dir. `b8-AC-12` was retired (four "nothing else changed" freezes, including hashes of every
+other workflow — it went red on this change and the implementer edited it out of scope). The freezes that remain
+(`a5-bind-AC-13` and kin) are B7 part 2.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -809,7 +820,7 @@ that the `GateCheck` schema has no `id` field, so the one value on the record th
 nowhere to go but `gate`. *Fix:* add `id` to `GateCheck` and check `g.id === A.gate.gate_id` as well, so a miscopy
 fails on a named field instead of a plausible-looking one. Re-run unchanged as `k9b`.
 
-**C13 — The risk router's code rule reads `test-author.md` as an auth surface.** `build-spec.js` `HIGH_REF` is
+**C13 — The risk router's code rule reads `test-author.md` as an auth surface.** *(Landed `k17d`.)* `build-spec.js` `HIGH_REF` is
 `/\bauth|.../i`; `\bauth` matches "**auth**or" after the hyphen, so `k10` routed B6 high with the reason
 "surface ref names a sensitive term: .claude/agents/test-author.md". Harmless on `k10` (its `contracts.schema.json`
 surface is high by kind anyway) but any spec touching only the Test Author definition would gate for no reason.
