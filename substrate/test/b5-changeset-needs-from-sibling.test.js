@@ -45,6 +45,8 @@ test('AC-14: every other ChangeSet property, its required list, and Escalation\'
   const EXPECTED_PROPS = [
     'id', 'task_id', 'spec_id', 'worktree', 'base_commit', 'diff_ref', 'branch',
     'touched_surfaces', 'notes', 'revision', 'provenance', 'needs_from_sibling',
+    // Added by spec-wi-b6-test-validity-before-blame (landed k11d): the fixer's own report of whether its fix changed behaviour.
+    'behaviour_changed', 'behaviour_rationale',
   ]
   assert.deepEqual(Object.keys(cs.properties).sort(), EXPECTED_PROPS.sort())
   assert.deepEqual(

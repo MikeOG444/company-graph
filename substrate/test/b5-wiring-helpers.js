@@ -97,8 +97,49 @@ export function enclosingFunction(text, idx) {
   return hits.reduce((a, b) => (b.bodyEnd - b.bodyStart < a.bodyEnd - a.bodyStart ? b : a))
 }
 
-// Indices (absolute, within [from, to)) of CALLS to `name` — never its own declaration.
+// A per-character mask: true where the character is CODE, false inside a comment, a string, or the literal
+// part of a template (a template's ${...} substitutions are code). k11d: callSites without it counted
+// "testValidity (the pure function...)" in a comment as a call, and a mutation that removed the real call
+// survived. Cached per text.
+const maskCache = new Map()
+export function codeMask(text) {
+  if (maskCache.has(text)) return maskCache.get(text)
+  const mask = new Uint8Array(text.length).fill(1)
+  const off = (a, b) => mask.fill(0, a, Math.min(b, text.length))
+  const tmpl = (i) => {                    // i is just past an opening backtick; returns index past the closer
+    let start = i - 1
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '\\') { i += 2; continue }
+      if (c === '`') { off(start, i + 1); return i + 1 }
+      if (c === '$' && text[i + 1] === '{') { off(start, i + 2); i = code(i + 2, true); start = i - 1; continue }
+      i++
+    }
+    off(start, i); return i
+  }
+  const code = (i, inSub) => {             // scans code; in a substitution, returns index past its closing }
+    let depth = 0
+    while (i < text.length) {
+      const c = text[i], n = text[i + 1]
+      if (c === '/' && n === '/') { const e = text.indexOf('\n', i); off(i, e < 0 ? text.length : e); i = e < 0 ? text.length : e; continue }
+      if (c === '/' && n === '*') { const e = text.indexOf('*/', i + 2); off(i, e + 2); i = e + 2; continue }
+      if (c === '"' || c === "'") { let j = i + 1; while (j < text.length && text[j] !== c && text[j] !== '\n') { if (text[j] === '\\') j++; j++ } off(i, j + 1); i = j + 1; continue }
+      if (c === '`') { i = tmpl(i + 1); continue }
+      if (c === '{') depth++
+      else if (c === '}') { if (inSub && depth === 0) { mask[i] = 0; return i + 1 } depth-- }
+      i++
+    }
+    return i
+  }
+  code(0, false)
+  maskCache.set(text, mask)
+  return mask
+}
+
+// Indices (absolute, within [from, to)) of CALLS to `name` — never its own declaration, and never a mention
+// inside a comment or a string.
 export function callSites(text, name, from = 0, to = text.length) {
+  const mask = codeMask(text)
   const out = []
   const re = new RegExp(`(^|[^\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\(`, 'g')
   re.lastIndex = from
@@ -106,6 +147,7 @@ export function callSites(text, name, from = 0, to = text.length) {
   while ((m = re.exec(text)) && m.index < to) {
     const at = m.index + m[1].length
     if (/function\s+$/.test(text.slice(Math.max(0, at - 20), at))) continue
+    if (!mask[at]) continue
     out.push(at)
   }
   return out
