@@ -1,0 +1,163 @@
+{
+  "id": "spec-wi-c13-b7-small-line-fixes",
+  "work_item_id": "wi-c13-b7-small-line-fixes",
+  "goal": "Stop three recurring manual fixes on the Build line, as one task. (1) C13: build-spec.js's code-half Risk Router (HIGH_REF, used by codeRisk) stops flagging refs that only contain 'author'/'authored'/'authority' (e.g. '.claude/agents/test-author.md') as sensitive, while still flagging auth, authn, authz, authentication, authenticate(d), authorization/authorisation and every other existing term, with the rule's shape unchanged (schema/infra kinds high outright; other kinds only when the ref names a sensitive term; free text never matched). (2) B7 part 1: build-implement.js's Test Author prompt (the agent labelled `tests:${task.id}` inside runTask) tells the Test Author that a criterion whose THEN asserts something is unchanged / identical to before / not added or removed relative to the base is verified by the verifier panel at build time and must NOT get a test, and names which of this task's criteria are such; the list is computed in script by a new pure function changeScopedCriteria(acceptance) in the '// ---- BEGIN/END fix-loop decisions ----' block, using a copy of graph-lint's PANEL_PATTERNS phrase list (build-spec.js). (3) Lander reconciliation: a new pure normaliser in the fix-loop block reduces every tests_found / tests_landed / tests_skipped entry to a bare basename (trailing parenthetical note and any directory stripped) and is reused by unaccountedTestFiles and unlandedRepairs, so a lander reporting 'x.js (already exists)' no longer produces unaccounted files and a needless strong-tier integrate:resolve.",
+  "acceptance": [
+    {
+      "id": "AC-1",
+      "given": "The source text of .claude/workflows/build-spec.js, from which a test extracts the HIGH_KINDS, HIGH_REF and codeRisk declarations near the top of the file (read as text and evaluated with new Function, the way substrate/test/graph-lint-helpers.js evaluates the graph-lint block; no workflow runtime executed)",
+      "when": "codeRisk is called with a spec whose touched_surfaces is [{ kind: 'path', ref: '.claude/agents/test-author.md' }]",
+      "then": "it returns an empty array (no high reason)",
+      "testable": true
+    },
+    {
+      "id": "AC-2",
+      "given": "codeRisk extracted from build-spec.js source as in AC-1",
+      "when": "it is called with a single path-kind surface whose ref is, in turn, 'src/auth/login.js', 'lib/authz.js', 'docs/authentication.md', 'api/authorization.ts'",
+      "then": "each call returns exactly one reason, and that reason contains the ref and the text 'surface ref names a sensitive term'",
+      "testable": true
+    },
+    {
+      "id": "AC-3",
+      "given": "HIGH_REF (or codeRisk) extracted from build-spec.js source as in AC-1",
+      "when": "it is applied to the path refs 'lib/authn.js', 'src/authenticate.js', 'src/authenticated.js', 'docs/authorisation.md', 'docs/AUTH.md', and separately to 'docs/author.md', 'src/authored.js', 'docs/authority.md', '.claude/agents/test-author.md'",
+      "then": "every ref in the first group is matched (yields a high reason) and none of the refs in the second group is matched (yields no reason)",
+      "testable": true
+    },
+    {
+      "id": "AC-4",
+      "given": "codeRisk extracted from build-spec.js source as in AC-1",
+      "when": "it is called with path-kind refs naming each of the other existing sensitive terms ('src/token.js', 'cfg/secret.json', 'lib/credential.js', 'lib/password.js', 'src/payment.js', 'src/billing.js', 'db/migrations/001.sql')",
+      "then": "each one still yields exactly one high reason (no existing term was dropped)",
+      "testable": true
+    },
+    {
+      "id": "AC-5",
+      "given": "codeRisk extracted from build-spec.js source as in AC-1",
+      "when": "it is called with a surface { kind: 'schema', ref: 'contracts.schema.json' } and separately { kind: 'infra', ref: 'deploy/stack.yml' }",
+      "then": "each yields exactly one reason of the form 'surface kind <kind>: <ref>'; and a surface { kind: 'config', ref: 'package.json' } yields no reason",
+      "testable": true
+    },
+    {
+      "id": "AC-6",
+      "given": "The fix-loop decisions block of .claude/workflows/build-implement.js, extracted with substrate/test/extract-fixloop.js's readWorkflowText()/extractBlock() and evaluated with new Function(block + 'return { changeScopedCriteria, ... }')",
+      "when": "the block is evaluated",
+      "then": "it evaluates without throwing, the BEGIN and END sentinels each appear exactly once, changeScopedCriteria and the basename normaliser (named testFileBasename) are functions, and every decision function the existing loaders expose (including unaccountedTestFiles, unlandedRepairs, boundaryRepair, escapingImports) is still a function",
+      "testable": true
+    },
+    {
+      "id": "AC-7",
+      "given": "changeScopedCriteria loaded from the fix-loop block as in AC-6, and a plain acceptance array of contract-shaped criteria: { id: 'AC-1', then: 'every other ChangeSet property is unchanged' }, { id: 'AC-2', then: 'the returned list contains x.js' }, { id: 'AC-3', then: 'no other agent() site is added' }, { id: 'AC-4', then: 'the output is byte-identical to before' }, { id: 'AC-5', then: 'the file is unmodified' } (given/when filler)",
+      "when": "changeScopedCriteria(acceptance) is called",
+      "then": "it returns the ids ['AC-1', 'AC-3', 'AC-4', 'AC-5'] in acceptance order, and does not include the behavioural AC-2",
+      "testable": true
+    },
+    {
+      "id": "AC-8",
+      "given": "changeScopedCriteria loaded as in AC-6",
+      "when": "it is called with [], undefined, or an acceptance array whose every THEN is behavioural (e.g. 'the function returns 3', 'the prompt names the file')",
+      "then": "it returns [] without throwing",
+      "testable": true
+    },
+    {
+      "id": "AC-9",
+      "given": "changeScopedCriteria's phrase list in build-implement.js and PANEL_PATTERNS in build-spec.js",
+      "when": "each pattern of PANEL_PATTERNS (byte-identical, to before, changed path(s), '<noun> is/are added/removed/upgraded', unmodified, unchanged) is exercised by a THEN containing its phrase",
+      "then": "changeScopedCriteria lists that criterion for every one of the six phrases, i.e. it recognises the same phrase set graph-lint classifies as 'panel'",
+      "testable": true
+    },
+    {
+      "id": "AC-10",
+      "given": "The source text of build-implement.js, with call sites located via substrate/test/b5-wiring-helpers.js (functionNamed / callSites / enclosingFunction), never by first textual occurrence",
+      "when": "the body of runTask is inspected",
+      "then": "runTask contains a call to changeScopedCriteria whose argument is derived from spec.acceptance, and the prompt of the agent() call labelled `tests:${task.id}` inside runTask interpolates that call's result (restricted to or alongside task.criteria_ids) and contains an instruction that a criterion whose THEN asserts something is unchanged, identical to before, or not added/removed relative to the base is verified by the verifier panel at build time and must NOT get a test",
+      "testable": true
+    },
+    {
+      "id": "AC-11",
+      "given": "testFileBasename loaded from the fix-loop block as in AC-6",
+      "when": "it is called with 'x.js (already exists)', 'dir/x.js', 'x.js', 'substrate/test/x.js (skipped: exists)' and '  x.js  '",
+      "then": "it returns 'x.js' for every input",
+      "testable": true
+    },
+    {
+      "id": "AC-12",
+      "given": "unaccountedTestFiles loaded as in AC-6 and the k15 lander shape: requested_paths non-empty, tests_found ['b5-wiring-helpers.js', 'a.test.js', 'b.test.js'], tests_landed ['a.test.js'], tests_skipped ['b5-wiring-helpers.js (already exists)', 'b.test.js (already exists)']",
+      "when": "unaccountedTestFiles is called",
+      "then": "it returns []",
+      "testable": true
+    },
+    {
+      "id": "AC-13",
+      "given": "unaccountedTestFiles loaded as in AC-6",
+      "when": "it is called with tests_found entries carrying directories ('substrate/test/a.test.js') and landed/skipped entries as bare basenames, and separately with a genuinely missing file ('stray.test.js' in tests_found only)",
+      "then": "the directory-carrying entries are accounted for, 'stray.test.js' is still returned, and requested_paths [] still returns [] regardless of tests_found (existing AC-21 behaviour holds)",
+      "testable": true
+    },
+    {
+      "id": "AC-14",
+      "given": "unlandedRepairs loaded as in AC-6, repaired_tests [{ source: 'tests_ref', ref: '.artifacts/tests/t1/ci-workflow.test.js' }]",
+      "when": "it is called with tests_skipped ['ci-workflow.test.js (already exists)']",
+      "then": "it returns a one-element list naming ci-workflow.test.js; and the existing behaviour (branch-carried finding_location repairs excluded, empty inputs return []) is unchanged",
+      "testable": true
+    },
+    {
+      "id": "AC-15",
+      "given": "The source of the fix-loop block",
+      "when": "the bodies of unaccountedTestFiles and unlandedRepairs are inspected",
+      "then": "both call testFileBasename (a single shared normaliser), and the block (including changeScopedCriteria and testFileBasename) uses no import, require, fs, path module, Date.now or Math.random",
+      "testable": true
+    },
+    {
+      "id": "AC-16",
+      "given": "The full repository test suite (npm test at the repo root)",
+      "when": "it runs after the change",
+      "then": "it passes, including a5-bind-AC-13 (agent() site set and pipeline/parallel/phase counts), b5-boundary-repair-functions, dispute-unruled, b8 and graph-lint tests",
+      "testable": true
+    }
+  ],
+  "touched_surfaces": [
+    {
+      "kind": "path",
+      "ref": ".claude/workflows/build-spec.js"
+    },
+    {
+      "kind": "path",
+      "ref": ".claude/workflows/build-implement.js"
+    }
+  ],
+  "out_of_scope": [
+    "Editing .claude/agents/test-author.md or any other .claude/agents/*.md definition",
+    "Changing lens verdict derivation, the tiebreak judge, dispute rulings, testValidity, escapingImports, or any other fix-loop decision function beyond unaccountedTestFiles and unlandedRepairs",
+    "Changing any other workflow (build-reentry, create-project, launch, deploy, maintain-triage, improve-analyze, memory-roll)",
+    "Adding, removing, re-labelling, re-tiering or re-schemaing any agent() call, or changing any pipeline/parallel/phase call count",
+    "Changing HIGH_KINDS, the codeRisk reason strings, the Risk Router agent half, or matching free text (goal/intent) against HIGH_REF; exporting anything new from build-spec.js",
+    "Changing graph-lint's PANEL_PATTERNS or classifyCriterion in build-spec.js (the list is copied, not shared)",
+    "Changing the Suite/TestSet schemas or the integrate lander's prompt text",
+    "Removing or rewriting existing permanent tests that freeze change-scoped criteria (e.g. a5-bind-AC-13) beyond what is needed to keep the suite green",
+    "Any test that shells out to npm test",
+    "k16h (main session): substrate/test removed from touched_surfaces and owned_surfaces (Test Author surface, graph-lint check 5); re-linted in code clean, risk low, so no Spec Gate is required."
+  ],
+  "risk": "low",
+  "risk_reasons": [
+    "No external consumers (client is self, venture 0 only)",
+    "All changes are internal to build process tooling in .claude/workflows/ and substrate/test",
+    "C13 refines the HIGH_REF regex to exclude author-related false positives while preserving all other sensitive-term detection; this is a refinement of the risk rule, not a break in the risk classification contract",
+    "B7 adds a new changeScopedCriteria() function and modifies the Test Author prompt to name change-scoped criteria; this is additive information, not a break in the Test Author's contract",
+    "Lander change adds testFileBasename normalizer to reconcile test files with trailing parentheticals; this fixes an edge case without breaking contracts",
+    "No stored data shape changes",
+    "No infrastructure, auth, secrets, or payments infrastructure touches",
+    "All changes are reversible",
+    "No existing routes' contracts are broken for any client",
+    "graph lint: spec_names_test_surface {\"check\":\"spec_names_test_surface\",\"ref\":\"substrate/test\"}"
+  ],
+  "provenance": {
+    "node": "spec_writer",
+    "executor": "ai_agent",
+    "method": "hotl",
+    "model": "opus",
+    "run_id": "k16",
+    "created_at": "2026-09-26T20:24:03Z",
+    "revised_by": "main-session (k16h)"
+  }
+}
