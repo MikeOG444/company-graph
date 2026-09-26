@@ -196,7 +196,17 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 ### Current order of work
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
-that builds everything after it; spec draft carries options 1 + 2 + 3). `backlog/venture0.json` carries all of them as
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`** (see B5). **Next: B6, then C5 → B1+B2 → C10**
+— B6 moved to the front because `k9b` spent a full run failing correct work on invalid tests, which will recur on
+every build until it is fixed.
+
+**Operating rule (set by the human after `k9b`).** Option menus and escalation choices are evaluated and decided by
+the main session, not handed to the human. The decision is still recorded exactly as before: the gate is closed with
+the reasoning, the ledger row carries the method (`direct_driver` when the main session drives), and HANDOFF names
+what the line could not do. The human is asked only for: spend beyond roughly twice a WorkItem's budget, anything
+irreversible or outward-facing (merge, delete, publish), a change of strategy or order of work, or a pricing figure
+that cannot be looked up. A clean lint or a green panel is still not consent, and a human gate a workflow requires
+(Spec Gate on high risk) is still opened — the rule changes who picks among options, not what is recorded. `backlog/venture0.json` carries all of them as
 WorkItems. **C4, C8, A7 and B3 are landed** (PR #9, branch `claude/company-graph-carry-list-e2z510`); B3 moved ahead
 of A5 mid-flight for the reason recorded under B3 below, and A5 is in progress — specced twice (`k4`, `k6`),
 decomposed by hand at `k6h` after four agent decompositions failed the lint, and **landed at `k7d` by direct drive**
@@ -600,6 +610,39 @@ Options, not yet decided — cheapest and most general first:
 *Recommended:* 1 + 2, with 3 as cheap prevention. Also observed on `k7`, smaller: `integrate:resolve` ran at the
 strong tier with **zero** passing tasks (165k tokens resolving nothing), and integration then reported the 24
 pre-existing `substrate/test/*.test.js` files as "unaccounted TestSet files" — a false alarm when no task landed.
+
+*Landed at `k9d`, by direct drive of `k9b`* (spec `k8`, gate `k8-spec_gate` approved by the human; `k9` refused on
+C12; `k9b` escalated; choice made by the main session under the operating rule above). All three options plus both
+integrate fixes: `boundaryRepair`, `repairOwners`, `isMutualWait`, `unaccountedTestFiles` in the fix-loop block;
+`routeBoundary` / `resolveBoundaryDecision` / `repairRerun` wired at both boundary sites and ahead of the empty-diff
+gate; `ChangeSet.needs_from_sibling` and `EvidenceBundle.boundary_repairs` in the contract; `criterion_coupling` as
+graph-lint check 6. `k9b` cost $2.83 (sonnet $1.76, haiku $0.86, opus-5-5 $0.20); B5 total with `k8` and `k9`
+$3.32. **What the line could not do:** its Test Author wrote six wiring tests that located code by its first
+*textual* occurrence (a definition rather than a call, a variable name rather than the output field, a backtick the
+source never used), and a fixer bent correct code to satisfy two of them. The panel missed two real defects the main
+session then found by reading the diff: dependents branched from `task/<dep>` — the stray branch a repair abandons —
+and `criterion_coupling` used undirected connectivity, so two tasks sharing a parent read as ordered while running in
+parallel. Both fixed with tests; nine planted defects each turn a test red. **Not yet exercised live:** B5 changes
+`build-implement.js`, so the repair first engages on the next multi-task run. Watch the first `boundary_repairs`.
+
+**B6 — A failing test counts against the implementation before anyone has checked the test is valid.**
+Found on `k9b`. Of seven failures, four were test defects and one more was hidden by a fixer rewriting code to
+match a test; `k9b` escalated a correct implementation after 1.28M tokens, and the escalation packager reported a
+failure that did not reproduce. Every failing test currently reaches the correctness lens as evidence against the
+code, and the lens files it `target: implementation` by default; `testRepairTarget` only routes a finding to the
+Test Author when the lens already said `target: test`. Nothing in the line asks the question first. *Design, cheapest
+first, all derived in code from facts a detector reports:*
+1. **Validity facts before blame.** For each failing test, a cheap detector reports facts only — does the assertion
+   locate code by first textual occurrence or a declaration; does it require a literal the Spec does not quote;
+   does it fail on the base commit for the same reason; does the failure message name the criterion's behaviour.
+   Script code derives `test_defect` vs `code_defect`. A `test_defect` goes to the Test Author (existing
+   `testfix:` path) and never to a fixer; only `code_defect` counts toward the panel verdict.
+2. **The fixer may not change code only to satisfy a test's textual form.** A fix whose diff touches no behaviour
+   the finding names (a relabel, a declaration moved) is refused in code, and the finding is re-routed as 1.
+3. **Test Author guidance with a tool, not a sentence:** source-text wiring tests assert calls and their order
+   inside a named function using `substrate/test/b5-wiring-helpers.js`; a literal only when the Spec quotes it.
+4. **Mutation sanity on new tests (optional, cheap):** a mechanical agent plants one defect in the criterion's code
+   path; a test that stays green is reported as vacuous before it is trusted.
 
 ### C. Durability and substrate
 
