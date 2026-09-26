@@ -266,6 +266,10 @@ test('AC-15: on a fresh checkout, the declared install and suite commands succee
         // existing root test (deploy.test.js) shells out to git (e.g. to resolve HEAD),
         // so a fresh checkout that omits it is not a faithful simulation.
         if (parts[0] === '.artifacts') return false
+        // .git/worktrees/ holds OTHER checkouts' metadata. deploy.test.js creates and removes a 'prod' worktree
+        // while this test runs, so copying that directory races it (ENOENT on .git/worktrees/prod/locked, PR #11
+        // CI). A fresh checkout has no linked worktrees, so leaving it out is both safe and more faithful.
+        if (parts[0] === '.git' && parts[1] === 'worktrees') return false
         if (parts.includes('node_modules')) return false
         // Exclude this very test file from the copy, so the copy's own `npm test`
         // does not recursively re-run this fresh-checkout simulation.
