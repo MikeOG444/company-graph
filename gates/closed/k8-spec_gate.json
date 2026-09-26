@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k8",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-26T03:12:29.000Z",
   "options": [
     "approve",
@@ -77,5 +77,11 @@
     "graph_ref": "ledger/runs/k8/graph-wi-b5-sibling-value-repair.json",
     "durable_ref": "ledger/runs/k8-build-spec.json",
     "decision_needed": "approve all of options 1+2+3 (and the two integrate fixes), or revise to drop some"
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T03:17:31.000Z",
+    "note": "Approved by the human in chat: options 1+2+3 plus both k7 integrate fixes, one task as specced."
   }
 }
