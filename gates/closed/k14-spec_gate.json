@@ -3,7 +3,7 @@
   "gate": "spec_gate",
   "run_id": "k14",
   "workflow": "build-spec",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-26T19:12:45.000Z",
   "options": [
     "approve",
@@ -68,5 +68,11 @@
     "channel": "queue",
     "at": "2026-09-26T19:12:45.272Z",
     "error": "delivery not configured: no NOTIFY_DRIVER selected"
+  },
+  "decision": {
+    "option": "approve",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T19:20:48.000Z",
+    "note": "Approved by the human in chat. Gated only by C13's false positive."
   }
 }
