@@ -1,0 +1,43 @@
+diff --git a/contracts.schema.json b/contracts.schema.json
+index 8daaefa..941fedc 100644
+--- a/contracts.schema.json
++++ b/contracts.schema.json
+@@ -144,6 +144,9 @@
+                               "properties": { "surface": { "type": "string", "description": "Repository-relative path the sibling owns." },
+                                                "what": { "type": "string", "description": "What is needed from that surface." } },
+                               "required": ["surface", "what"] } },
++        "behaviour_changed": { "type": "boolean",
++                            "description": "Optional (wi-b6). A Fixer's own report: true when its fix changes what the code DOES; false when it only renames, relabels or moves things without changing the behaviour a finding named. A fixer reporting false for a finding that cites a failing test is refused (build-implement's fixRefused) rather than accepted — it may not bend the code to fit a test's text." },
++        "behaviour_rationale": { "type": "string", "description": "Optional (wi-b6). One-line reason for the behaviour_changed value above." },
+         "provenance":  { "$ref": "#/$defs/Provenance" }
+       },
+       "required": ["id", "worktree", "base_commit", "diff_ref", "touched_surfaces", "revision", "provenance"],
+@@ -227,6 +230,19 @@
+       "required": ["task_id", "reason", "history", "repeats", "hypothesis", "options"]
+     },
+ 
++    "TestValidityEntry": {
++      "description": "wi-b6: a failing test's classification, recorded before the correctness lens or any fixer is allowed to blame the code for it. `class` is derived by build-implement's PURE testValidity(facts) function from the detector's facts, never declared by the detector agent itself. `facts` is usually the detector's four booleans (locates_by_first_occurrence, requires_unquoted_literal, fails_on_base_same_reason, names_criterion_behaviour) but also carries { behaviour_changed: false } when the entry instead records a fixer's refused fix (AC-13) — deliberately an open object rather than a second named shape for one field.",
++      "type": "object",
++      "additionalProperties": false,
++      "properties": {
++        "test":      { "type": "string" },
++        "criterion": { "type": "string" },
++        "facts":     { "type": "object" },
++        "class":     { "type": "string", "enum": ["test_defect", "code_defect", "unclear"] }
++      },
++      "required": ["test", "criterion", "facts", "class"]
++    },
++
+     "Repro": {
+       "description": "Reproducer → Root Cause Analyst (OPERATING_MODEL §4). A named shape because it crosses an edge; Patch.repro is the same thing at rest.",
+       "type": "object",
+@@ -404,6 +420,8 @@
+                             "description": "TestSet files the Integrator copied into the repo's test directory and committed. A TestSet that stays in the artifact store is run once and lost, so the suite never grows and defects escape through behavior nothing tests; this records which tests actually entered the repo." },
+         "tests_skipped":  { "type": "array", "items": { "type": "string" },
+                             "description": "TestSet files NOT landed because a file of that name already existed. Reported, never overwritten." },
++        "test_validity":  { "type": "array", "items": { "$ref": "#/$defs/TestValidityEntry" },
++                            "description": "wi-b6: one entry per failing-test classification made in this run, [] when nothing was classified. A test_defect never counted toward a panel's fail verdict — it went to the Test Author's testfix path instead." },
+         "boundary_repairs": { "type": "array",
+                             "description": "One entry per owned-surfaces boundary repair attempt this run made (a stray touched surface or a needs_from_sibling ask). Empty when no task strayed.",
+                             "items": { "type": "object", "additionalProperties": false,

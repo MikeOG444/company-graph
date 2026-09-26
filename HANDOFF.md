@@ -196,9 +196,9 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 ### Current order of work
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
-that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`** (see B5). **Next: B6, then C5 → B1+B2 → C10**
-— B6 moved to the front because `k9b` spent a full run failing correct work on invalid tests, which will recur on
-every build until it is fixed.
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`** (see each). **Next: C5 → B1+B2 → C10.** B6 moved to the
+front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
+B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
 **Operating rule (set by the human after `k9b`).** Option menus and escalation choices are evaluated and decided by
 the main session, not handed to the human. The decision is still recorded exactly as before: the gate is closed with
@@ -644,6 +644,33 @@ first, all derived in code from facts a detector reports:*
 4. **Mutation sanity on new tests (optional, cheap):** a mechanical agent plants one defect in the criterion's code
    path; a test that stays green is reported as vacuous before it is trusted.
 
+*Landed at `k11d`, by direct drive of `k11`* (spec `k10`, revised `k10h`, gate `k10-spec_gate` approved by the
+human; decided and recorded by the main session under the operating rule). `testValidity`, `citesFailingTest`,
+`fixRefused` in the fix-loop block; a `validity:` detector (read-only `lens-correctness`, cheap, only when a round
+has `failed > 0`) whose facts classify each failing test before any lens or fixer sees it; a `test_defect` goes to
+the Test Author's `testfix:` path and is subtracted from what the correctness lens is shown; a fixer reporting
+`behaviour_changed:false` for a finding citing a failing test is refused and re-routed; `ChangeSet.behaviour_changed`
+/ `behaviour_rationale` and `EvidenceBundle.test_validity` in the contract; Test Author and fixer docs carry the
+rules. `k11` cost $3.21 (sonnet $1.87, haiku $1.07, opus-5-5 $0.28); B6 total with `k10` $3.57. **What the line
+could not do:** the task passed its panel, but integration landed 11 failing tests — six were earlier specs'
+invariant tests freezing exact shapes (B7), two were B6's own tests over-reaching (a purity ban on `ctx.` across the
+whole block, which a fixer satisfied by renaming parameters in unrelated functions — reverted; a guessed call
+shape), and the panel missed that the "read-only" detector was bound to the write-capable `mechanical` type. Three
+of eight planted defects survived the k11 TestSet until `callSites` learned to skip comments and two tests were
+added; now 8/8, and the B5 set re-run 8/8. **Known weakness:** `fails_on_base_same_reason` is reasoned by the
+detector, not measured — it is told not to check out the base. Measure it if a misclassification shows up.
+
+**B7 — Tests that freeze an earlier spec's exact shape turn every later legitimate change red.**
+Seen on `k9b` (`a5-bind-AC-13`'s agent-site list) and on `k11` (six tests: A5's site list and call counts, A5's
+write allowlist, B5's ChangeSet property list, A3's label-prefix list, two exact-text checks). Each was written for
+a change-scoped criterion — "no other agent() site is added", "every other property is unchanged" — which B3's check
+4 already classifies as **panel-verified at build time**, yet the Test Author lands it as a permanent test. Every
+later spec then pays a fix-up that no criterion of its own names, and a fixer may bend code to satisfy it.
+*Proposed:* (1) the Test Author prompt forbids a permanent test for a criterion graph-lint classified `panel`;
+(2) the existing freeze tests are converted to *extension lists with a named reason per entry* (the form `k9d` and
+`k11d` used), so adding a site is a one-line, reviewed edit rather than a red suite; (3) consider retiring the
+A5/A3 freezes once their work items are a few runs old.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -752,6 +779,18 @@ fails on a named field instead of a plausible-looking one. Re-run unchanged as `
 "surface ref names a sensitive term: .claude/agents/test-author.md". Harmless on `k10` (its `contracts.schema.json`
 surface is high by kind anyway) but any spec touching only the Test Author definition would gate for no reason.
 *Fix:* `\bauth(?:[nz]|entic|oriz)?\b` or an explicit word list, with a test naming `test-author.md`.
+
+**C14 — Fix-loop agents run tests from the main checkout and leave files there.** On `k11` a `fix:` agent, a
+`testfix:` agent and `integrate:resolve` each `cp`'d TestSet files into the MAIN checkout's `substrate/test/` to run
+them (their shell starts at the repository root). Seven untracked `b6-*.test.js` files appeared mid-run and tripped
+the session's stop hook; a stray copy there can also shadow what a later landing sees. *Fix:* every fix-loop prompt
+that runs tests names the worktree as the directory to run from, and the Test Runner runs a TestSet in place with
+`process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
+`.artifacts/`.
+
+*C10 partly landed at `k11d`:* `fixloop-helpers.js` now resolves `REPO` by walking up from `process.cwd()` to the
+repo markers (fallback: from its own directory). `ci-workflow.test.js`, `helpers.js`,
+`node-support-floor-and-test-glob.test.js` and `t2-doc-paths.js` still count `..`.
 
 ### D. Measurement gaps
 
