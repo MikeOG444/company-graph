@@ -398,5 +398,35 @@
       "run_id": "carry-seed-b8",
       "created_at": "2026-09-26T19:09:38Z"
     }
+  },
+  {
+    "id": "wi-c13-b7-small-line-fixes",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "Stop three recurring manual fixes: the auth false positive, change-scoped criteria landing as permanent tests, and the lander reconciliation miscount",
+    "intent": "Three small defects that each cost a manual fix on recent builds. Build as ONE task.\n(1) C13 — .claude/workflows/build-spec.js HIGH_REF is /\\bauth|authz|authn|token|secret|credential|password|payment|billing|migrat/i; '\\bauth' matches 'author' in '.claude/agents/test-author.md' (a word boundary sits after the hyphen), so k10 and k14 were routed high and gated for a human on that alone. Change the auth alternative so it matches auth, authn, authz, authentication, authorization/authorisation, authenticate(d) but NOT author, authored, authority. Keep every other term and the rule's shape. The HIGH_REF regex and codeRisk live near the top of build-spec.js; export nothing new. A test must extract codeRisk (or HIGH_REF) from build-spec.js source the way substrate/test/graph-lint-helpers.js extracts the graph-lint block, and show: a surface ref '.claude/agents/test-author.md' of kind path yields no high reason; refs 'src/auth/login.js', 'lib/authz.js', 'docs/authentication.md', 'api/authorization.ts' each still do; a schema-kind surface is still high.\n(2) B7 part 1 — change-scoped criteria must not become permanent tests. On k9b, k11 and k15 the Test Author landed tests for criteria like 'every other ChangeSet property is unchanged' / 'no other agent() site is added' / 'the diff changes nothing else'; these froze one spec's exact shape into the permanent suite, and every later spec then turned them red (a5-bind-AC-13 needed an extension on k9d, k11d and k15d). Graph-lint already classifies such criteria as verification 'panel'. In .claude/workflows/build-implement.js's tests: prompt (the agent labelled tests:${task.id}), state: a criterion whose THEN asserts that something is unchanged, identical to before, or not added/removed relative to the base is verified by the verifier panel at build time — do NOT write a test for it; and say which criteria of this task are such (compute the list in script code from the spec's acceptance text with the same change-scoped phrase list graph-lint uses — copy that list into a pure function changeScopedCriteria(acceptance) inside the '// ---- BEGIN/END fix-loop decisions ----' block, since workflows cannot import each other). Do NOT edit .claude/agents/test-author.md in this item.\n(3) The integration lander's reconciliation — build-implement.js computes unaccounted TestSet files as tests_found minus (tests_landed + tests_skipped); on k15 the lander reported skipped entries as 'b5-wiring-helpers.js (already exists)', so all three were counted unaccounted and the strong-tier integrate:resolve ran for nothing. Normalise every tests_landed / tests_skipped / tests_found entry to its basename (strip any trailing parenthetical note and any directory) in script code before reconciling — a pure function in the fix-loop block, reused by unaccountedTestFiles and unlandedRepairs.\nTests in the sentinel idiom (substrate/test/extract-fixloop.js, substrate/test/b5-wiring-helpers.js): changeScopedCriteria over plain acceptance arrays (an 'unchanged' THEN is listed, a behavioural THEN is not); the tests: prompt interpolates that list (call structure inside runTask, not a whole-file search); the basename normaliser over 'x.js (already exists)', 'dir/x.js', 'x.js'; unaccountedTestFiles returns [] for the k15 shape. No test shells out to npm test. Do not change lens verdict derivation, judges, testValidity, escapingImports, or any other workflow.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 600000,
+      "wall_clock_min": 60
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-spec.js"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "run_id": "carry-seed-c13-b7",
+      "created_at": "2026-09-26T20:24:03Z"
+    }
   }
 ]
