@@ -3,7 +3,7 @@
   "gate": "escalation",
   "run_id": "k9b",
   "workflow": "build-implement",
-  "status": "open",
+  "status": "decided",
   "opened_at": "2026-09-26T04:10:37.000Z",
   "options": [
     "guide",
@@ -46,5 +46,11 @@
         "ci-workflow AC-15 fresh-checkout suite fails only because the above fail"
       ]
     }
+  },
+  "decision": {
+    "option": "direct_drive",
+    "decided_by": "human_employee",
+    "decided_at": "2026-09-26T04:18:44.000Z",
+    "note": "Choice delegated: the human directed that options be evaluated and selected internally rather than presented. Selected direct_drive: 4 of 7 failures are source-text tests pinned to file position (test defects), the rest are small real gaps (dependent-branch bug, a5-bind-AC-13 site list, AC-11 routing, a mislabel). Respec would re-run the same Test Author failure class at ~$3-4 for no new information."
   }
 }

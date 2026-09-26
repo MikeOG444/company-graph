@@ -107,7 +107,7 @@ function planIteration(workItems, capacityTokens, defaultItemTokens = 120000) {
 // ---- BEGIN graph-lint ----
 // The decomposition rules stated in the Decomposer prompt above (and nowhere validated) as pure, zero-token
 // script code (CLAUDE.md rule 3). Called once per work item, after Router ∥ Decomposer and before the spec
-// is stamped, on the Spec and TaskGraph the agents returned. Five checks:
+// is stamped, on the Spec and TaskGraph the agents returned. Six checks:
 //   1. criterion reachability — every path a task's claimed criteria name must sit inside that task's owned_surfaces.
 //   2. false edges — every depends_on must be justified by a variable actually crossing it (plus unknown deps
 //      and dependency cycles, which are never justifiable).
@@ -118,6 +118,11 @@ function planIteration(workItems, capacityTokens, defaultItemTokens = 120000) {
 //      creates or erases a coverage gap.
 //   5. test-dir surfaces (A6, folded in) — a Spec must never name a path under the repo's test_dir in its own
 //      touched_surfaces; that is the Test Author's surface, not the Spec's to claim.
+//   6. criterion coupling — a criterion that names paths OWNED by two (or more) different tasks, with no
+//      depends_on path (direct or transitive, either direction) joining those tasks, ties their fates together
+//      with no edge to justify it: neither task can be verified against that criterion alone, and the fix loop
+//      that discovers this at Implement time has no sibling to wait on. Only a path a task actually OWNS counts,
+//      never one merely listed in Spec.touched_surfaces — that near-miss is checkCriterionReachability's concern.
 // On violation: this NEVER drops, repairs, re-decomposes or fails the run. It only reports — the caller (the
 // Spec phase below) decides what a violation means for the gate. Where a rule cannot be decided from the data
 // (a criterion whose text names no path; a dependency whose crossing cannot be determined), a WARNING is
@@ -357,6 +362,65 @@ function checkTestSurfaces({ spec, test_dir }) {
   return { violations }
 }
 
+// Undirected reachability over depends_on alone (either direction, transitive through a third task):
+// exactly the "no depends_on path joins those tasks" test CHECK 6 needs. A single task is trivially connected.
+// Directed depends_on reachability: ordered(a, b) is true when one of the two tasks reaches the other through
+// depends_on, i.e. the runtime runs them in sequence. Undirected connectivity is NOT enough (k9d): two tasks
+// that only share a common dependency are joined in an undirected graph yet still run in PARALLEL, which is
+// exactly how k7's t2 could not see the values t1 was creating.
+function dependsOnReach(tasks) {
+  const deps = new Map((tasks ?? []).filter(t => t?.id != null).map(t => [t.id, t.depends_on ?? []]))
+  const reach = (from, to) => {
+    const seen = new Set([from]), stack = [from]
+    while (stack.length) {
+      for (const d of deps.get(stack.pop()) ?? []) {
+        if (d === to) return true
+        if (deps.has(d) && !seen.has(d)) { seen.add(d); stack.push(d) }
+      }
+    }
+    return false
+  }
+  return (a, b) => reach(a, b) || reach(b, a)
+}
+function allOrdered(ordered, ids) {
+  for (let x = 0; x < ids.length; x++) for (let y = x + 1; y < ids.length; y++) if (!ordered(ids[x], ids[y])) return false
+  return true
+}
+
+// CHECK 6 — a criterion whose named paths are OWNED (not merely touched) by two or more different tasks, with
+// no depends_on path ordering every pair of those tasks. owned_surfaces is disjoint by construction (the
+// Decomposer prompt requires it), so a path matches at most one task's owned_surfaces; the first match wins.
+// A path owned by no task, or by only one task, is never coupling — that leaves checkCriterionReachability's
+// and checkCriterionCoverage's territory alone.
+function checkCriterionCoupling({ spec, graph }) {
+  const violations = []
+  const tasks = graph?.tasks ?? []
+  const ordered = dependsOnReach(tasks)
+  for (const criterion of spec?.acceptance ?? []) {
+    const paths = criterionPaths(criterion)
+    if (!paths.length) continue
+    const orderedTaskIds = []
+    const pathsByTask = new Map()
+    for (const path of paths) {
+      for (const task of tasks) {
+        if (task?.id == null) continue
+        const ownedRefs = (task.owned_surfaces ?? []).map(s => s.ref)
+        if (withinOwned(path, ownedRefs, [])) {
+          if (!pathsByTask.has(task.id)) { pathsByTask.set(task.id, []); orderedTaskIds.push(task.id) }
+          pathsByTask.get(task.id).push(path)
+          break
+        }
+      }
+    }
+    if (orderedTaskIds.length < 2) continue
+    if (allOrdered(ordered, orderedTaskIds)) continue
+    const pathsObj = {}
+    orderedTaskIds.forEach(id => { pathsObj[id] = pathsByTask.get(id) })
+    violations.push({ check: 'criterion_coupling', criterion: criterion.id, tasks: [...orderedTaskIds], paths: pathsObj })
+  }
+  return { violations, warnings: [] }
+}
+
 // The whole lint, read-only over spec and graph (never mutated, never re-decomposed, never repaired). Callers
 // decide what a violation means for the gate; this only reports. gate_required is true iff violations is
 // non-empty — warnings never gate on their own.
@@ -365,7 +429,8 @@ function lintGraph({ spec, graph, test_dir }) {
   const edges = checkFalseEdges({ spec, graph })
   const coverage = checkCriterionCoverage({ spec, graph })
   const testSurfaces = checkTestSurfaces({ spec, test_dir })
-  const violations = [...reach.violations, ...edges.violations, ...coverage.violations, ...testSurfaces.violations]
+  const coupling = checkCriterionCoupling({ spec, graph })
+  const violations = [...reach.violations, ...edges.violations, ...coverage.violations, ...testSurfaces.violations, ...coupling.violations]
   const warnings = [...reach.warnings, ...edges.warnings]
   const criteria = (spec?.acceptance ?? []).map(c => ({ id: c.id, ...classifyCriterion(c) }))
   return { violations, warnings, criteria, gate_required: violations.length > 0 }

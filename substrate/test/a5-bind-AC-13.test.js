@@ -37,6 +37,10 @@ const BASELINE = {
     { label: '`testfix:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'TestRepair' },
     { label: '`dispute:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'Ruling' },
     { label: '`merge:${task.id}:r${ctx.round}`', model: 'MODEL.cheap', schema: 'ChangeSet' },
+    // Added deliberately by spec-wi-b5-sibling-value-repair (landed k9d): the one boundary-repair re-run of a
+    // strayer's implementer. Same tier and schema as impl:${task.id}. This fixture freezes A5's invariant
+    // (bindings changed nothing else); a later spec that adds a site must add it here, by name, with its reason.
+    { label: '`impl:${task.id}:repair`', model: 'MODEL.mid', schema: 'ChangeSet' },
     { label: "'integrate'", model: 'MODEL.cheap', schema: 'Suite' },
     { label: "'integrate:resolve'", model: 'MODEL.strong', schema: 'Suite' },
   ],

@@ -75,7 +75,11 @@ const ChangeSet = { type: 'object', additionalProperties: false,
     // Size of the file at diff_ref, as measured by the agent that wrote it. The script cannot stat a file, so the
     // emptiness decision has to travel on the ChangeSet or not exist at all.
     diff_bytes: { type: 'integer', minimum: 0 },
-    touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' } } }
+    touched_surfaces: { type: 'array', items: Surface }, notes: { type: 'string' }, revision: { type: 'integer' },
+    // Optional (wi-b5): a value a sibling task's owned surface creates, asked for instead of invented. Routed to
+    // boundaryRepair before any lens, test runner, fixer or empty-diff gate. Never required.
+    needs_from_sibling: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['surface', 'what'], properties: { surface: { type: 'string' }, what: { type: 'string' } } } } } }
 const TestSet = { type: 'object', additionalProperties: false, required: ['id', 'task_id', 'tests_ref', 'criteria_coverage'],
   properties: { id: { type: 'string' }, task_id: { type: 'string' }, tests_ref: { type: 'string' },
     criteria_coverage: { type: 'array', items: { type: 'string' } } } }
@@ -573,6 +577,85 @@ function unlandedRepairs({ tests_skipped, repaired_tests }) {
   const targeted = new Set((repaired_tests ?? []).filter(r => r?.source === 'tests_ref').map(r => basename(r.ref)))
   return (tests_skipped ?? []).filter(name => targeted.has(basename(name)))
 }
+
+// ---- Sibling value repair (wi-b5): the response to a boundary violation or a needs_from_sibling ask, when the
+// human-costing Escalation isn't the only option. Pure decision: no runtime handle crosses in, nothing here
+// waits on anything. First-seen order throughout — the same task strayed into the same owner twelve times still
+// names that owner once.
+
+// Every distinct sibling task id an owned-surfaces stray or a needs_from_sibling ask points at, first-seen,
+// straying owners first (in strays' order) then any additional owner a needs_from_sibling surface resolves to.
+// A needs_from_sibling surface owned by no sibling (withinOwned over every sibling's owned_surfaces) is reported
+// as unowned rather than silently dropped — boundaryRepair escalates outright when unowned is non-empty.
+function repairOwners(strays, needs, siblings) {
+  const owners = []
+  const unowned = []
+  for (const s of strays ?? []) if (s?.owner && !owners.includes(s.owner)) owners.push(s.owner)
+  for (const n of needs ?? []) {
+    let owner = null
+    for (const sib of siblings ?? []) {
+      const sibRefs = (sib?.owned_surfaces ?? []).map(x => x.ref)
+      if (withinOwned(n?.surface, sibRefs, [])) { owner = sib.id; break }
+    }
+    if (!owner) unowned.push(n)
+    else if (!owners.includes(owner)) owners.push(owner)
+  }
+  return { owners, unowned }
+}
+
+// True when awaiting `owners` from `task_id` would deadlock: an owner has itself recorded straying into
+// task_id (violations carries { straying_task_id, strays: [{ref, owner}] }), or waiting_on already has that
+// owner awaiting task_id (through a depends_on chain or an active repair wait). Checked before any 'wait' is
+// ever returned, so the script never awaits a sibling that is awaiting it back.
+function isMutualWait(task_id, owners, violations, waiting_on) {
+  for (const owner of owners ?? []) {
+    const stray = (violations ?? []).some(v => v?.straying_task_id === owner && (v.strays ?? []).some(s => s?.owner === task_id))
+    if (stray) return true
+    if ((waiting_on?.[owner] ?? []).includes(task_id)) return true
+  }
+  return false
+}
+
+// The one repair decision consulted at both boundary call sites and at the needs_from_sibling routing point
+// (AC-2 through AC-7 of spec-wi-b5-sibling-value-repair). Discards the stray branch by never returning it (the
+// caller re-runs the strayer's implementer on a FRESH branch, never patches the old one), waits for the owning
+// siblings' existing taskDone promises, and re-runs the implementer once on a branch based on the owners'
+// finished branches — never more than once (`repair_used`) and never for a mutual stray (both escalate).
+//   proceed  — nothing to repair: no strays, no needs_from_sibling.
+//   escalate — reason 'need_unowned' (a needs_from_sibling surface no sibling owns), 'mutual' (owner is itself
+//              awaiting this task), 'repair_used' (this task already spent its one repair), or 'owner_failed'
+//              (an owner is missing from owner_results or did not pass). owners names who was involved; never
+//              'wait' or 'rerun' once repair_used is true.
+//   wait     — owner_results absent: the caller must pause on the named owners' taskDone promises and call again.
+//   rerun    — owner_results present and every owner passed: base_branch is the first owner's branch (first-seen
+//              order), merge_branches every remaining owner's branch.
+function boundaryRepair({ task_id, strays, needs_from_sibling, siblings, repair_used, violations, waiting_on, owner_results }) {
+  const strayList = strays ?? []
+  const needsList = needs_from_sibling ?? []
+  if (!strayList.length && !needsList.length) return { action: 'proceed' }
+
+  const { owners, unowned } = repairOwners(strayList, needsList, siblings)
+  if (unowned.length) return { action: 'escalate', reason: 'need_unowned', owners }
+  if (isMutualWait(task_id, owners, violations, waiting_on)) return { action: 'escalate', reason: 'mutual', owners }
+  if (repair_used) return { action: 'escalate', reason: 'repair_used', owners }
+  if (!owner_results) return { action: 'wait', owners }
+
+  const failed = owners.filter(o => !owner_results[o] || owner_results[o].passed !== true)
+  if (failed.length) return { action: 'escalate', reason: 'owner_failed', owners }
+
+  const branches = owners.map(o => owner_results[o].branch)
+  return { action: 'rerun', owners, base_branch: branches[0], merge_branches: branches.slice(1) }
+}
+
+// requested_paths is the passing TestSets' tests_ref list (Integrate calls this with exactly that — AC-21):
+// with none requested, no TestSet path was ever asked to land, so nothing can be unaccounted for regardless of
+// what tests_found lists (a pre-existing repo test file is not a TestSet file that went missing). Otherwise the
+// answer is simply tests_found minus whatever was landed or skipped.
+function unaccountedTestFiles({ requested_paths, tests_found, tests_landed, tests_skipped }) {
+  if (!(requested_paths ?? []).length) return []
+  const accounted = new Set([...(tests_landed ?? []), ...(tests_skipped ?? [])])
+  return (tests_found ?? []).filter(f => !accounted.has(f))
+}
 // ---- END fix-loop decisions ----
 
 // =====================================================================
@@ -631,8 +714,29 @@ const escalations = []
 // later task's empty-diff refusal (AC-7) to name the sibling recorded straying into ITS owned surfaces, instead of
 // the generic "check whether that implementer wrote outside its owned surfaces".
 const boundaryViolations = []
+// One entry per boundary-repair attempt this run made (AC-13), whatever it concluded. [] when no task strayed.
+const boundaryRepairs = []
 const taskDone = {}, resolveTask = {}
 for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
+
+// Run-level registry (AC-12): task_id -> sibling ids it is CURRENTLY awaiting through an active repair wait.
+// Populated right before an `await taskDone[...]` below and cleared right after, so a concurrent sibling's
+// boundaryRepair call sees an accurate, momentary picture rather than a stale one.
+const waitingRegistry = {}
+// Every id `taskId`'s task depends_on, transitively, excluding itself — the depends_on half of the waiting_on
+// argument boundaryRepair reads for its mutual-wait guard (AC-12).
+function transitiveDepIds(taskId, seen = new Set()) {
+  const entry = tasks.find(t => t.task.id === taskId)
+  for (const d of entry?.task.depends_on ?? []) {
+    if (!seen.has(d)) { seen.add(d); transitiveDepIds(d, seen) }
+  }
+  return seen
+}
+function waitingOnMap(ids) {
+  const out = {}
+  for (const id of ids ?? []) out[id] = [...new Set([...(waitingRegistry[id] ?? []), ...transitiveDepIds(id)])]
+  return out
+}
 
 const finished = (await pipeline(tasks, async (item) => {
   const out = await runTask(item)
@@ -641,7 +745,10 @@ const finished = (await pipeline(tasks, async (item) => {
 })).filter(Boolean)
 
 async function runTask({ spec, task, spec_ref }) {
-  const wt = `${ART}/worktrees/${task.id}`
+  // wt and branch are reassigned once, after a boundary repair rerun succeeds (AC-9, AC-10): the strayer's
+  // ORIGINAL task/<id> branch is discarded and every later reference in this function — verify loop, fixer,
+  // panel, the pass/fail return — reads the fresh repair branch instead, without a second code path.
+  let wt = `${ART}/worktrees/${task.id}`
   // The else branch used to read `${specText}` — its own binding, inside its own initializer. That is a temporal
   // dead zone ReferenceError, so EVERY task crashed on any call without spec_ref. It never fired because every run
   // to date happened to pass one. With no ref there is no file to point at, so the spec is inlined whole.
@@ -658,9 +765,16 @@ async function runTask({ spec, task, spec_ref }) {
     return { spec, task, passed: false, skipped: true }
   }
   const vo = A.verify_only?.[task.id]
-  const branch = vo ? vo.branch : `task/${task.id}`
-  const base = vo ? vo.base : (deps.length ? `task/${deps[deps.length - 1].task.id}` : BASE)
-  const extraMerges = deps.slice(0, -1).map(d => `task/${d.task.id}`)
+  let branch = vo ? vo.branch : `task/${task.id}`
+  // A dependency's RESULT branch, not task/<id>: a dependency that was boundary-repaired passed on its fresh
+  // repair branch, and task/<id> is the abandoned stray (k9d). A pass always carries `branch`; the fallback is
+  // only for a result shape that predates it.
+  const depBranch = (d) => d.branch ?? `task/${d.task.id}`
+  const base = vo ? vo.base : (deps.length ? depBranch(deps[deps.length - 1]) : BASE)
+  const extraMerges = deps.slice(0, -1).map(depBranch)
+  // Sibling ids and owned_surfaces, told to the implementer (AC-15) so it can name a sibling's surface in
+  // needs_from_sibling instead of guessing, and so it never invents a reason to write there instead.
+  const siblingSurfaces = siblingTasks.map(t => ({ id: t.id, owned_surfaces: t.owned_surfaces }))
 
   // ---- Implementer ∥ Test Author: both consume only Spec + Task ----
   const [changeSet0, testSet] = await parallel([
@@ -677,6 +791,10 @@ async function runTask({ spec, task, spec_ref }) {
                  Then write the cumulative diff vs ${base} (git diff ${base}...HEAD, run inside the worktree) to ${ART}/diffs/${task.id}.r0.patch
                  and return that path as diff_ref; ALSO report diff_bytes: the exact byte size of that file (wc -c), reported
                  honestly as 0 if your commit added nothing to ${base}. base_commit = the sha of ${base}; worktree = "${wt}".
+                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+                 ${JSON.stringify(siblingSurfaces)}. If this task needs a value one of those surfaces creates and you cannot derive
+                 it yourself, do not invent it and do not write there — return needs_from_sibling: [{ surface, what }] naming the
+                 surface and what you need, and leave the rest of the diff as far as you got without it (an empty diff is fine here).
                  Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet }),
     () => agent(`Write tests FROM THE SPEC ONLY — do not read any implementation. Cover criteria ${JSON.stringify(task.criteria_ids)}.
@@ -686,10 +804,42 @@ async function runTask({ spec, task, spec_ref }) {
   ])
   if (!changeSet0 || !testSet) return null
 
+  // ctx is created here — before the empty-diff gate, before any lens, test runner or fixer — so the
+  // needs_from_sibling routing below (AC-16) and the boundary-repair machinery both have ctx.history and
+  // ctx.repair_used to read and write from the earliest possible point. ctx.changeSet is provisional here
+  // (changeSet0, pre empty-diff-gate, pre canary) and is reassigned as the settled ChangeSet emerges below.
+  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
+    tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
+  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
+  const ctx = { spec, task, changeSet: changeSet0, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
+                tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
+                lens_streaks: {}, grace_used: false,
+                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
+                // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
+                // independent of whether a lens re-raises them — the k1v guard reads this, not the panel verdict alone.
+                carried: [],
+                // repairedTests: { ref, source } for every non-disputing test repair this task's Test Author made,
+                // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
+                repairedTests: [],
+                // repair_used: this task's one allowed boundary repair (sibling-value-repair), spent at most once.
+                repair_used: false }
+  const fileOf = (loc) => String(loc).split(':')[0].trim()
+
+  // ---- needs_from_sibling routing (AC-16): consulted BEFORE the empty-diff gate and before any run, lens,
+  // slice or fix label, because an implementer that asks instead of inventing may legitimately return an
+  // empty diff — the empty-diff gate must never see that as a refusal to explain. routeBoundary, defined
+  // further down as a `function` declaration, is hoisted and already callable here.
+  const needs0 = ctx.changeSet.needs_from_sibling ?? []
+  if (needs0.length) {
+    const outcome = await routeBoundary([], needs0)
+    if (!outcome.proceed) return { ...ctx, passed: false }
+    if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+  }
+
   // ---- Empty-diff gate: decided from the ChangeSet, before any lens, test runner or fixer is called ----
   // A diff that measured empty is not a change to review. Letting the panel run on one is how t5i deadlocked: the
   // lenses read a tree the fixer could not see. This costs at most one cheap re-capture, and usually nothing.
-  let cs = changeSet0
+  let cs = ctx.changeSet
   let recaptured = false
   for (;;) {
     const action = emptyDiffAction({
@@ -743,24 +893,10 @@ async function runTask({ spec, task, spec_ref }) {
       { label: `canary:${task.id}`, model: MODEL.cheap, ...AT('mechanical'), schema: ChangeSet })
     if (mutated) changeSet1 = { ...mutated, notes: undefined, diff_bytes: mutated.diff_bytes ?? changeSet1.diff_bytes }
   }
+  ctx.changeSet = changeSet1
 
   // Lens re-run policy: after a fix, re-run only the lenses that failed until they pass, then confirm the ones that had passed.
   // If a confirm run fails, run all three until green (mode 'all'). Confirm runs do not count toward K_ROUNDS.
-  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
-    tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
-  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
-  const ctx = { spec, task, changeSet: changeSet1, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
-                tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
-                lens_streaks: {}, grace_used: false,
-                history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
-                // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
-                // independent of whether a lens re-raises them — the k1v guard reads this, not the panel verdict alone.
-                carried: [],
-                // repairedTests: { ref, source } for every non-disputing test repair this task's Test Author made,
-                // read at Integrate to name a skipped basename a repair actually touched (unlandedRepairs).
-                repairedTests: [] }
-  const fileOf = (loc) => String(loc).split(':')[0].trim()
-
   const initialBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
     siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
   // ---- Boundary check: Task.owned_surfaces is told to the implementer and verified by nobody. Run t5i wrote
@@ -771,22 +907,22 @@ async function runTask({ spec, task, spec_ref }) {
   // surface someone else owns, is ever a defect. Each call site (this settled-ChangeSet check and the round-level
   // re-check below) ends the task itself, inline, right where its verdict is decided — never through a shared
   // return path a reader could miss.
-  const escalateBoundaryViolation = async (boundary) => {
-    boundaryViolations.push({ straying_task_id: task.id, strays: boundary.strays })
-    const lines = boundary.strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
-    lines.forEach(l => ctx.history.push(l))
-    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
-                             command that changes the repository — you package the escalation, you never fix it.
-                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
-                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
-                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
-                             disjoint across tasks in the same spec); no panel was run and no round was spent on it.
-                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
-      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
-    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
-  }
-  if (initialBoundary.verdict === 'violation') { await escalateBoundaryViolation(initialBoundary); return { ...ctx, passed: false } }
-  if (initialBoundary.verdict === 'unowned') {
+  //
+  // A violation, or a non-empty needs_from_sibling, is consulted with boundaryRepair BEFORE this Escalation is
+  // ever written (wi-b5): the strayer's branch is discarded, the owning sibling(s) are awaited on their EXISTING
+  // taskDone promises (never a new poll or timer), and the strayer's implementer is re-run once on a fresh
+  // branch based on the owners' finished work. escalateBoundaryViolation itself is unchanged — same reason,
+  // same Escalation shape — it is simply reached only when a repair is not possible or was already spent.
+  // (The four functions this comment used to sit directly above are declared further down, after the round-level
+  // re-check — function declarations hoist through this whole runTask body, so both call sites below still see
+  // them; only their TEXTUAL position moved, to keep boundaryRepair( reachable from source before escalations.push
+  // at both call sites, per AC-8.)
+
+  if (initialBoundary.verdict === 'violation') {
+    const outcome = await routeBoundary(initialBoundary.strays, [])
+    if (!outcome.proceed) return { ...ctx, passed: false }
+    if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+  } else if (initialBoundary.verdict === 'unowned') {
     initialBoundary.unowned.forEach(ref => ctx.history.push(`${task.id} touched ${ref}, which no task in the graph owns`))
   }
 
@@ -1102,8 +1238,130 @@ async function runTask({ spec, task, spec_ref }) {
     // clean or unowned changes nothing about how the loop continues.
     const roundBoundary = boundaryCheck({ touched_surfaces: ctx.changeSet.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
       siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
-    if (roundBoundary.verdict === 'violation') { await escalateBoundaryViolation(roundBoundary); return { ...ctx, passed: false } }
+    if (roundBoundary.verdict === 'violation') {
+      const outcome = await routeBoundary(roundBoundary.strays, [])
+      if (!outcome.proceed) return { ...ctx, passed: false }
+      if (outcome.changeSet) ctx.changeSet = outcome.changeSet
+    }
     ctx.verified = new Set()   // code changed: nothing is verified until the failing lenses pass and the rest confirm
+  }
+
+  // ---- The four boundary-repair functions used by both call sites above (initialBoundary and roundBoundary).
+  // Declared here, after both use sites, on purpose: function declarations hoist through this entire runTask
+  // body, so both earlier call sites still resolve them at call time — only the source TEXT moved, so that
+  // reading forward from either boundaryCheck( call, boundaryRepair( is always reached before escalations.push
+  // (AC-8). routeBoundary and resolveBoundaryDecision (which call boundaryRepair) are declared before
+  // escalateBoundaryViolation (whose body is the only place escalations.push appears) for the same reason.
+
+  async function routeBoundary(strays, needs) {
+    const decision = boundaryRepair({
+      task_id: task.id, strays: strays ?? [], needs_from_sibling: needs ?? [], siblings: siblingTasks,
+      repair_used: ctx.repair_used, violations: boundaryViolations,
+      waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
+    })
+    return resolveBoundaryDecision(decision, strays ?? [], needs ?? [])
+  }
+
+  // Resolves one boundaryRepair decision to completion: 'wait' pauses on the named owners' EXISTING taskDone
+  // promises (AC-12) and calls boundaryRepair again with owner_results filled in; 'rerun' performs the one
+  // allowed repair and re-checks its result (AC-11); 'escalate' and 'proceed' are terminal. Returns
+  // { proceed: true, changeSet? } to let the caller continue (changeSet present only after a successful
+  // rerun), or { proceed: false } once an Escalation has been written.
+  async function resolveBoundaryDecision(decision, strays, needs) {
+    if (decision.action === 'proceed') return { proceed: true }
+    if (decision.action === 'wait') {
+      const owners = decision.owners ?? []
+      waitingRegistry[task.id] = [...new Set([...(waitingRegistry[task.id] ?? []), ...owners])]
+      const results = await Promise.all(owners.map(o => taskDone[o]))
+      delete waitingRegistry[task.id]
+      const owner_results = {}
+      owners.forEach((o, i) => {
+        const r = results[i]
+        owner_results[o] = r ? { passed: r.passed === true, branch: r.branch ?? `task/${o}` } : undefined
+      })
+      const decision2 = boundaryRepair({
+        task_id: task.id, strays, needs_from_sibling: needs, siblings: siblingTasks,
+        repair_used: ctx.repair_used, violations: boundaryViolations,
+        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)), owner_results,
+      })
+      return resolveBoundaryDecision(decision2, strays, needs)
+    }
+    if (decision.action === 'rerun') {
+      ctx.repair_used = true
+      const cs2 = await repairRerun(decision)
+      if (!cs2) {
+        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'owner_failed' })
+        await escalateBoundaryViolation({ strays }, `${task.id}'s repair re-run produced no ChangeSet.`)
+        return { proceed: false }
+      }
+      const reBoundary = boundaryCheck({ touched_surfaces: cs2.touched_surfaces ?? [], owned_surfaces: task.owned_surfaces ?? [],
+        siblings: siblingTasks, exempt_prefixes: EXEMPT_PREFIXES })
+      const reNeeds = cs2.needs_from_sibling ?? []
+      // AC-11: the rerun's ChangeSet goes back through the same decision, now with repair_used true, so the
+      // decision function — not a second hand-written condition here — is what says a second stray escalates.
+      const decision3 = boundaryRepair({
+        task_id: task.id, strays: reBoundary.verdict === 'violation' ? reBoundary.strays : [], needs_from_sibling: reNeeds,
+        siblings: siblingTasks, repair_used: ctx.repair_used, violations: boundaryViolations,
+        waiting_on: waitingOnMap(siblingTasks.map(s => s.id)),
+      })
+      if (decision3.action !== 'proceed') {
+        boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'strayed_again' })
+        if (reBoundary.verdict === 'violation') await escalateBoundaryViolation(reBoundary)
+        else await escalateBoundaryViolation({ strays: [] }, `${task.id} again returned needs_from_sibling after its one repair: ${JSON.stringify(reNeeds)}`)
+        return { proceed: false }
+      }
+      boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: decision.base_branch ?? '', outcome: 'repaired' })
+      return { proceed: true, changeSet: cs2 }
+    }
+    // escalate: reason is one of need_unowned, mutual, repair_used, owner_failed — every one an existing
+    // Escalation reason value reached through the existing escalateBoundaryViolation path (AC-11, out_of_scope).
+    boundaryRepairs.push({ strayer: task.id, owners: decision.owners ?? [], base_branch: '', outcome: decision.reason })
+    if (strays.length) await escalateBoundaryViolation({ strays })
+    else await escalateBoundaryViolation({ strays: [] }, `${task.id}'s boundary repair ended: ${decision.reason}.`)
+    return { proceed: false }
+  }
+
+  // Re-runs the strayer's implementer ONCE, on a fresh branch (never task/<task.id> — AC-9) based on the
+  // decision's base_branch, merging merge_branches and the task's ORIGINAL dependency branches first. Reassigns
+  // the OUTER wt/branch so every later reference in this function — panel, fixer, the pass/fail return — reads
+  // the repair branch, and the original task/<task.id> branch is never passed to Integrate (AC-10).
+  async function repairRerun(decision) {
+    const repairBranch = `task/${task.id}-repair`
+    const repairWt = `${ART}/worktrees/${task.id}-repair`
+    const originalDepBranches = deps.map(depBranch)   // the task's own depends_on, as result branches
+    const mergeList = [...new Set([...(decision.merge_branches ?? []), ...originalDepBranches])]
+    const cs2 = await agent(`Create a worktree of THIS repository on a new branch: git worktree add -b ${repairBranch} ${repairWt} ${decision.base_branch}
+                 (skip if it exists). ${mergeList.length ? `Merge ${mergeList.join(', ')} into the branch. ` : ''}The app is at ${repairWt}/${APP}/
+                 (run npm ci there if node_modules is missing). A sibling task now carries the value(s) this task needed and could not invent or
+                 could not legally write itself; re-implement this task there, staying inside owned surfaces (paths are repository-relative) and
+                 using the sibling's finished work instead of repeating the earlier stray. Commit your work on the branch.
+                 Run \`git rev-parse HEAD\` AFTER the merge(s) above and use that sha as base_commit, so the diff you write reflects only this
+                 task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
+                 inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
+                 byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
+                 Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+                 ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
+      { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
+    if (cs2) { wt = repairWt; branch = repairBranch }
+    return cs2
+  }
+
+  async function escalateBoundaryViolation(boundary, extraNote) {
+    const strays = boundary?.strays ?? []
+    if (strays.length) boundaryViolations.push({ straying_task_id: task.id, strays })
+    const lines = strays.map(s => `${task.id} touched ${s.ref}, which sibling task ${s.owner} owns`)
+    if (extraNote) lines.push(extraNote)
+    lines.forEach(l => ctx.history.push(l))
+    const esc = await agent(`Write an Escalation for a human. Do not create, edit or delete any file, and do not run any
+                             command that changes the repository — you package the escalation, you never fix it.
+                             Reason: no_fresh_findings. History: ${JSON.stringify(ctx.history)}.
+                             Open findings: []. Repeats: []. Disputes lost: []. Overruled by judge: [].
+                             ${specText}. ${task.id}'s change touches surface(s) owned by a sibling task (owned_surfaces must be
+                             disjoint across tasks in the same spec), or asked for a value from a sibling this run could not repair;
+                             no panel was run and no round was spent on it.
+                             One-line hypothesis for why this task strayed outside its owned surfaces. Options: guide, direct_drive, kill_to_spec.`,
+      { label: `escalate:${task.id}`, model: MODEL.strong, ...AT('escalate'), schema: Escalation })
+    if (esc) escalations.push({ ...esc, task_id: task.id, reason: 'no_fresh_findings', history: ctx.history, repeats: [], disputes_lost: [] })
   }
 }
 
@@ -1135,7 +1393,11 @@ const landing = passingTests.length
                            If a landed test then FAILS, report the failure verbatim in
                            the suite counts — never delete, skip or edit a test to make the suite green.`
   : ''
-const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
+// A run in which no task passed has nothing to integrate: no branch to merge, no test to land, no suite that
+// means anything. This guard sits on passing.length, before the mechanical merge-and-test agent() call, so
+// neither it nor its strong-model conflict-resolution partner further below ever runs (AC-20) — the latter is
+// already gated on `suite &&`, which is false whenever this one skips the call and leaves suite null.
+const suite = !passing.length ? null : await agent(`Create worktree ${ART}/worktrees/integration-${A.run_id} on a new branch integration/${A.run_id} from ${BASE}
                            (git worktree add -b integration/${A.run_id} ${ART}/worktrees/integration-${A.run_id} ${BASE}). Merge these task branches into it in order:
                            ${JSON.stringify(passingBranches)}. Resolve conflicts minimally and list any files you touched in conflicts.${landing}
                            Then run the FULL test suite of the app at <worktree>/${APP}/ (npm ci if needed, then npm test). artifact_ref = "integration/${A.run_id}".
@@ -1143,6 +1405,7 @@ const suite = await agent(`Create worktree ${ART}/worktrees/integration-${A.run_
                            Finally run \`git rev-parse HEAD\` in the worktree and return its FULL 40-character sha as integration_commit.
                            Copy that sha exactly; if the command fails, leave integration_commit out rather than guessing one.`,
   { label: 'integrate', model: MODEL.cheap, ...AT('mechanical'), schema: Suite })
+if (!passing.length) log('integration: no task passed; nothing to integrate')
 
 // AE only on conflict (OPERATING_MODEL §2.1): a strong model re-resolves any files the mechanical merge had to touch, then re-runs the suite.
 let finalSuite = suite
@@ -1150,7 +1413,11 @@ let finalSuite = suite
 // neither landed nor skipped went missing silently — run t7i lost one of t2's two test files that way, with
 // tests_skipped empty and nothing to notice it.
 const landedSet = new Set([...(suite?.tests_landed ?? []), ...(suite?.tests_skipped ?? [])])
-const unaccounted = (suite?.tests_found ?? []).filter(f => !landedSet.has(f))
+// unaccountedTestFiles is called with the passing TestSets' own tests_ref paths (requested_paths): with no task
+// passing (and so no path ever requested), or with tests_found holding only pre-existing repo test files no
+// TestSet path ever named, nothing is unaccounted for regardless of what landedSet above says (AC-21).
+const unaccounted = unaccountedTestFiles({ requested_paths: passingTests, tests_found: suite?.tests_found ?? [],
+  tests_landed: suite?.tests_landed ?? [], tests_skipped: suite?.tests_skipped ?? [] })
 if (unaccounted.length) log(`integration: ${unaccounted.length} TestSet file(s) neither landed nor skipped: ${unaccounted.join(', ')}`)
 
 // unlandedRepairs: a tests_skipped basename a passing task's fix loop actually repaired (in the artifact TestSet,
@@ -1181,6 +1448,9 @@ if (suite && (suite.failed > 0 || unaccounted.length || unlanded.length || (suit
     { label: 'integrate:resolve', model: MODEL.strong, ...AT('integrate-resolve'), schema: Suite })
   if (resolved) finalSuite = resolved
 }
+// AC-20: with nothing to integrate, finalSuite must say so — never a merged branch name, and never the generic
+// INTEGRATION_FAILED fallback below (which is for an Integrator that ran and came back empty, a different case).
+if (!passing.length) finalSuite = { artifact_ref: 'no task passed', passed: 0, failed: 0, results_ref: '', conflicts: [], tests_landed: [], tests_skipped: [] }
 
 // =====================================================================
 phase('Evidence')   // assembled by code from what streamed in
@@ -1198,6 +1468,9 @@ return {
   suite: { passed: finalSuite?.passed ?? 0, failed: finalSuite?.failed ?? 0, results_ref: finalSuite?.results_ref ?? '' },
   tests_landed: finalSuite?.tests_landed ?? [],
   tests_skipped: finalSuite?.tests_skipped ?? [],
+  // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+  // [] when no task strayed.
+  boundary_repairs: boundaryRepairs,
   escalations,
   starved_items: [],
   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.
