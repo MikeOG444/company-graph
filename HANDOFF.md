@@ -195,7 +195,8 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 ### Current order of work
 
-`C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. `backlog/venture0.json` carries all of them as
+`C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
+that builds everything after it; spec draft carries options 1 + 2 + 3). `backlog/venture0.json` carries all of them as
 WorkItems. **C4, C8, A7 and B3 are landed** (PR #9, branch `claude/company-graph-carry-list-e2z510`); B3 moved ahead
 of A5 mid-flight for the reason recorded under B3 below, and A5 is in progress — specced twice (`k4`, `k6`),
 decomposed by hand at `k6h` after four agent decompositions failed the lint, and **landed at `k7d` by direct drive**
@@ -684,6 +685,16 @@ wrong answer. It was **not** merged with C4 — unused, and outside that spec's 
 `.artifacts/salvage/repo-root.js`. **That path is gitignored and dies with the container**, so read it or reproduce it.
 Carried as `wi-c10-repo-root-resolution`. The test that matters resolves the root from a file at a *different* depth;
 a resolver only ever exercised from its birthplace proves exactly what the hardcoded version already proved.
+
+**C11 — `ledger recost` clobbers run files and re-serialises the whole index.** Found adding the `claude-opus-5-5`
+rate ($4 / $20 per MTok, same claude-api reference the file already cites; cache reads $0.20 ignored by the blend).
+`substrate/ledger.js` `recost` writes each index row back over `ledger/runs/<id>.json`'s `entry`, so any run file
+corrected after append loses the correction: a full recost set `k1`'s tokens from 3,410,972 back to the index's
+122,328 (and priced it $0.56 instead of $15.83), dropped `m2`'s `wall_clock_unknown`, and rewrote 49 index lines only
+to change their key spacing. The index and the run files had already drifted apart; `recost` picks the index as truth
+without saying so. Reverted; the `k7` row alone was re-priced by hand ($1.38 → $2.31; Opus 5.5 is $0.93 of that),
+ledger total $84.89 → $85.82. *Fix:* recost only `cost_est_usd` in both places, surgically, and have a check that
+fails when `index.jsonl` and `runs/<id>.json` disagree on anything but that field.
 
 ### D. Measurement gaps
 
