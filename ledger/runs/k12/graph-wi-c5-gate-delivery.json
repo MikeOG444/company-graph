@@ -1,0 +1,54 @@
+{
+  "spec_id": "spec-wi-c5-gate-delivery",
+  "tasks": [
+    {
+      "id": "t1-gate-delivery",
+      "spec_id": "spec-wi-c5-gate-delivery",
+      "description": "Build substrate/notify.js (routing table, driver interface, GitHub issue driver, optional webhook driver) and wire it into gates.js open, the GateRecord.delivery contract and substrate/README.md, as ONE task: gates.js consumes the notifier interface, so the two halves share a value.",
+      "owned_surfaces": [
+        {
+          "kind": "path",
+          "ref": "substrate/gates.js"
+        },
+        {
+          "kind": "path",
+          "ref": "substrate/notify.js"
+        },
+        {
+          "kind": "schema",
+          "ref": "contracts.schema.json"
+        },
+        {
+          "kind": "path",
+          "ref": "substrate/README.md"
+        }
+      ],
+      "depends_on": [],
+      "criteria_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8",
+        "AC-9",
+        "AC-10",
+        "AC-11",
+        "AC-12",
+        "AC-13",
+        "AC-14"
+      ]
+    }
+  ],
+  "provenance": {
+    "node": "decomposer",
+    "executor": "ai_agent",
+    "method": "dark_factory",
+    "model": "haiku",
+    "run_id": "k12",
+    "created_at": "2026-09-26T06:15:00Z",
+    "revised_by": "main-session (k12h): merged t1+t2"
+  }
+}
