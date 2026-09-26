@@ -196,7 +196,8 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 ### Current order of work
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
-that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`** (see each). **Next: C5 → B1+B2 → C10.** B6 moved to the
+that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). **Next: B8 (small, and it
+is why the last three builds needed a hand), then B1+B2 → C10's remainder.** B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -671,6 +672,19 @@ later spec then pays a fix-up that no criterion of its own names, and a fixer ma
 `k11d` used), so adding a site is a one-line, reviewed edit rather than a red suite; (3) consider retiring the
 A5/A3 freezes once their work items are a few runs old.
 
+**B8 — Three builds in a row ran their tests against the wrong code, and nothing in the line can tell.**
+`k7` (a TestSet helper resolved REPO to the main checkout), `k11` (the same, via `fixloop-helpers.js`), `k13` (the
+TestSet imported `../../../substrate/test/helpers.js` — the MAIN checkout's — whose `cli()` ran the main checkout's
+`gates.js`; plus `spawnSync` blocking the in-process fake server so every send timed out). In each, the panel was
+judging the pre-task code or a harness artefact, and B6's validity detector cannot see it: these are properties of
+the harness, not of any single assertion. `k13` also exposed a line bug, now fixed (`widenTestsRef`): a repair of
+one test file replaced `tests_ref` with that file, so 13 of 14 criteria went unrun for the rest of the loop.
+*Proposed, small:* (1) the Test Runner step first runs a one-line probe from the TestSet's own directory —
+import the helpers the TestSet imports and print `REPO` — and the script refuses the round if it is not the task
+worktree; (2) the Test Author prompt forbids any relative import that climbs out of the TestSet directory (the
+landed location is `substrate/test/`, so `./helpers.js` is always right); (3) `helpers.js` gains the async CLI runner
+(`c5-cli.js` today) so no test needs `spawnSync` against an in-process server.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -694,6 +708,16 @@ The model already assumes a delivery channel and none exists:
 - Severity should route: a sev1 page and a budget breach reach a phone; a Spec Gate can reach a queue.
 - Configuration belongs in `/create-project`'s Comms Setup (`OPERATING_MODEL.md:326`) so a venture gets a channel at creation rather than by hand.
 - Whatever the transport, the gate record should record that delivery was attempted and whether it succeeded, so an unopened page is distinguishable from an undelivered one — which is exactly what could not be told apart for `m1`.
+
+*C5 landed at `k13d`, by direct drive of `k13`* (spec `k12`, revised `k12h`, interface pinned `k12h2`, gate
+`k12-spec_gate` approved by the human). `substrate/notify.js` — `channelFor` (sev1_page, ratio_gate, `*_budget_breach`
+→ phone; everything else → queue), `notify` (never rejects), a GitHub-issue driver and an UNVERIFIED-FROM-CI webhook
+driver, selected by `NOTIFY_DRIVER`; `gates open` writes the record first, then stamps `delivery`
+`{attempted, ok, channel, at, error?}`; the token is only ever in the Authorization header. The implementation
+landed exactly as the Implementer wrote it. `k13` cost $2.18 (haiku $1.14, sonnet $0.80, opus-5-5 $0.24); C5 total
+with `k12` $2.43. **What the line could not do:** every failure was harness or line, not code — see B8. **Not
+yet done:** nothing is configured to deliver. Setting `NOTIFY_DRIVER=github`, `NOTIFY_GITHUB_TOKEN`,
+`NOTIFY_GITHUB_REPO` for real is an outward-facing act (it opens issues on a repo) and is the human's call.
 
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
 
@@ -788,8 +812,8 @@ that runs tests names the worktree as the directory to run from, and the Test Ru
 `process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
 `.artifacts/`.
 
-*C10 partly landed at `k11d`:* `fixloop-helpers.js` now resolves `REPO` by walking up from `process.cwd()` to the
-repo markers (fallback: from its own directory). `ci-workflow.test.js`, `helpers.js`,
+*C10 mostly landed:* `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
+`process.cwd()` to the repo markers (fallback: from their own directory). `ci-workflow.test.js`,
 `node-support-floor-and-test-glob.test.js` and `t2-doc-paths.js` still count `..`.
 
 ### D. Measurement gaps
