@@ -189,7 +189,8 @@ test('AC-16: fixer.md documents the TEST-ONLY outcome as distinct from DISPUTE a
 
 test('AC-18: contracts.schema.json is untouched by this work except Finding — the Escalation reason enum still has exactly its five existing values', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(REPO, 'contracts.schema.json'), 'utf8'))
-  assert.deepEqual(schema.$defs.Escalation.properties.reason.enum, VALID_REASONS)
+  // B7 part 2: the five existing reasons must still be present; a later spec may ADD a reason (removal still fails).
+  for (const r of VALID_REASONS) assert.ok(schema.$defs.Escalation.properties.reason.enum.includes(r), `Escalation.reason lost "${r}"`)
 })
 
 test('AC-18: the only new agent() call sites are inside the boundary-violation branch (escalate:) and the TEST-ONLY re-route (testfix:)', () => {

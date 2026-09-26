@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url'
 // Landed at substrate/test/, two levels under the repo root. The Test Author wrote it for
 // .artifacts/tests/t2-workflow-bindings/ and climbed three, which reads the main checkout rather than the
 // task worktree (k7's t1 escalation); re-pointed by hand when landed.
-export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+// C10 (landed k17 cleanup): the repo root comes from helpers.js, which walks up from process.cwd() to the repo
+// markers — never by counting '..' from this file, which is wrong wherever a copy of this file sits.
+import { REPO as ROOT } from './helpers.js'
+export const REPO = ROOT
 export const WORKFLOWS_DIR = path.join(REPO, '.claude', 'workflows')
 export const AGENTS_DIR = path.join(REPO, '.claude', 'agents')
 

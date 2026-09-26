@@ -18,7 +18,8 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+// C10: repo root from helpers.js (walks up from process.cwd() to the repo markers), never '..' from this file.
+import { REPO } from './helpers.js'
 const WORKFLOWS_DIR = path.join(REPO, '.github', 'workflows')
 const WORKFLOW_PATH = path.join(WORKFLOWS_DIR, 'ci.yml')
 const SELF_FILENAME = path.basename(fileURLToPath(import.meta.url))

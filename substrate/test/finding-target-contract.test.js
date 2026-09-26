@@ -20,11 +20,10 @@ test('AC-14: Finding.target is optional, enum ["implementation","test"], and Esc
   assert.deepEqual(findingDef.properties.target?.enum, ['implementation', 'test'])
   assert.ok(!(findingDef.required ?? []).includes('target'), 'target must not be in Finding.required')
 
-  assert.deepEqual(
-    schema.$defs.Escalation.properties.reason.enum,
-    ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'],
-    'Escalation, including its five-value reason enum, must be unchanged from HEAD',
-  )
+  // B7 part 2: the five existing reasons must still be present; a later spec may ADD a reason (removal still fails).
+  for (const r of ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro']) {
+    assert.ok(schema.$defs.Escalation.properties.reason.enum.includes(r), `Escalation.reason lost "${r}"`)
+  }
 })
 
 test('AC-14: the inlined Finding schema in build-implement.js matches the new optional target property', () => {

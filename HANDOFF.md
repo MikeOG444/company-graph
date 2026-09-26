@@ -197,7 +197,8 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
 that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`; C13 + B7 part 1 at `k17d`.
-**Next: B1+B2 → C10's remainder → B7 part 2 (convert the remaining freeze tests to named extension lists).** B6 moved to the
+**B7 part 2 and C10 landed by hand after PR #10 merged** (test-only; graph-lint check 5 forbids a Spec naming
+`substrate/test/`, so the line cannot take them). **Next: B1+B2, carrying C14.** B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -707,6 +708,13 @@ outside the artifact dir. `b8-AC-12` was retired (four "nothing else changed" fr
 other workflow — it went red on this change and the implementer edited it out of scope). The freezes that remain
 (`a5-bind-AC-13` and kin) are B7 part 2.
 
+*B7 part 2 landed by hand (after PR #10).* `a5-bind-AC-13` is now A5's untouched BASELINE plus a named
+`EXTENSIONS` list (work item, reason, sites, control-flow deltas) — a new agent() site is a one-line reviewed entry;
+an unlisted site, or a listed one that disappears, still fails (both checked by planting each). The four "Escalation
+reason enum is exactly these five" checks now assert the five are still present, so a spec may add a reason.
+`b6-regression-baseline.test.js` is retired: its five tests froze reviewer/judge code byte-for-byte — the
+"nothing else changed" shape `changeScopedCriteria` now keeps from being written in the first place.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -834,7 +842,7 @@ that runs tests names the worktree as the directory to run from, and the Test Ru
 `process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
 `.artifacts/`.
 
-*C10 mostly landed:* `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
+*C10 landed:* every test helper and test now takes `REPO` from `helpers.js`. Previously — `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
 `process.cwd()` to the repo markers (fallback: from their own directory). `ci-workflow.test.js`,
 `node-support-floor-and-test-glob.test.js` and `t2-doc-paths.js` still count `..`.
 

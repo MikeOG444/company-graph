@@ -482,7 +482,8 @@ test('AC-15: unlandedRepairs forces the integrate:resolve pass and names the ski
 // ---------------------------------------------------------------------------
 test('AC-16: contracts.schema.json Escalation/Finding shapes and package.json dependencies/test script are unchanged by this work', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(REPO, 'contracts.schema.json'), 'utf8'))
-  assert.deepEqual(schema.$defs.Escalation.properties.reason.enum, ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'])
+  // B7 part 2: the five existing reasons must still be present; a later spec may ADD a reason (removal still fails).
+  for (const r of ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro']) assert.ok(schema.$defs.Escalation.properties.reason.enum.includes(r), `Escalation.reason lost "${r}"`)
   assert.ok(!(schema.$defs.Finding.required ?? []).includes('target'), 'Finding.target must remain optional')
   assert.deepEqual(schema.$defs.Finding.properties.target.enum, ['implementation', 'test'])
 
@@ -490,7 +491,7 @@ test('AC-16: contracts.schema.json Escalation/Finding shapes and package.json de
   const enumMatch = workflowText.match(/\[\s*'max_rounds'[^\]]*\]/)
   if (enumMatch) {
     const values = enumMatch[0].match(/'([^']+)'/g).map(s => s.slice(1, -1))
-    const allowed = new Set(['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'])
+    const allowed = new Set(schema.$defs.Escalation.properties.reason.enum)   // follows the contract, not a frozen five
     for (const v of values) assert.ok(allowed.has(v), `inlined Escalation reason enum must not contain "${v}"`)
   }
 
