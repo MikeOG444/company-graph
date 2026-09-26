@@ -284,5 +284,47 @@
       "run_id": "carry-seed",
       "created_at": "2026-09-12T04:15:00Z"
     }
+  },
+  {
+    "id": "wi-b5-sibling-value-repair",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "A task that needs a value its sibling creates: repair strays in code, let the implementer ask, lint the coupling at decomposition",
+    "intent": "Found on run k7 (/build-implement on the hand graph from k6h, work item wi-a5). Task t2 needed twelve agentType name strings that its PARALLEL sibling t1 was creating in .claude/agents/. No edge existed (the values did not exist at spec time, so no spec could name them), t2 could not see t1's worktree, so it invented its own twelve and wrote them into t1's owned surface. A3's boundary check (boundaryCheck in .claude/workflows/build-implement.js) caught all 12 as sibling_owner strays, 0 unowned — detection works — but the only response is escalateBoundaryViolation, a strong-tier Escalation for a human. A human had to direct-drive it (k7d). Every multi-task spec with an interface between tasks will hit this again. The goal is that this costs no human turn. Build three parts, in ONE implementation task (this change edits the machine that builds it; each run executes its COMMITTED copy of build-implement.js, so the fix cannot engage in the run that builds it, and a two-task split would expose that run to the very failure being fixed — the decomposer must return a single task owning every surface below).\n(1) REPAIR IN CODE FROM THE BOUNDARY FACTS. When a task's boundary verdict is 'violation', decide the response in script code (rule 3: an edge is code; zero tokens): discard the strayer's change (its branch is abandoned, never merged), add the owner→strayer edge that should have existed, wait for each owning sibling to finish, and if every owner PASSED, re-run the strayer's implementer ONCE on a fresh branch (not task/<id> again) based on the owner's finished task branch — where the values now exist — then re-run the boundary check on the new ChangeSet. Escalate (existing path, existing Escalation shape) only when: the re-run strays again; an owner did not pass; the repair was already used for this task; or the strays are mutual (the owner has itself strayed into, or is waiting on, the strayer), which would deadlock the wait. The decision must be a PURE function between the existing '// ---- BEGIN/END fix-loop decisions ----' sentinels so substrate/test/extract-fixloop.js can load it and unit tests can drive it over plain objects; the wiring at both boundary call sites (settled ChangeSet and each round's merged ChangeSet) calls it. Record every repair attempt in the run output (strayer, owners, base branch, outcome) so the ledger shows repairs, not only escalations.\n(2) LET THE IMPLEMENTER ASK INSTEAD OF INVENT. Add an optional needs_from_sibling: [{surface, what}] array to the ChangeSet contract in contracts.schema.json (additive; ChangeSet has additionalProperties:false, so it must be declared). Tell the implementer, in the build-implement.js prompt AND in .claude/agents/implementer.md (agent definitions register on a delay, so the prompt must carry the constraint on its own), the sibling tasks' ids and owned_surfaces, that it must never write inside them, and that when it needs a value a sibling creates it returns needs_from_sibling rather than inventing one. A non-empty needs_from_sibling whose surfaces a sibling owns routes to the same repair decision as (1) BEFORE any lens, test runner or fixer is called; one naming a surface no sibling owns escalates.\n(3) CATCH IT AT DECOMPOSITION: a sixth graph-lint check in .claude/workflows/build-spec.js between '// ---- BEGIN/END graph-lint ----', pure code, same shape as the existing five: a criterion whose text names paths owned by two different tasks with no depends_on path between those tasks is a violation (one task or an edge). It must not repeat the known criterion_reachability false positive: only a path a task OWNS counts, and the check reports both tasks and the paths.\nALSO, smaller, both seen on k7: (a) integrate:resolve ran at the strong tier with ZERO passing tasks (165k tokens resolving nothing) — with no passing task there is nothing to integrate or resolve, so neither the mechanical integrate nor integrate:resolve runs, and the run says so; (b) integration reported the 24 pre-existing substrate/test/*.test.js files as 'unaccounted TestSet files' when nothing landed — the unaccounted reconciliation must count only files found under the TestSet paths it was asked to land, and is empty when there were none.\nTests: unit tests over the source text in the substrate/test/extract-fixloop.js / graph-lint-helpers.js sentinel idiom, never by watching live behaviour; include a wiring test that fails if either boundary call site stops consulting the repair decision. Resolve every path from process.cwd() or the sentinel extractors, never by counting '..' from the test file (C10, k7). No test may shell out to npm test. Do not change what any lens, judge or fixer decides; do not touch other workflows.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 320000,
+      "wall_clock_min": 70
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-spec.js"
+      },
+      {
+        "kind": "schema",
+        "ref": "contracts.schema.json"
+      },
+      {
+        "kind": "path",
+        "ref": ".claude/agents/implementer.md"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "human_employee",
+      "method": "direct_driver",
+      "run_id": "carry-seed-b5",
+      "created_at": "2026-09-26T03:08:03Z"
+    }
   }
 ]
