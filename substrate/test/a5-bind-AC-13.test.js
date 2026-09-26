@@ -36,6 +36,9 @@ const BASELINE = {
     { label: '`fix:${task.id}:${f.id}`', model: 'MODEL.mid', schema: 'ChangeSet' },
     { label: '`testfix:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'TestRepair' },
     { label: '`dispute:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'Ruling' },
+    // Added deliberately by spec-wi-b8-tests-run-the-task-code (landed k15d): the Test Author repair of a TestSet
+    // file whose imports climb out of the TestSet directory.
+    { label: '`testfix:${task.id}:escape:${file}`', model: 'MODEL.mid', schema: 'TestRepair' },
     // Added deliberately by spec-wi-b6-test-validity-before-blame (landed k11d): the once-per-failing-round validity detector (facts only, read-only
     // type), the Test Author repair of a test it classifies test_defect, and the repair of a test whose fixer
     // was refused for reporting behaviour_changed:false.
@@ -137,7 +140,7 @@ test('AC-13: pipeline/parallel/phase call counts are unchanged in each workflow'
   const countCalls = (text, name) => (text.match(new RegExp(`\\b${name}\\s*\\(`, 'g')) ?? []).length
   const BASELINE_STRUCTURE = {
     'build-spec.js': { pipeline: 1, parallel: 1, phase: 2 },
-    'build-implement.js': { pipeline: 1, parallel: 7, phase: 3 },   // 5 at A5; +2 by spec-wi-b6-test-validity-before-blame (landed k11d) (the two new testfix: fan-outs)
+    'build-implement.js': { pipeline: 1, parallel: 8, phase: 3 },   // 5 at A5; +2 by spec-wi-b6 (k11d, two testfix: fan-outs); +1 by spec-wi-b8 (k15d, the escape re-route)
     'build-reentry.js': { pipeline: 0, parallel: 1, phase: 3 },
     'create-project.js': { pipeline: 0, parallel: 1, phase: 3 },
     'launch.js': { pipeline: 0, parallel: 2, phase: 2 },
