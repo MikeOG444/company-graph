@@ -199,7 +199,7 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`; C13 + B7 part 1 at `k17d`.
 **B7 part 2 and C10 landed by hand after PR #10 merged** (test-only; graph-lint check 5 forbids a Spec naming
 `substrate/test/`, so the line cannot take them). **B1+B2 (carrying C14's prompt half) landed at `k19d`** — the
-confirmed order is now exhausted. **C15 → C12 → C14's remaining check landed at `k21d`**, as one WorkItem (`wi-c15-c12-c14-line-guards`, one task, `build-implement.js` only); C5 delivery is now configured (`NOTIFY_*` set in environment `Company_Graph_Cloud_Env`). B6 moved to the
+confirmed order is now exhausted. **C15 → C12 → C14's remaining check landed at `k21d`**, as one WorkItem (`wi-c15-c12-c14-line-guards`, one task, `build-implement.js` only); C5 delivery is now configured (`NOTIFY_*` set in environment `Company_Graph_Cloud_Env`). B6 moved to the **PR #84 merged (`bf07c80`); the confirmed order is exhausted again — the next session's candidates and launch notes are in `NEXT_PROMPT.md`.**
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
