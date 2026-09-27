@@ -1,0 +1,54 @@
+{
+  "entry": {
+    "id": "k21d-build-implement",
+    "run_id": "k21d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-27T03:41:00.000Z",
+    "finished_at": "2026-09-27T03:48:54.000Z",
+    "wall_clock_sec": 474,
+    "result_ref": "ledger/runs/k21d-build-implement.json",
+    "artifact_count": 0,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k21d",
+      "created_at": "2026-09-27T03:48:54.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k21: impl-build-implement-c15-c12-c14 escalated budget after round 1 (old 1x round cap: 750k/3, no round_tokens passed)",
+    "option_taken": "direct_drive (review-and-land), decided by the main session under the operating rule",
+    "landed": {
+      "commits": [
+        "7546d30"
+      ],
+      "base_patch": "ledger/runs/k21/task-branch-824624d..351581f.patch"
+    },
+    "review_defects_fixed": [
+      "RATIO computed before DEFAULT_BILLED_PER_OUTPUT was initialised: every run threw at startup",
+      "default round ceiling task/k_rounds stopped k1i, k7, k21 in round 1; now equals the task ceiling unless budget.round_tokens is set"
+    ],
+    "incident": "C16: live NOTIFY_* in the environment made the suite open 72 real GitHub issues (#12-#83); fixed with substrate/test/no-live-notify.js",
+    "test_changes": [
+      "k21-fixloop-all.js carries the TestSet loader",
+      "fix-loop-decisions AC-11/12/13 moved to the 2x rule",
+      "fix-loop-wiring gate test reads checks through verifyGate",
+      "dispute-unruled AC-16 asserts the test glob, not the exact script string"
+    ],
+    "verification": {
+      "mutations_planted": 18,
+      "mutations_caught": 18,
+      "root": "471/471",
+      "toy": "60/60",
+      "issues_opened_by_guarded_run": 0
+    },
+    "cost_usd_k21": 3.04
+  }
+}
