@@ -199,7 +199,7 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`; C13 + B7 part 1 at `k17d`.
 **B7 part 2 and C10 landed by hand after PR #10 merged** (test-only; graph-lint check 5 forbids a Spec naming
 `substrate/test/`, so the line cannot take them). **B1+B2 (carrying C14's prompt half) landed at `k19d`** — the
-confirmed order is now exhausted. **Confirmed next by the human after PR #11 merged: C15 → C12 → C14's remaining check**, as one WorkItem (`wi-c15-c12-c14-line-guards`, one task, `build-implement.js` only); C5 delivery is now configured (`NOTIFY_*` set in environment `Company_Graph_Cloud_Env`). B6 moved to the
+confirmed order is now exhausted. **C15 → C12 → C14's remaining check landed at `k21d`**, as one WorkItem (`wi-c15-c12-c14-line-guards`, one task, `build-implement.js` only); C5 delivery is now configured (`NOTIFY_*` set in environment `Company_Graph_Cloud_Env`). B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -850,7 +850,7 @@ without saying so. Reverted; the `k7` row alone was re-priced by hand ($1.38 →
 ledger total $84.89 → $85.82. *Fix:* recost only `cost_est_usd` in both places, surgically, and have a check that
 fails when `index.jsonl` and `runs/<id>.json` disagree on anything but that field.
 
-**C12 — The spec-gate check's mechanical reader copied the gate's `id` into `gate`, and the build refused.**
+**C12 — The spec-gate check's mechanical reader copied the gate's `id` into `gate`, and the build refused.** *(Landed `k21d` — see C15.)*
 Run `k9` (build-implement, B5): `gates/closed/k8-spec_gate.json` says `id: "k8-spec_gate"`, `gate: "spec_gate"`,
 `status: "decided"`, `decision.option: "approve"`. The haiku `gate:spec_gate` agent returned `gate: "k8-spec_gate"`,
 so `ok` was false and the run refused at 12k tokens before any task started. Failing closed is correct; the defect is
@@ -870,16 +870,44 @@ them (their shell starts at the repository root). Seven untracked `b6-*.test.js`
 the session's stop hook; a stray copy there can also shadow what a later landing sees. *Fix:* every fix-loop prompt
 that runs tests names the worktree as the directory to run from, and the Test Runner runs a TestSet in place with
 `process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
-`.artifacts/`. *Prompt half landed at `k19d`:* the Test Runner and every `testfix:`, `fix:` and `impl:…:repair`
+`.artifacts/`. *Untracked-file report landed at `k21d` (see C15).* *Prompt half landed at `k19d`:* the Test Runner and every `testfix:`, `fix:` and `impl:…:repair`
 prompt names the worktree as the current directory and forbids writing into the main checkout. The per-round
 untracked-file check is still open.
 
-**C15 — The run's budget guard counts output tokens only, so a run can spend 5× its budget unchecked.** `k19` was
+**C15 — The run's budget guard counts output tokens only, so a run can spend 5× its budget unchecked.** *(Landed `k21d` with C12 and C14's remainder.)* `k19` was
 given `work_item_budgets: 600k`; its bundle reported `spend.tokens` 674,634 (output tokens, the only figure the
 script sees) while the runtime billed 3,103,346 tokens, $7.00. Most of it was the four invalid rounds above, which a
 correct cap would have stopped far sooner. *Fix:* budget in the same unit the ledger bills — either scale the cap to
 output tokens from the ledger's measured input/output ratio per node, or cap rounds that were declared invalid
 separately from rounds that produced evidence.
+
+*C15 + C12 + C14 remainder landed at `k21d`, by direct drive of `k21`* (spec `k20`, low risk, one task, 18 ACs).
+**C15:** every token budget in `args` is now BILLED units; `outputCeiling(billed, ratio)` converts to the output
+tokens `budget.spent()` sees, ratio `args.billed_per_output` or `DEFAULT_BILLED_PER_OUTPUT = 4`; default task budget
+1,000,000 billed (= the old 250k output). Crossing 1× records `over_budget` and continues; the hard stop is 2× (the
+operating rule's ask-the-human point); `spend` gains `billed_per_output` and `billed_tokens_est`. **C12:**
+`GateCheck.id` is required; pure `verifyGate` decides; the known id/gate miscopy is re-read once through the same call
+site, anything else refuses naming the failed fields. **C14:** the Test Runner reports the main checkout's untracked
+paths; pure `newStrays` reports new ones outside `.artifacts/` against `args.untracked_baseline` (or the first report)
+as `stray_files`, report only. **`k21` escalated `budget` after round 1** — the old 1× round cap (my 750k ÷ 3 rounds;
+I passed no `round_tokens`), the very defect C15 fixes. Review found two real defects, both fixed with
+`k21d-budget-and-startup.test.js`: (1) `RATIO` was computed at the top of the file from a `const` declared ~300 lines
+later — **every run would have thrown at startup**; block-only tests cannot see it, so the new test executes the top
+level. (2) The default round ceiling (task ÷ k_rounds) stopped `k1i`, `k7` and `k21` in round 1 while far under
+their task ceilings; with no explicit `budget.round_tokens` the round ceiling is now the task ceiling. Test changes:
+the k21 TestSet's extra loader lands as `k21-fixloop-all.js` (the repo's `extract-fixloop.js` is unchanged); the old
+1× `shouldEscalate` tests move to 2×; the gate-wiring test reads the checks through `verifyGate`; the
+`dispute-unruled` freeze of the exact `npm test` string now asserts the glob. 18 planted mutations each turn a test
+red (three needed new tests); root 471/471, toy 60/60. `k21` cost **$3.04** (sonnet $2.51, haiku $0.46, opus-5-5
+$0.07); evidence `ledger/runs/k21/`.
+
+**C16 — The suite delivered real notifications.** *(Fixed at `k21d`.)* Once `NOTIFY_DRIVER=github` and a live
+`NOTIFY_GITHUB_TOKEN` were set in the environment, every test that opened a gate through `cli()` inherited them:
+**72 real issues (#12–#83) were opened on `MikeOG444/company-graph`** between 03:07 and 03:44 on 2026-09-27, from
+`k21`'s Test Runner and from local suite runs. *Fix:* `substrate/test/no-live-notify.js` strips every `NOTIFY_*`
+before any test code runs — `npm test` preloads it (`--import`), and `helpers.js` / `c5-env-helpers.js` import it —
+so tests that exercise delivery set their own config and point `NOTIFY_GITHUB_API` at a local server. A guarded full
+run opened zero issues. The spurious issues are titled `[gate:queue] …` with run ids `r1`/`r2`.
 
 *C10 landed:* every test helper and test now takes `REPO` from `helpers.js`. Previously — `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
 `process.cwd()` to the repo markers (fallback: from their own directory). `ci-workflow.test.js`,

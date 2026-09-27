@@ -96,10 +96,15 @@ test('build-implement refuses a gate:"pending" spec without a decided spec_gate 
 
   // It must require all four facts. A guard that accepts a record merely existing, or one decided the other way,
   // is a check that passes by default — the shape the operating conventions forbid.
+  // C12 (k21d): the four checks moved into the pure verifyGate (fix-loop block), which the guard must call; the
+  // record is read as `r` there. Checked in the guard and verifyGate's own text together.
   const guard = text.slice(text.indexOf('const pendingSpecs'), text.indexOf("phase('Implement+Verify')"))
-  assert.ok(guard.includes('g.found'), 'must require the record was found')
-  assert.ok(guard.includes("g.status === 'decided'"), 'must require the record is decided, not still open')
-  assert.ok(guard.includes("g.gate === 'spec_gate'"), 'must require it is a spec_gate and not some other closed gate')
-  assert.ok(guard.includes("g.option === 'approve'"), 'must require approve — revise and kill are not authorisation')
+  assert.ok(guard.includes('verifyGate('), 'the guard must decide through verifyGate')
+  const vg = text.slice(text.indexOf('function verifyGate('), text.indexOf('\n}\n', text.indexOf('function verifyGate(')))
+  const both = guard + vg
+  assert.ok(/[gr]\.found/.test(both), 'must require the record was found')
+  assert.ok(/[gr]\.status [!=]== 'decided'/.test(both), 'must require the record is decided, not still open')
+  assert.ok(/[gr]\.gate [!=]== 'spec_gate'/.test(both), 'must require it is a spec_gate and not some other closed gate')
+  assert.ok(/[gr]\.option [!=]== 'approve'/.test(both), 'must require approve — revise and kill are not authorisation')
   assert.ok(/refused:\s*true/.test(guard), 'a failed check must refuse the run, not log and continue')
 })

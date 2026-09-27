@@ -497,5 +497,7 @@ test('AC-16: contracts.schema.json Escalation/Finding shapes and package.json de
 
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'))
   assert.deepEqual(Object.keys(pkg.dependencies).sort(), ['ajv', 'ajv-formats'])
-  assert.equal(pkg.scripts.test, 'node --test substrate/test/*.test.js')
+  // k21d: the script gained a preload (no-live-notify.js) so the suite never delivers a real notification; what this
+  // guards is that it still runs node's runner over the whole substrate/test glob.
+  assert.match(pkg.scripts.test, /^node (--import \S+ )?--test substrate\/test\/\*\.test\.js$/)
 })
