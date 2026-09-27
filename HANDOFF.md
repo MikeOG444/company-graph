@@ -850,6 +850,29 @@ without saying so. Reverted; the `k7` row alone was re-priced by hand ($1.38 →
 ledger total $84.89 → $85.82. *Fix:* recost only `cost_est_usd` in both places, surgically, and have a check that
 fails when `index.jsonl` and `runs/<id>.json` disagree on anything but that field.
 
+**Landed `k23d`** (`wi-c11-ledger-recost-surgical`, one task, `substrate/ledger.js` only). `recost` now
+writes only `doc.entry.cost_est_usd` in the run file and rewrites only index lines whose cost actually
+changed; a new `ledger check [<id>]` compares each index row against its run file's entry (ignoring
+`cost_est_usd`) and exits non-zero naming any row/field that disagree, and `recost` calls it at the end.
+`k23`'s panel passed the implementation (correctness/security/spec_conformance, three canary attempts each,
+all blocked) across two rounds but escalated `no_fresh_findings`: a round-1 correctness finding (AC-13, test
+suite hygiene) was deferred past the 4-fixer cap and never re-raised once round 2 saw only the already-repaired
+tests, so the panel would have gone green without it ever landing — the escalation packager correctly refused
+to pass on that silence. Direct-driven rather than gated for a human (mechanics, not budget/irreversibility/
+strategy): wrote `k23-AC-13-test-suite-hygiene.test.js` by hand from the Spec's AC-13 alone, ran the full
+14-file TestSet against the task worktree (18/18), reverted to the pre-change `ledger.js` and confirmed 10/18
+tests correctly went red, restored the fix, ran the root suite (489/489), and smoke-tested `recost`+`check`
+by hand against a throwaway fixture with a hand-corrected run file. Running the new `check` against the real
+ledger (dogfooding) surfaces pre-existing, unrelated drift on `k1-build-spec` and `k2i-build-implement`
+(present since well before this change) — out of scope for this item; recorded here for whoever picks it up.
+This was also `k22`/`k23`'s first live run of B1/B2/C14/C15 (NEXT_PROMPT.md's top recommendation): `k22`
+(build-spec) read `mr2-memory-roll.json` and fed patterns to the decomposer (B1); `k23` correctly recorded
+`canary_source: "none"` since no library canary's mutation named a path inside this task's owned surfaces
+(B2, the negative path); `stray_baseline_source: "args"` with `stray_files: []` (C14, `untracked_baseline`
+honored); and `spend.billed_per_output: 4` / `billed_tokens_est: 1,020,196` against a 1.5M-billed budget,
+never tripping the 1x or 2x line (C15). C12 (gate id verification) did not engage — this spec carried no
+pending Spec Gate — so it remains unconfirmed on a live run.
+
 **C12 — The spec-gate check's mechanical reader copied the gate's `id` into `gate`, and the build refused.** *(Landed `k21d` — see C15.)*
 Run `k9` (build-implement, B5): `gates/closed/k8-spec_gate.json` says `id: "k8-spec_gate"`, `gate: "spec_gate"`,
 `status: "decided"`, `decision.option: "approve"`. The haiku `gate:spec_gate` agent returned `gate: "k8-spec_gate"`,
