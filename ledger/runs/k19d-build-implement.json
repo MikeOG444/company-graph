@@ -1,0 +1,62 @@
+{
+  "entry": {
+    "id": "k19d-build-implement",
+    "run_id": "k19d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-27T00:08:00.000Z",
+    "finished_at": "2026-09-27T00:15:04.000Z",
+    "wall_clock_sec": 424,
+    "result_ref": "ledger/runs/k19d-build-implement.json",
+    "artifact_count": 0,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k19d",
+      "created_at": "2026-09-27T00:15:04.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k19: implement-memory-to-build escalated max_rounds with the implementation finished (every round declared invalid by false import escapes)",
+    "option_taken": "direct_drive (review-and-land), decided by the main session under the operating rule",
+    "landed": {
+      "commits": [
+        "2ce5d26"
+      ],
+      "base_patch": "ledger/runs/k19/task-branch-53bcd28..2469844.patch (workflow files only)"
+    },
+    "not_landed": [
+      "Test Author copies of k19 tests committed onto task/implement-memory-to-build (the TestSet was landed from .artifacts/tests plus the four AC-6/8/9/17 files that existed only there)"
+    ],
+    "root_cause": "escapingImports resolved the runner-reported TestSet-relative file names against the empty string, so ./helpers.js read as an escape; the escape repair then targeted the worktree, and widenTestsRef adopted worktree paths as the TestSet",
+    "line_fixes": [
+      "testSetFile + escapingImports resolve runner file names inside the TestSet",
+      "escape repair target placed inside the TestSet",
+      "widenTestsRef: only <art>/tests/ may replace the TestSet; a sibling of a single-file TestSet widens to its directory"
+    ],
+    "review_changes": [
+      ".catch(() => null) on both memory:read calls",
+      "isSafeMemoryRef moved into the fix-loop sentinel block",
+      "a5-bind-AC-13 EXTENSIONS entry for the two memory:read sites"
+    ],
+    "test_defects_fixed": [
+      "k19-AC-19 whitespace-sensitive phrase",
+      "k19-AC-18 shorthand property",
+      "k19-AC-7 phrase list the spec never quotes",
+      "k19-suite-hygiene read a gitignored path"
+    ],
+    "verification": {
+      "mutations_planted": 13,
+      "mutations_caught": 13,
+      "root": "417/417",
+      "toy": "60/60"
+    },
+    "cost_usd_k19": 7
+  }
+}
