@@ -1,0 +1,29 @@
+// spec-wi-b1-b2-memory-to-build AC-14. Written from the Spec only.
+//
+// "build-implement invoked with both args.canary and args.memory_ref" / "a task matches args.canary
+// (task_id or spec_id)" / "args.canary's mutation is injected, the library is not consulted for that
+// task, and the task records canary_source 'args'"
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readWorkflowText } from './extract-fixloop.js'
+import { ifBlocksMatching, calleeArgSpans, isWithinAnySpan } from './k19-agent-call-helpers.js'
+
+test('AC-14: build-implement.js still branches on an explicit args.canary match (task_id or spec_id) against this task', () => {
+  const text = readWorkflowText()
+  const hits = ifBlocksMatching(text, /A\.canary/)
+  assert.ok(hits.length > 0, 'expected an if-branch guarded by A.canary')
+  const hit = hits.find(h => /task_id/.test(h.condText) && /spec_id/.test(h.condText))
+  assert.ok(hit, 'expected the args.canary guard to check task_id or spec_id against this task/spec')
+})
+
+test('AC-14: selectCanary (the library path) is never called from inside the branch that handles an explicit args.canary match', () => {
+  const text = readWorkflowText()
+  const hits = ifBlocksMatching(text, /A\.canary/)
+  const hit = hits.find(h => /task_id/.test(h.condText) && /spec_id/.test(h.condText))
+  assert.ok(hit)
+  const selectCanarySpans = calleeArgSpans(text, 'selectCanary')
+  for (const span of selectCanarySpans) {
+    assert.ok(!(span.nameStart > hit.ifBlock.start && span.nameStart < hit.ifBlock.end),
+      'selectCanary must not be called from within the args.canary-match branch — that branch always wins on its own')
+  }
+})

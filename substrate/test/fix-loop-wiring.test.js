@@ -81,7 +81,8 @@ function extractTestRepairPrompt(workflowText) {
 test('AC-17: contracts.schema.json is untouched by the cost-stop change — the Escalation.reason enum still has exactly its five existing values', () => {
   const schema = JSON.parse(fs.readFileSync(`${REPO}/contracts.schema.json`, 'utf8'))
   const reasonEnum = schema.$defs.Escalation.properties.reason.enum
-  assert.deepEqual(reasonEnum, ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro'])
+  // B7 part 2: the five existing reasons must still be present; a later spec may ADD a reason (removal still fails).
+  for (const r of ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro']) assert.ok(reasonEnum.includes(r), `Escalation.reason lost "${r}"`)
 })
 
 // ---- Added by hand (direct_driver): the Spec Gate was openable but unverifiable. ----

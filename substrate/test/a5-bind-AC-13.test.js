@@ -36,20 +36,7 @@ const BASELINE = {
     { label: '`fix:${task.id}:${f.id}`', model: 'MODEL.mid', schema: 'ChangeSet' },
     { label: '`testfix:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'TestRepair' },
     { label: '`dispute:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'Ruling' },
-    // Added deliberately by spec-wi-b8-tests-run-the-task-code (landed k15d): the Test Author repair of a TestSet
-    // file whose imports climb out of the TestSet directory.
-    { label: '`testfix:${task.id}:escape:${file}`', model: 'MODEL.mid', schema: 'TestRepair' },
-    // Added deliberately by spec-wi-b6-test-validity-before-blame (landed k11d): the once-per-failing-round validity detector (facts only, read-only
-    // type), the Test Author repair of a test it classifies test_defect, and the repair of a test whose fixer
-    // was refused for reporting behaviour_changed:false.
-    { label: '`validity:${task.id}:${tag}`', model: 'MODEL.cheap', schema: 'TestValidityReport' },
-    { label: '`testfix:${task.id}:validity:${dt.test}`', model: 'MODEL.mid', schema: 'TestRepair' },
-    { label: '`testfix:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'TestRepair' },
     { label: '`merge:${task.id}:r${ctx.round}`', model: 'MODEL.cheap', schema: 'ChangeSet' },
-    // Added deliberately by spec-wi-b5-sibling-value-repair (landed k9d): the one boundary-repair re-run of a
-    // strayer's implementer. Same tier and schema as impl:${task.id}. This fixture freezes A5's invariant
-    // (bindings changed nothing else); a later spec that adds a site must add it here, by name, with its reason.
-    { label: '`impl:${task.id}:repair`', model: 'MODEL.mid', schema: 'ChangeSet' },
     { label: "'integrate'", model: 'MODEL.cheap', schema: 'Suite' },
     { label: "'integrate:resolve'", model: 'MODEL.strong', schema: 'Suite' },
   ],
@@ -108,14 +95,48 @@ const BASELINE = {
   ],
 }
 
+// B7 part 2: A5 froze the agent() sites and control-flow shape of every workflow as they stood when A5 landed —
+// BASELINE above is that snapshot, untouched. Every LATER, deliberate change is an entry here, with the work item
+// that made it and why, so a new site is a one-line reviewed edit rather than a red suite, and a site that
+// appears with no entry (or disappears) still fails. Never edit BASELINE to absorb a change; add an extension.
+const EXTENSIONS = [
+  { by: 'spec-wi-b5-sibling-value-repair (k9d)', file: 'build-implement.js',
+    why: "the one boundary-repair re-run of a strayer's implementer",
+    sites: [{ label: '`impl:${task.id}:repair`', model: 'MODEL.mid', schema: 'ChangeSet' }] },
+  { by: 'spec-wi-b6-test-validity-before-blame (k11d)', file: 'build-implement.js',
+    why: 'the read-only validity detector; the Test Author repair of a test_defect; the repair after a refused fix',
+    sites: [
+      { label: '`validity:${task.id}:${tag}`', model: 'MODEL.cheap', schema: 'TestValidityReport' },
+      { label: '`testfix:${task.id}:validity:${dt.test}`', model: 'MODEL.mid', schema: 'TestRepair' },
+      { label: '`testfix:${task.id}:${x.f.id}`', model: 'MODEL.mid', schema: 'TestRepair' },
+    ],
+    structure: { parallel: +2 } },
+  { by: 'spec-wi-b8-tests-run-the-task-code (k15d)', file: 'build-implement.js',
+    why: 'the Test Author repair of a TestSet file whose imports climb out of the TestSet directory',
+    sites: [{ label: '`testfix:${task.id}:escape:${file}`', model: 'MODEL.mid', schema: 'TestRepair' }],
+    structure: { parallel: +1 } },
+  { by: 'spec-wi-b1-b2-memory-to-build (k19d)', file: 'build-spec.js',
+    why: 'the one read-only memory-roll read, only when args.memory_ref is set, feeding the Decomposer its patterns',
+    sites: [{ label: "'memory:read'", model: 'MODEL.cheap', schema: 'MemoryExtraction' }] },
+  { by: 'spec-wi-b1-b2-memory-to-build (k19d)', file: 'build-implement.js',
+    why: 'the one read-only memory-roll read, only when args.memory_ref is set, feeding selectCanary its library',
+    sites: [{ label: "'memory:read'", model: 'MODEL.cheap', schema: 'MemoryExtraction' }] },
+]
+const expectedSites = (file) => [...(BASELINE[file] ?? []), ...EXTENSIONS.filter(e => e.file === file).flatMap(e => e.sites)]
+const expectedStructure = (file, base) => {
+  const out = { ...base }
+  for (const e of EXTENSIONS.filter(e => e.file === file)) for (const [k, d] of Object.entries(e.structure ?? {})) out[k] += d
+  return out
+}
+
 function triples(sites) {
   return sites.map(s => `${s.label}|${s.model}|${s.schema}`).sort()
 }
 
 test('AC-13: the set of agent() sites (label, model tier, schema) in each workflow is unchanged', () => {
   for (const { file, text } of readAllWorkflows()) {
-    const before = BASELINE[file]
-    assert.ok(before, `no baseline recorded for ${file}`)
+    assert.ok(BASELINE[file], `no baseline recorded for ${file}`)
+    const before = expectedSites(file)
     const after = extractSites(text)
     assert.deepEqual(
       triples(after),
@@ -127,7 +148,7 @@ test('AC-13: the set of agent() sites (label, model tier, schema) in each workfl
 
 test('AC-13: no workflow gained or lost an agent() call site count', () => {
   for (const { file, text } of readAllWorkflows()) {
-    const before = BASELINE[file]
+    const before = expectedSites(file)
     const after = extractSites(text)
     assert.equal(after.length, before.length, `${file}: expected ${before.length} agent() call sites, found ${after.length}`)
   }
@@ -140,7 +161,7 @@ test('AC-13: pipeline/parallel/phase call counts are unchanged in each workflow'
   const countCalls = (text, name) => (text.match(new RegExp(`\\b${name}\\s*\\(`, 'g')) ?? []).length
   const BASELINE_STRUCTURE = {
     'build-spec.js': { pipeline: 1, parallel: 1, phase: 2 },
-    'build-implement.js': { pipeline: 1, parallel: 8, phase: 3 },   // 5 at A5; +2 by spec-wi-b6 (k11d, two testfix: fan-outs); +1 by spec-wi-b8 (k15d, the escape re-route)
+    'build-implement.js': { pipeline: 1, parallel: 5, phase: 3 },   // as at A5; later deltas are in EXTENSIONS
     'build-reentry.js': { pipeline: 0, parallel: 1, phase: 3 },
     'create-project.js': { pipeline: 0, parallel: 1, phase: 3 },
     'launch.js': { pipeline: 0, parallel: 2, phase: 2 },
@@ -150,7 +171,7 @@ test('AC-13: pipeline/parallel/phase call counts are unchanged in each workflow'
     'memory-roll.js': { pipeline: 0, parallel: 1, phase: 2 },
   }
   for (const { file, text } of readAllWorkflows()) {
-    const expected = BASELINE_STRUCTURE[file]
+    const expected = expectedStructure(file, BASELINE_STRUCTURE[file])
     for (const name of ['pipeline', 'parallel', 'phase']) {
       const count = countCalls(text, name)
       assert.equal(count, expected[name], `${file}: expected ${expected[name]} call(s) to ${name}(...), found ${count}`)

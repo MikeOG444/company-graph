@@ -21,7 +21,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+// C10: repo root from helpers.js (walks up from process.cwd() to the repo markers), never '..' from this file.
+import { REPO } from './helpers.js'
 
 // Pure function: extracts the numeric major version pinned to actions/setup-node's
 // node-version in a GitHub Actions workflow, read as plain text (no YAML parser).

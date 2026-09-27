@@ -12,7 +12,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Repository root, two levels up from substrate/test/ once landed.
-export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+// C10 (landed k17 cleanup): the repo root comes from helpers.js, which walks up from process.cwd() to the repo
+// markers — never by counting '..' from this file, which is wrong wherever a copy of this file sits.
+import { REPO as ROOT } from './helpers.js'
+export const REPO = ROOT
 
 export const LENS_SPEC_CONFORMANCE_MD_PATH = path.join(REPO, '.claude', 'agents', 'lens-spec-conformance.md')
 export const LENS_CORRECTNESS_MD_PATH = path.join(REPO, '.claude', 'agents', 'lens-correctness.md')

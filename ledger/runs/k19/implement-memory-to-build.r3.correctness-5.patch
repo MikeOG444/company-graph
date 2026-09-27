@@ -1,0 +1,35 @@
+commit 5e0c6ce2d0bbc96656da9ad29963b89973f37e60
+Author: Claude <noreply@anthropic.com>
+Date:   Sat Sep 26 23:46:07 2026 +0000
+
+    Fix widenTestsRef narrowing tests_ref to a single file across repairs
+    
+    widenTestsRef used `current` verbatim as the containment directory, but
+    tests_ref is sometimes a single file (AC-5), not a directory. When it
+    started as a single file, every subsequent test repair to a sibling file
+    under the same TestSet dir failed the containment check and replaced
+    tests_ref with just that file, so the run collapsed to whichever file was
+    repaired most recently instead of the full TestSet — reproduced with r3
+    running only k19-AC-3-selectPatterns-max.test.js despite 21 test files
+    existing. testSetDirOf already exists to resolve either shape to a
+    directory; widenTestsRef now uses it.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_019Y8PoKeAxY1UqCFsE9FZsw
+
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 64574a7..0bf45fc 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -538,7 +538,10 @@ function widenTestsRef(current, repaired, artifact_dir) {
+   const underArt = (p) => { const s = String(p); return s === art || s.startsWith(art + '/') || s.includes('/' + art + '/') }
+   if (!current) return repaired
+   if (!underArt(repaired)) return current
+-  const dir = String(current).replace(/\/+$/, '')
++  // current is sometimes a single file (AC-5), not a directory — testSetDirOf resolves either shape to the
++  // directory a sibling repair must stay inside of, so a repair to a sibling file in the same TestSet dir
++  // widens (keeps `current`) instead of narrowing the whole run down to just the last file repaired.
++  const dir = testSetDirOf(current)
+   return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
+ }
+ 

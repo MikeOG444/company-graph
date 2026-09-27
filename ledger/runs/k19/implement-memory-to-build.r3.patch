@@ -1,0 +1,1215 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 40d3414..0bf45fc 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -28,6 +28,13 @@ export const meta = {
+ //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
+ //   agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
+ //   missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
++//   memory_ref?: OPTIONAL. A repository-relative path to a stored memory-roll run file whose result.roll (or result)
++//         is a MemoryRoll. When present, one cheap read-only agent reads it ONCE per run — before the per-task
++//         pipeline, never once per task — and its canaries feed the pure selectCanary (fix-loop decisions sentinel
++//         block) that deterministically picks, per task, a library canary whose mutation names a path inside that
++//         task's owned surfaces. An explicit args.canary always wins over the library. Absent, unreadable, empty or
++//         malformed — this whole half degrades SILENTLY: no agent call, no library canary is ever injected, and
++//         every task's canary_source records 'none' (or 'args' where args.canary matched) exactly as before.
+ // returns: EvidenceBundle (see contracts.schema.json)
+ //
+ // Human touchpoints: none inside this run. Escalations come back in the bundle;
+@@ -153,6 +160,11 @@ const TestValidityEntry = { type: 'object', additionalProperties: false, require
+ // addition to its original use in the fix loop below. Declared once, here, so every caller shares one definition.
+ const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
+   properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
++// Memory to Build (B2): the read-only extraction's own return shape. Loose item shape on purpose — the agent's
++// job is to copy a MemoryRoll's canaries VERBATIM; selectCanary below (fix-loop decisions block) is what
++// validates and filters the individual canary objects it actually needs fields from.
++const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['canaries'],
++  properties: { canaries: { type: 'array', items: { type: 'object' } } } }
+ 
+ // ---- pure-code edges ----
+ const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
+@@ -526,7 +538,10 @@ function widenTestsRef(current, repaired, artifact_dir) {
+   const underArt = (p) => { const s = String(p); return s === art || s.startsWith(art + '/') || s.includes('/' + art + '/') }
+   if (!current) return repaired
+   if (!underArt(repaired)) return current
+-  const dir = String(current).replace(/\/+$/, '')
++  // current is sometimes a single file (AC-5), not a directory — testSetDirOf resolves either shape to the
++  // directory a sibling repair must stay inside of, so a repair to a sibling file in the same TestSet dir
++  // widens (keeps `current`) instead of narrowing the whole run down to just the last file repaired.
++  const dir = testSetDirOf(current)
+   return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
+ }
+ 
+@@ -844,6 +859,53 @@ function anchorAtArtifacts(p, artifact_dir) {
+   return i === -1 ? r : r.slice(i)
+ }
+ 
++// ---- Memory to Build (B2): selectCanary, pure script code (CLAUDE.md rule 3) that deterministically picks ONE
++// library canary for a task from the canaries a memory-read agent (below, outside this block) copied verbatim
++// from a stored MemoryRoll. No Math.random, no Date, no runtime handle of any kind — just run_id and task.id,
++// both plain values passed in, exactly like every other decision in this block.
++
++// A small, deterministic, non-negative hash of a string (FNV-1a, 32-bit). Never Math.random or Date — the same
++// string always yields the same number, which is the whole point: selectCanary must reproduce its own pick.
++function hashString(s) {
++  let h = 2166136261
++  const str = String(s ?? '')
++  for (let i = 0; i < str.length; i++) {
++    h ^= str.charCodeAt(i)
++    h = Math.imul(h, 16777619)
++  }
++  return h >>> 0
++}
++
++// Path-like tokens inside a canary's mutation text (a multi-segment path, e.g. "toy/src/app.js" inside "in
++// toy/src/app.js, replace..."). Deliberately permissive — a false positive here only makes a canary eligible
++// that a human review (HOTL) can still catch; a false negative would make selectCanary needlessly conservative.
++const CANARY_PATH_RE = /\.{0,2}\/?(?:[A-Za-z0-9_.\-]+\/)+[A-Za-z0-9_.\-]*/g
++function mutationPaths(mutation) {
++  const found = []
++  for (const m of String(mutation ?? '').matchAll(CANARY_PATH_RE)) {
++    const raw = m[0].replace(/^[`"'(\[]+/, '').replace(/[`"')\],.;:]+$/, '')
++    if (raw) found.push(raw)
++  }
++  return found
++}
++
++// Picks ONE canary from `canaries` whose mutation names a path inside task.owned_surfaces (withinOwned, from
++// this same block), using a deterministic hash of run_id + ':' + task.id modulo the count of ELIGIBLE canaries
++// — so the same run_id/task.id always pick the same canary, and a different run_id can pick a different one
++// among the eligible set. Ignores an entry missing id or mutation, or whose mutation is not a string (AC-13).
++// Returns null, never throws, when canaries is not a non-empty array or none of the mutations names an owned
++// path (AC-11) — an explicit canary passed to the run always wins over this and is decided by the caller, not here.
++function selectCanary({ canaries, task, run_id }) {
++  const ownedRefs = (task?.owned_surfaces ?? []).map(s => s.ref)
++  const list = Array.isArray(canaries) ? canaries : []
++  const eligible = list.filter(c =>
++    c && typeof c === 'object' && typeof c.id === 'string' && typeof c.mutation === 'string' &&
++    mutationPaths(c.mutation).some(p => withinOwned(p, ownedRefs, [])))
++  if (!eligible.length) return null
++  const idx = hashString(`${run_id}:${task?.id}`) % eligible.length
++  return eligible[idx]
++}
++
+ function escapingImports({ tests_ref, imports, artifact_dir }) {
+   const dir = anchorAtArtifacts(testSetDirOf(tests_ref), artifact_dir)
+   const out = []
+@@ -911,6 +973,35 @@ log(`${tasks.length} tasks across ${A.specs.length} specs`)
+ const tasksPerWorkItem = new Map()
+ for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerWorkItem.get(spec.work_item_id) ?? 0) + 1)
+ 
++// A memory_ref is a repository-relative path (e.g. ledger/runs/run-1.json), never an absolute path, a home-dir
++// reference, a '..' traversal, or anything containing characters that have no business in a path — the latter
++// closes off free-text payloads riding along in what is supposed to be a filename before it ever reaches the
++// prompt below. Anything else is treated exactly like a missing memory_ref (zero added tokens, identical behavior).
++function isSafeMemoryRef(ref) {
++  if (typeof ref !== 'string' || ref.length === 0) return false
++  if (/^[/~]/.test(ref) || /^[A-Za-z]:[\\/]/.test(ref)) return false
++  if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
++  return /^[A-Za-z0-9_.\-/]+$/.test(ref)
++}
++
++// ---- Memory to Build (B2): optional args.memory_ref, read ONCE per run — before the per-task pipeline, never
++// once per task, and never at all when memory_ref is absent (zero added tokens). The agent is read-only and
++// never judges: it copies canaries verbatim from the stored roll. selectCanary (fix-loop decisions, above) then
++// picks at most one per task, deterministically, at the canary-injection step below. A missing, unreadable,
++// empty or malformed roll leaves libraryCanaries === [], which keeps every task's canary behavior identical to
++// today's (args.canary only, canary_source 'none' otherwise).
++let libraryCanaries = []
++if (A.memory_ref && isSafeMemoryRef(A.memory_ref)) {
++  const mem = await agent(
++    `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
++     if present, else result, as a MemoryRoll. Return its canaries EXACTLY as found there, verbatim — never judge,
++     filter, rank, summarize or alter them in any way. If the file is missing, unreadable, empty, or not shaped
++     like a MemoryRoll, return canaries: [] rather than guessing. Do not create, edit or delete any file, and do
++     not run any command that changes the repository — you read one file and report its contents, nothing else.`,
++    { label: 'memory:read', model: MODEL.cheap, ...AT('memory-analyst'), schema: MemoryExtraction })
++  libraryCanaries = Array.isArray(mem?.canaries) ? mem.canaries : []
++}
++
+ const panelResults = []
+ const escalations = []
+ // Run-level record of every recorded boundary violation: { straying_task_id, strays: [{ref, owner}] }. Read by a
+@@ -1117,11 +1208,31 @@ async function runTask({ spec, task, spec_ref }) {
+   }
+ 
+   let changeSet1 = cs
++  // Canary source (B2): an explicit args.canary always wins over the library (AC-14); otherwise, when a memory
++  // roll was read, selectCanary deterministically picks at most one eligible library canary for this task
++  // (AC-15); otherwise there is no canary at all (AC-16/AC-17). Recorded on ctx so every later return of this
++  // task (all of them spread `...ctx`) carries it into the EvidenceBundle assembled at Integrate/Evidence.
++  let canaryMutation = null
+   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
+-    log(`canary: injecting a deliberate defect into ${task.id}`)
++    ctx.canary_source = 'args'
++    canaryMutation = A.canary.mutation
++  } else {
++    const picked = libraryCanaries.length ? selectCanary({ canaries: libraryCanaries, task, run_id: A.run_id }) : null
++    if (picked) {
++      ctx.canary_source = 'library'
++      ctx.canary_id = picked.id
++      canaryMutation = picked.mutation
++    } else {
++      ctx.canary_source = 'none'
++    }
++  }
++  if (canaryMutation) {
++    log(`canary: injecting a deliberate defect into ${task.id} (source ${ctx.canary_source}${ctx.canary_id ? `, ${ctx.canary_id}` : ''})`)
++    // Same existing canary mutation agent, unchanged prompt wording, schema and label pattern — only the
++    // mutation TEXT source differs (args.canary.mutation vs a selected library canary's mutation).
+     const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch ${branch})
+                                  apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
+-                                 the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
++                                 the code, or comments; the verifiers must not be able to tell): ${canaryMutation}
+                                  Then rewrite the cumulative diff vs ${changeSet1.base_commit} to ${changeSet1.diff_ref} and return the ChangeSet unchanged
+                                  except notes = "canary" and diff_bytes = the new byte size of that file.
+                                  ChangeSet: ${JSON.stringify(changeSet1)}`,
+@@ -1183,6 +1294,9 @@ async function runTask({ spec, task, spec_ref }) {
+     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
+     const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
+                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
++                        Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or
++                        write any file into the main checkout; every file you touch stays inside ${wt} (or the artifact store paths named
++                        below).
+                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.
+                         ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
+                         file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
+@@ -1256,8 +1370,9 @@ async function runTask({ spec, task, spec_ref }) {
+                    A TestSet lands in substrate/test/ at run time, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
+                    those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that starts a local HTTP server
+                    in-process must drive the CLI with an async child process, never spawnSync. ${targetNote} If the import is correct and
+-                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and
+-                   the criteria the tests now cover.`,
++                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Run every command with ${wt} as your current directory
++                   — the task worktree, never the main checkout. Never copy or write any file into the main checkout. Return tests_ref
++                   (the path you wrote or edited) and the criteria the tests now cover.`,
+               { label: `testfix:${task.id}:escape:${file}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
+               .then(p => p && { p, target })
+           }))).filter(Boolean)
+@@ -1319,7 +1434,9 @@ async function runTask({ spec, task, spec_ref }) {
+                      requires an exact literal the Spec never quotes, or fails the same way on the task's base commit while not describing
+                      the criterion's behaviour. Repair the test at ${target.ref} so it asserts exactly what ${specText} says; do not read or
+                      modify the implementation. ${targetNote} If the test is right and this classification is wrong, change nothing and set
+-                     notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
++                     notes to "DISPUTE: <why>". Run every command with ${wt} as your current directory — the task worktree, never the
++                     main checkout. Never copy or write any file into the main checkout. Return tests_ref (the path you wrote or edited)
++                     and the criteria the tests now cover.`,
+                 { label: `testfix:${task.id}:validity:${dt.test}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
+                 .then(p => p && { dt, p, target })
+             }))).filter(Boolean)
+@@ -1461,6 +1578,8 @@ async function runTask({ spec, task, spec_ref }) {
+           return agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
+              Re-read the spec (${specText}). Repair the test at ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation.
+              ${targetNote} If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
++             Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or write
++             any file into the main checkout.
+              Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+             { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test', target })
+         })()
+@@ -1477,6 +1596,8 @@ async function runTask({ spec, task, spec_ref }) {
+              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on branch ${branch}.
+              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
+              Do not modify tests under ${ART}/tests/.
++             Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or write
++             any file into the main checkout.
+              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
+              FIRST reproduce the finding empirically (run the code, a request, or the test it cites); lenses are read-only and can
+              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
+@@ -1510,7 +1631,9 @@ async function runTask({ spec, task, spec_ref }) {
+         return agent(`A code Fixer determined this finding is really a defect in the TESTS, not the implementation (its own reasoning: ${x.p.notes}).
+                Location: ${x.f.location}. Evidence: ${x.f.evidence}. Re-read the spec (${specText}). Repair the test at ${target.ref}
+                so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test is right and the finding is
+-               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
++               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Run every command with ${wt} as your current
++               directory — the task worktree, never the main checkout. Never copy or write any file into the main checkout. Return
++               tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+           { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
+       }))).filter(Boolean)
+     }
+@@ -1538,8 +1661,9 @@ async function runTask({ spec, task, spec_ref }) {
+                implementation to fit the test's own text, so the fix was refused. Location: ${x.f.location}. Evidence: ${x.f.evidence}.
+                Fixer's own rationale: ${x.p.behaviour_rationale ?? '(none given)'}. Re-read the spec (${specText}). Repair the test at
+                ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test
+-               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote
+-               or edited) and the criteria the tests now cover.`,
++               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Run every command with ${wt} as your
++               current directory — the task worktree, never the main checkout. Never copy or write any file into the main checkout.
++               Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+           { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
+       }))).filter(Boolean)
+       refusedRepairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
+@@ -1741,6 +1865,8 @@ async function runTask({ spec, task, spec_ref }) {
+                  task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
+                  inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
+                  byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
++                 Run every command with ${repairWt} as your current directory — the task worktree, never the main checkout. Never copy
++                 or write any file into the main checkout.
+                  Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
+                  ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
+       { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
+@@ -1879,6 +2005,12 @@ return {
+   // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
+   // [] when no task strayed.
+   boundary_repairs: boundaryRepairs,
++  // One entry per task this run reached (B2, Memory to Build): canary_source is 'args' when args.canary matched
++  // this task, 'library' when a memory-roll canary was selected instead (selectCanary, fix-loop decisions block),
++  // or 'none' otherwise — including every task that never reached the canary step at all (skipped on a failed
++  // dependency, or refused on an empty diff before ctx even existed). canary_id is present only for 'library'.
++  canaries: finished.map(f => ({ task_id: f.task.id, canary_source: f.canary_source ?? 'none',
++    ...(f.canary_source === 'library' && f.canary_id ? { canary_id: f.canary_id } : {}) })),
+   escalations,
+   starved_items: [],
+   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.
+diff --git a/.claude/workflows/build-spec.js b/.claude/workflows/build-spec.js
+index 0be57a8..c0b21af 100644
+--- a/.claude/workflows/build-spec.js
++++ b/.claude/workflows/build-spec.js
+@@ -5,7 +5,14 @@ export const meta = {
+ }
+ 
+ // args: { repo, workItems: WorkItem[], capacity: { tokens, iteration }, run_id, now, project_context?, test_dir?,
+-//         agent_types?: false, missing_agent_types?: [name] }
++//         agent_types?: false, missing_agent_types?: [name], memory_ref? }
++//   memory_ref: OPTIONAL. A repository-relative path to a stored memory-roll run file (ledger/runs/...) whose
++//         result.roll (or result) is a MemoryRoll. When present, one cheap read-only agent reads it ONCE per run
++//         (never once per work item) and its patterns are selected/formatted by pure script code (selectPatterns/
++//         formatPatterns, in the memory-patterns sentinel block below) into a "prior observations to avoid, not
++//         rules" heading injected into the Decomposer prompt only. Absent, unreadable, empty or malformed — this
++//         whole half degrades SILENTLY: no agent call, no heading, and the Decomposer prompt is byte-identical to
++//         today's.
+ //   project_context: one sentence about the venture the router should know (e.g. "client: self, no external consumers yet").
+ //   repo: a directory of THIS git repository (e.g. "toy"); surfaces are repo-relative paths (toy/src/app.js).
+ //   test_dir: where TestSets land, relative to the worktree root (default "${repo}/test", matching
+@@ -65,6 +72,11 @@ const Task = { type: 'object', additionalProperties: false,
+     criteria_ids: { type: 'array', items: { type: 'string' } } } }
+ const TaskGraph = { type: 'object', additionalProperties: false, required: ['spec_id', 'tasks'],
+   properties: { spec_id: { type: 'string' }, tasks: { type: 'array', minItems: 1, items: Task } } }
++// Memory to Build (B1): the read-only extraction's own return shape. Loose item shapes on purpose — the agent's
++// job is to copy a MemoryRoll's patterns/canaries VERBATIM, never to reshape them; selectPatterns below is what
++// validates and filters the individual pattern objects it actually needs fields from.
++const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['patterns', 'canaries'],
++  properties: { patterns: { type: 'array', items: { type: 'object' } }, canaries: { type: 'array', items: { type: 'object' } } } }
+ 
+ // ---- BEGIN plan-selection ----
+ // The Iteration Planner, in code (CLAUDE.md rule 3: selecting, counting and filtering are script code).
+@@ -437,6 +449,44 @@ function lintGraph({ spec, graph, test_dir }) {
+ }
+ // ---- END graph-lint ----
+ 
++// ---- BEGIN memory-patterns ----
++// Memory to Build (B1): selectPatterns and formatPatterns, pure script code (CLAUDE.md rule 3) that picks and
++// renders the patterns a memory-read agent (below) copied verbatim from a stored MemoryRoll. No `args`, `A`,
++// `log`, `agent` or any runtime binding is referenced anywhere in this block — callable standalone exactly like
++// graph-lint above (substrate/test/extract-fixloop.js idiom).
++
++// At most `max` patterns (default 5), every anti_pattern item before any other kind, and within each kind group
++// ordered by sample_size descending then id ascending. Malformed entries (missing id/claim, null, non-object) are
++// dropped; a non-array input yields []. The input array itself is never mutated — a fresh array is sorted.
++function selectPatterns(patterns, options = {}) {
++  const max = options.max ?? 5
++  const valid = (Array.isArray(patterns) ? patterns : []).filter(p =>
++    p && typeof p === 'object' && typeof p.id === 'string' && typeof p.claim === 'string')
++  const rank = (p) => (p.kind === 'anti_pattern' ? 0 : 1)
++  const sorted = [...valid].sort((a, b) =>
++    rank(a) - rank(b) ||
++    (Number(b.sample_size ?? 0) - Number(a.sample_size ?? 0)) ||
++    String(a.id).localeCompare(String(b.id)))
++  return sorted.slice(0, max)
++}
++
++// One line per selected pattern: '<id> (n=<sample_size>): <claim>'. [] renders as ''.
++function formatPatterns(selected) {
++  return (selected ?? []).map(p => `${p.id} (n=${p.sample_size}): ${p.claim}`).join('\n')
++}
++
++// A memory_ref is a repository-relative path (e.g. ledger/runs/run-1.json), never an absolute path, a home-dir
++// reference, a '..' traversal, or anything containing characters that have no business in a path — the latter
++// closes off free-text payloads riding along in what is supposed to be a filename before it ever reaches the
++// prompt below. Anything else is treated exactly like a missing memory_ref (zero added tokens, identical behavior).
++function isSafeMemoryRef(ref) {
++  if (typeof ref !== 'string' || ref.length === 0) return false
++  if (/^[/~]/.test(ref) || /^[A-Za-z]:[\\/]/.test(ref)) return false
++  if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
++  return /^[A-Za-z0-9_.\-/]+$/.test(ref)
++}
++// ---- END memory-patterns ----
++
+ // =====================================================================
+ phase('Plan')
+ const { selected, skipped, planned_tokens } = planIteration(A.workItems, A.capacity?.tokens)
+@@ -444,6 +494,30 @@ log(`Planned ${selected.length}/${(A.workItems ?? []).length} work items, ${plan
+ // No silent caps: every item left out says so and why.
+ for (const s of skipped) log(`deferred ${s.id}: ${s.reason} (${s.cost} tokens vs ${A.capacity?.tokens} capacity)`)
+ 
++// ---- Memory to Build (B1): optional args.memory_ref, read ONCE per run — never once per work item, and never
++// at all when memory_ref is absent (zero added tokens). The agent is read-only and never judges: it copies
++// patterns/canaries verbatim from the stored roll. selectPatterns/formatPatterns (pure, above) turn that into
++// the text injected under a prior-observations heading in the Decomposer prompt only (never Spec Writer, Risk
++// Router, lenses or fixer). A missing, unreadable, empty or malformed roll leaves priorObservationsText === '',
++// which keeps the Decomposer prompt byte-identical to today's.
++let priorObservationsText = ''
++if (A.memory_ref && isSafeMemoryRef(A.memory_ref)) {
++  const mem = await agent(
++    `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
++     if present, else result, as a MemoryRoll. Return its patterns and canaries EXACTLY as found there, verbatim —
++     never judge, filter, rank, summarize or alter them in any way. If the file is missing, unreadable, empty, or
++     not shaped like a MemoryRoll, return patterns: [] and canaries: [] rather than guessing. Do not create, edit
++     or delete any file, and do not run any command that changes the repository — you read one file and report
++     its contents, nothing else.`,
++    { label: 'memory:read', model: MODEL.cheap, ...AT('memory-analyst'), schema: MemoryExtraction })
++  const chosenPatterns = selectPatterns(mem?.patterns)
++  const formatted = formatPatterns(chosenPatterns)
++  if (formatted) {
++    priorObservationsText = `\n\n                 Prior observations from past runs to AVOID — these are patterns from Company Memory, not rules;
++                 use your own judgment about whether any applies here:\n${formatted}`
++  }
++}
++
+ // =====================================================================
+ phase('Spec')
+ // One pipeline per work item. Inside each: Spec → (Router ∥ Decomposer). No barrier across items.
+@@ -480,7 +554,7 @@ const specced = (await pipeline(selected, async (w) => {
+                  task must read another's output. Every criterion must be covered by some task, AND every surface a task's criteria
+                  require it to write must appear in that task's owned_surfaces — a criterion assigned to a task that may not touch the
+                  file it names is unsatisfiable, and the fix loop cannot close it (rulings r5, c1).
+-                 App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}`,
++                 App at ./${A.repo}/ in this repository. Spec: ${JSON.stringify(spec)}${priorObservationsText}`,
+       { label: `decompose:${w.id}`, model: MODEL.cheap, ...AT('decompose'), schema: TaskGraph }),
+   ])
+   if (!risk || !graph) return null
+diff --git a/substrate/test/k19-AC-14-args-canary-wins.test.js b/substrate/test/k19-AC-14-args-canary-wins.test.js
+new file mode 100644
+index 0000000..e4130f1
+--- /dev/null
++++ b/substrate/test/k19-AC-14-args-canary-wins.test.js
+@@ -0,0 +1,29 @@
++// spec-wi-b1-b2-memory-to-build AC-14. Written from the Spec only.
++//
++// "build-implement invoked with both args.canary and args.memory_ref" / "a task matches args.canary
++// (task_id or spec_id)" / "args.canary's mutation is injected, the library is not consulted for that
++// task, and the task records canary_source 'args'"
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { ifBlocksMatching, calleeArgSpans, isWithinAnySpan } from './k19-agent-call-helpers.js'
++
++test('AC-14: build-implement.js still branches on an explicit args.canary match (task_id or spec_id) against this task', () => {
++  const text = readWorkflowText()
++  const hits = ifBlocksMatching(text, /A\.canary/)
++  assert.ok(hits.length > 0, 'expected an if-branch guarded by A.canary')
++  const hit = hits.find(h => /task_id/.test(h.condText) && /spec_id/.test(h.condText))
++  assert.ok(hit, 'expected the args.canary guard to check task_id or spec_id against this task/spec')
++})
++
++test('AC-14: selectCanary (the library path) is never called from inside the branch that handles an explicit args.canary match', () => {
++  const text = readWorkflowText()
++  const hits = ifBlocksMatching(text, /A\.canary/)
++  const hit = hits.find(h => /task_id/.test(h.condText) && /spec_id/.test(h.condText))
++  assert.ok(hit)
++  const selectCanarySpans = calleeArgSpans(text, 'selectCanary')
++  for (const span of selectCanarySpans) {
++    assert.ok(!(span.nameStart > hit.ifBlock.start && span.nameStart < hit.ifBlock.end),
++      'selectCanary must not be called from within the args.canary-match branch — that branch always wins on its own')
++  }
++})
+diff --git a/substrate/test/k19-AC-15-library-canary-injection.test.js b/substrate/test/k19-AC-15-library-canary-injection.test.js
+new file mode 100644
+index 0000000..0108bf4
+--- /dev/null
++++ b/substrate/test/k19-AC-15-library-canary-injection.test.js
+@@ -0,0 +1,33 @@
++// spec-wi-b1-b2-memory-to-build AC-15. Written from the Spec only.
++//
++// "build-implement invoked with args.memory_ref and no args.canary, and selectCanary returns a canary for
++// a task" / "the task reaches the canary step" / "the library canary's mutation goes through the same
++// existing canary mutation agent call (same label pattern canary:<task.id>, same prompt wording and
++// ChangeSet schema, with only the mutation text taken from the library). The task records canary_source
++// 'library' and the canary id."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { agentCallsByLabelRegex, ifBlocksMatching } from './k19-agent-call-helpers.js'
++
++test('AC-15: there remains exactly one canary-mutation agent call, labelled canary:<task.id>, using the ChangeSet schema, MODEL.cheap and the mechanical agentType (unchanged)', () => {
++  const text = readWorkflowText()
++  const calls = agentCallsByLabelRegex(text, /^`canary:\$\{task\.id\}`$/)
++  assert.equal(calls.length, 1, `expected exactly one canary:\${task.id} agent() call, found ${calls.length}`)
++  const [call] = calls
++  assert.equal(call.schema, 'ChangeSet')
++  assert.equal(call.model, 'MODEL.cheap')
++  assert.equal(call.agentType, 'mechanical')
++})
++
++test('AC-15: the single canary-mutation call site is shared by both the args.canary path and the library path (it sits outside the args.canary-match branch, not duplicated inside it)', () => {
++  const text = readWorkflowText()
++  const calls = agentCallsByLabelRegex(text, /^`canary:\$\{task\.id\}`$/)
++  assert.equal(calls.length, 1)
++  const [call] = calls
++  const hits = ifBlocksMatching(text, /A\.canary/)
++  const argsBranch = hits.find(h => /task_id/.test(h.condText) && /spec_id/.test(h.condText))
++  assert.ok(argsBranch, 'expected the args.canary-match branch to still exist')
++  assert.ok(!(call.nameStart > argsBranch.ifBlock.start && call.nameStart < argsBranch.ifBlock.end),
++    'the shared canary-mutation call must sit outside the args.canary-only branch so a library-selected canary reaches it too')
++})
+diff --git a/substrate/test/k19-AC-16-no-memory-ref-canary-none.test.js b/substrate/test/k19-AC-16-no-memory-ref-canary-none.test.js
+new file mode 100644
+index 0000000..d4f0e0f
+--- /dev/null
++++ b/substrate/test/k19-AC-16-no-memory-ref-canary-none.test.js
+@@ -0,0 +1,15 @@
++// spec-wi-b1-b2-memory-to-build AC-16. Written from the Spec only.
++//
++// "build-implement invoked with no args.memory_ref" / "the workflow runs" / "no memory-read agent call is
++// made, canary behavior is identical to today (args.canary only), and tasks with no canary record
++// canary_source 'none'"
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++
++test('AC-16: build-implement.js records canary_source \'none\' for a task with no canary', () => {
++  const text = readWorkflowText()
++  assert.match(text, /canary_source/, 'expected the run output to carry a canary_source field')
++  assert.match(text, /canary_source[\s\S]{0,120}'none'|'none'[\s\S]{0,120}canary_source/,
++    "expected a 'none' literal value associated with canary_source")
++})
+diff --git a/substrate/test/k19-AC-17-build-implement-malformed-canaries.test.js b/substrate/test/k19-AC-17-build-implement-malformed-canaries.test.js
+new file mode 100644
+index 0000000..d75c775
+--- /dev/null
++++ b/substrate/test/k19-AC-17-build-implement-malformed-canaries.test.js
+@@ -0,0 +1,66 @@
++// spec-wi-b1-b2-memory-to-build AC-17. Written from the Spec only.
++//
++// "build-implement invoked with args.memory_ref whose read returns null, throws, or yields an empty,
++// missing or malformed canaries list" / "the workflow runs" / "the run does not fail, no library canary
++// is injected, tasks record canary_source 'none' (or 'args' where args.canary matched), and every other
++// output field is unchanged"
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++// loadFixLoopDecisions() (extract-fixloop.js) exposes a fixed, exactly-asserted-elsewhere set of names that
++// predates selectCanary (see boundary-decision-functions.test.js's exact name-list check) — so selectCanary is
++// pulled out here the same way (the sentinel-extraction idiom AC-10 itself describes: evaluate the extracted
++// block standalone), without editing that shared helper's asserted-exact export list.
++function loadSelectCanary() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + '\n    return { selectCanary }')
++  return factory()
++}
++
++test('AC-17: selectCanary returns null without throwing for an empty, missing or malformed canaries list', () => {
++  const { selectCanary } = loadSelectCanary()
++  const task = { id: 't1', owned_surfaces: [{ ref: '.claude/workflows/build-implement.js' }] }
++  for (const badCanaries of [[], undefined, null, [{}], [{ id: 'c1' }], [{ id: 'c1', mutation: 42 }], 'garbage']) {
++    assert.equal(selectCanary({ canaries: badCanaries, task, run_id: 'r1' }), null,
++      `expected selectCanary to return null (never throw) for canaries=${JSON.stringify(badCanaries)}`)
++  }
++})
++
++test('AC-17: libraryCanaries falls back to [] whenever the memory-read result is null or its canaries field is missing/non-array', () => {
++  const text = readWorkflowText()
++  assert.match(text, /libraryCanaries\s*=\s*Array\.isArray\(\s*mem\?\.\s*canaries\s*\)\s*\?\s*mem\.canaries\s*:\s*\[\]/,
++    'expected libraryCanaries to be derived from Array.isArray(mem?.canaries) ? mem.canaries : [], ' +
++    'so a null mem (or a mem with a missing/malformed canaries field) safely yields []')
++})
++
++test('AC-17: when no library canary is picked, canary_source is set to \'none\' unless an explicit args.canary already matched (\'args\')', () => {
++  const text = readWorkflowText()
++  const pickedIdx = text.indexOf('const picked = libraryCanaries.length ? selectCanary(')
++  assert.ok(pickedIdx >= 0, 'expected the canary-selection call site keyed off libraryCanaries.length')
++  const window = text.slice(pickedIdx, pickedIdx + 400)
++  assert.match(window, /if\s*\(picked\)\s*\{[\s\S]*?ctx\.canary_source\s*=\s*'library'/,
++    'expected a truthy-picked branch that records canary_source \'library\'')
++  assert.match(window, /else\s*\{[\s\S]*?ctx\.canary_source\s*=\s*'none'/,
++    'expected the falsy-picked (no eligible library canary, e.g. from an empty/malformed canaries list) branch to record canary_source \'none\'')
++  // And the args.canary branch (taken first, before the library branch is ever reached) records 'args'.
++  const argsIdx = text.indexOf('if (A.canary &&')
++  assert.ok(argsIdx >= 0, 'expected an args.canary branch guarding canary_source assignment')
++  const argsWindow = text.slice(argsIdx, argsIdx + 200)
++  assert.match(argsWindow, /ctx\.canary_source\s*=\s*'args'/, "expected the args.canary branch to record canary_source 'args'")
++  assert.ok(argsIdx < pickedIdx, 'the args.canary check must be reached (and can short-circuit the library path) before the library-canary selection')
++})
++
++test('AC-17: no canary mutation is injected when neither args.canary nor a library canary applies', () => {
++  const { selectCanary } = loadSelectCanary()
++  const task = { id: 't1', owned_surfaces: [{ ref: '.claude/workflows/build-implement.js' }] }
++  const picked = selectCanary({ canaries: [], task, run_id: 'r1' })
++  assert.equal(picked, null)
++  // canaryMutation is only ever set from args.canary.mutation or picked.mutation (see the canary-source wiring
++  // above); with args.canary absent and picked === null, canaryMutation stays null and no injection agent() runs.
++  const text = readWorkflowText()
++  assert.match(text, /let canaryMutation = null/, 'expected canaryMutation to default to null')
++  assert.match(text, /if\s*\(canaryMutation\)\s*\{/, 'expected the canary-mutation injection to be guarded by a truthy canaryMutation check')
++})
+diff --git a/substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js b/substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js
+new file mode 100644
+index 0000000..f4873a4
+--- /dev/null
++++ b/substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js
+@@ -0,0 +1,40 @@
++// spec-wi-b1-b2-memory-to-build AC-18. Written from the Spec only.
++//
++// "the returned EvidenceBundle" / "a run completes" / "it carries a per-task canary record, for example
++// canaries: [{ task_id, canary_source: 'library'|'args'|'none', canary_id? }]. canary_id is present for
++// 'library' and omitted or null otherwise. The field is additive and every existing field keeps its
++// shape."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './extract-fixloop.js'
++import { codeMask, matchBrace, enclosingFunction } from './b5-wiring-helpers.js'
++
++// The final, top-level `return { ... }` — the EvidenceBundle build-implement.js returns (never nested
++// inside any named function; the LAST such top-level return in the file, since a couple of early-exit
++// `return { refused: true, ... }` script-level guards appear earlier).
++function evidenceBundleReturn(text) {
++  const mask = codeMask(text)
++  const re = /\breturn\s*\{/g
++  let m
++  const topLevel = []
++  while ((m = re.exec(text))) {
++    if (!mask[m.index]) continue
++    try { enclosingFunction(text, m.index) } catch { topLevel.push(m.index) }
++  }
++  assert.ok(topLevel.length > 0, 'expected at least one top-level return { in build-implement.js')
++  const idx = topLevel[topLevel.length - 1]
++  const braceStart = text.indexOf('{', idx)
++  const braceEnd = matchBrace(text, braceStart)
++  return text.slice(braceStart, braceEnd)
++}
++
++test('AC-18: the EvidenceBundle return carries an additive canaries field, per-task, alongside existing fields', () => {
++  const text = readWorkflowText()
++  const ret = evidenceBundleReturn(text)
++  assert.match(ret, /\bcanaries\s*:/, 'expected the EvidenceBundle to carry a canaries field')
++  // Existing fields must still be present (additive, not replaced).
++  for (const field of ['panel_results', 'escalations', 'tests_landed', 'tests_skipped', 'spend', 'provenance']) {
++    assert.match(ret, new RegExp(`\\b${field}\\s*:`), `expected the pre-existing field ${field} to still be present`)
++  }
++  assert.match(ret, /canary_source/, 'expected the canaries entries to carry canary_source')
++})
+diff --git a/substrate/test/k19-AC-20-memory-read-wiring-implement.test.js b/substrate/test/k19-AC-20-memory-read-wiring-implement.test.js
+new file mode 100644
+index 0000000..804268a
+--- /dev/null
++++ b/substrate/test/k19-AC-20-memory-read-wiring-implement.test.js
+@@ -0,0 +1,60 @@
++// spec-wi-b1-b2-memory-to-build AC-20. Written from the Spec only.
++//
++// "the memory-read agent call in build-implement" / "source structure is inspected" / "it runs at most
++// once per run, before the per-task pipeline and not once per task, and only when args.memory_ref is
++// truthy. It uses MODEL.cheap and a read-only agentType through AT()."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { readWorkflowText } from './extract-fixloop.js'
++import { REPO } from './fixloop-helpers.js'
++import { agentCalls, calleeArgSpans, isGuardedBy } from './k19-agent-call-helpers.js'
++import { functionNamed } from './b5-wiring-helpers.js'
++
++function memoryReadCalls(text) {
++  return agentCalls(text).filter(c => /result\.roll/.test(c.prompt) || /memory_ref/.test(c.prompt))
++}
++
++function agentToolsOf(agentType) {
++  const p = path.join(REPO, '.claude', 'agents', `${agentType}.md`)
++  if (!fs.existsSync(p)) return null
++  const m = fs.readFileSync(p, 'utf8').match(/^tools:\s*(.*)$/m)
++  return m ? m[1].split(',').map(s => s.trim()) : []
++}
++
++test('AC-20: build-implement.js makes at most one memory-read agent call', () => {
++  const text = readWorkflowText()
++  const calls = memoryReadCalls(text)
++  assert.ok(calls.length <= 1, `expected at most one memory-read agent() call, found ${calls.length}`)
++})
++
++test('AC-20: the memory-read agent call, when present, runs before the per-task pipeline and not once per task (outside runTask, and before pipeline(...) starts)', () => {
++  const text = readWorkflowText()
++  const calls = memoryReadCalls(text)
++  if (!calls.length) return // "at most once" — absent entirely is also compliant with AC-20's own wording
++  const [call] = calls
++  const runTask = functionNamed(text, 'runTask')
++  assert.ok(!(call.nameStart > runTask.bodyStart && call.nameStart < runTask.bodyEnd),
++    'the memory-read call must not be nested inside runTask (the per-task pipeline body)')
++  const pipelineSpans = calleeArgSpans(text, 'pipeline')
++  assert.ok(pipelineSpans.length > 0, 'expected build-implement.js to call pipeline(tasks, ...)')
++  assert.ok(call.nameStart < pipelineSpans[0].nameStart,
++    'the memory-read call must run before the per-task pipeline(...) call')
++})
++
++test('AC-20: the memory-read agent call is guarded by args.memory_ref being truthy, uses MODEL.cheap, and a read-only agentType (never "mechanical")', () => {
++  const text = readWorkflowText()
++  const calls = memoryReadCalls(text)
++  if (!calls.length) return
++  const [call] = calls
++  assert.ok(isGuardedBy(text, call.nameStart, /A\.memory_ref/), 'the call must sit inside an if (...A.memory_ref...) guard')
++  assert.equal(call.model, 'MODEL.cheap', `expected MODEL.cheap, got ${call.model}`)
++  assert.ok(call.agentType, 'expected the call to bind an agentType through AT(...)')
++  assert.notEqual(call.agentType, 'mechanical', 'the memory-read agentType must not be "mechanical"')
++  const tools = agentToolsOf(call.agentType)
++  assert.ok(tools != null, `expected .claude/agents/${call.agentType}.md to exist`)
++  const allowed = new Set(['Read', 'Glob', 'Grep'])
++  assert.ok(tools.length > 0 && tools.every(t => allowed.has(t)),
++    `expected agentType ${call.agentType}'s tools (${tools.join(', ')}) to be a subset of Read/Glob/Grep`)
++})
+diff --git a/substrate/test/k19-AC-3-selectPatterns-max.test.js b/substrate/test/k19-AC-3-selectPatterns-max.test.js
+new file mode 100644
+index 0000000..5994655
+--- /dev/null
++++ b/substrate/test/k19-AC-3-selectPatterns-max.test.js
+@@ -0,0 +1,25 @@
++// spec-wi-b1-b2-memory-to-build AC-3. Written from the Spec only.
++//
++// "more than max valid patterns" / "selectPatterns(patterns, { max: 2 }) runs" / "exactly 2 items are
++// returned, and they are the first 2 of the full ordering."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadPatternFunctions } from './k19-patterns-extract-helpers.js'
++
++const p = (id, kind, sample_size) => ({ id, kind, sample_size, claim: `claim-${id}` })
++
++test('AC-3: selectPatterns(patterns, { max: 2 }) returns exactly 2 items, the first 2 of the full (unbounded) ordering', () => {
++  const { selectPatterns } = loadPatternFunctions()
++  const input = [
++    p('b2', 'pattern', 1),
++    p('a1', 'anti_pattern', 2),
++    p('c3', 'prompt_refinement', 9),
++    p('a2', 'anti_pattern', 2),
++    p('b1', 'pattern', 5),
++    p('a3', 'anti_pattern', 9),
++  ]
++  const full = selectPatterns(input, { max: 100 })
++  const limited = selectPatterns(input, { max: 2 })
++  assert.equal(limited.length, 2, `expected exactly 2 items, got ${limited.length}`)
++  assert.deepEqual(limited, full.slice(0, 2), 'the first 2 of a max:2 call must equal the first 2 of the full ordering')
++})
+diff --git a/substrate/test/k19-AC-4-selectPatterns-malformed.test.js b/substrate/test/k19-AC-4-selectPatterns-malformed.test.js
+new file mode 100644
+index 0000000..561e858
+--- /dev/null
++++ b/substrate/test/k19-AC-4-selectPatterns-malformed.test.js
+@@ -0,0 +1,36 @@
++// spec-wi-b1-b2-memory-to-build AC-4. Written from the Spec only.
++//
++// "a patterns input with entries missing id, entries missing claim, null or non-object entries, or a
++// non-array value (undefined, null, an object)" / "selectPatterns runs" / "it does not throw. Malformed
++// entries are dropped. A non-array input yields []."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { loadPatternFunctions } from './k19-patterns-extract-helpers.js'
++
++test('AC-4: selectPatterns drops malformed entries (missing id, missing claim, null, non-object) without throwing', () => {
++  const { selectPatterns } = loadPatternFunctions()
++  const input = [
++    { kind: 'pattern', sample_size: 3, claim: 'no id' },
++    { id: 'p2', kind: 'pattern', sample_size: 3 },
++    null,
++    'not-an-object',
++    42,
++    { id: 'p3', kind: 'pattern', sample_size: 4, claim: 'valid' },
++  ]
++  let out
++  assert.doesNotThrow(() => { out = selectPatterns(input) })
++  assert.ok(Array.isArray(out))
++  assert.ok(out.every(x => typeof x.id === 'string' && typeof x.claim === 'string'),
++    'every surviving item must carry both id and claim')
++  assert.ok(out.some(x => x.id === 'p3'), 'the one well-formed entry must survive')
++  assert.equal(out.length, 1, 'only the well-formed entry should survive')
++})
++
++test('AC-4: selectPatterns never throws on a non-array input, and returns [] for one', () => {
++  const { selectPatterns } = loadPatternFunctions()
++  for (const bad of [undefined, null, {}, {}, 'x', 5]) {
++    let out
++    assert.doesNotThrow(() => { out = selectPatterns(bad) })
++    assert.deepEqual(out, [], `selectPatterns(${JSON.stringify(bad)}) must return []`)
++  }
++})
+diff --git a/substrate/test/k19-AC-6-build-spec-no-memory-ref.test.js b/substrate/test/k19-AC-6-build-spec-no-memory-ref.test.js
+new file mode 100644
+index 0000000..1a337fd
+--- /dev/null
++++ b/substrate/test/k19-AC-6-build-spec-no-memory-ref.test.js
+@@ -0,0 +1,57 @@
++// spec-wi-b1-b2-memory-to-build AC-6. Written from the Spec only.
++//
++// "build-spec invoked without args.memory_ref" / "the workflow runs" / "no memory-reading agent call is
++// made (source structure: the only memory-read agent call is guarded by args.memory_ref being truthy),
++// and the Decomposer prompt contains no memory or prior-observation heading, so it is byte-identical to
++// today's prompt text"
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText } from './k19-patterns-extract-helpers.js'
++import { agentCalls, agentCallsByLabelRegex, isGuardedBy, ifBlocksMatching } from './k19-agent-call-helpers.js'
++
++function memoryReadCalls(text) {
++  return agentCalls(text).filter(c => /result\.roll/.test(c.prompt) || /memory_ref/.test(c.prompt))
++}
++
++test('AC-6: build-spec.js makes exactly one memory-read agent call, and it is guarded by args.memory_ref being truthy', () => {
++  const text = readWorkflowText()
++  const calls = memoryReadCalls(text)
++  assert.equal(calls.length, 1, `expected exactly one memory-read agent() call, found ${calls.length}`)
++  const [call] = calls
++  assert.ok(isGuardedBy(text, call.nameStart, /A\.memory_ref/),
++    'without args.memory_ref being truthy, source structure shows the memory-read agent() call cannot run at all')
++})
++
++test('AC-6: the prior-observations heading text only appears inside the args.memory_ref guard, never unconditionally', () => {
++  const text = readWorkflowText()
++  const headingIdx = text.indexOf('Prior observations from past runs')
++  assert.ok(headingIdx >= 0, 'expected a prior-observations heading string literal somewhere in build-spec.js')
++  assert.ok(isGuardedBy(text, headingIdx, /A\.memory_ref/),
++    'the prior-observations heading text must sit inside the args.memory_ref guard, so it never renders when memory_ref is absent')
++  // Also make sure it is nested one guard deeper, behind a non-empty `formatted` check — so even inside
++  // an args.memory_ref guard, a falsy/empty result still yields no heading text.
++  const formattedBlocks = ifBlocksMatching(text, /^\s*formatted\s*$/)
++  assert.ok(formattedBlocks.length > 0, 'expected an `if (formatted)` guard around the heading assignment')
++  const inFormattedBlock = formattedBlocks.some(b => headingIdx > b.ifBlock.start && headingIdx < b.ifBlock.end)
++  assert.ok(inFormattedBlock, 'the heading text must sit inside the `if (formatted)` guard')
++})
++
++test('AC-6: the Decomposer prompt template appends priorObservationsText by interpolation only, right after the Spec JSON — so an empty value leaves the prompt text identical to a version with no memory support at all', () => {
++  const text = readWorkflowText()
++  const decomposeCalls = agentCallsByLabelRegex(text, /decompose/)
++  assert.equal(decomposeCalls.length, 1, 'expected exactly one decompose:* agent() call')
++  const [call] = decomposeCalls
++  assert.match(call.prompt, /Spec: \$\{JSON\.stringify\(spec\)\}\$\{priorObservationsText\}/,
++    'expected the decompose prompt to end its Spec text with a bare ${priorObservationsText} interpolation, ' +
++    'so with priorObservationsText === \'\' the rendered prompt is byte-identical to a version without it')
++  assert.doesNotMatch(call.prompt, /Prior observations/,
++    'the decompose prompt template itself must not hardcode the heading text; it only ever arrives via the interpolated variable')
++})
++
++test('AC-6: priorObservationsText is declared \'\' outside (before) any memory_ref guard, so it is unconditionally empty when args.memory_ref is absent', () => {
++  const text = readWorkflowText()
++  const declIdx = text.indexOf("let priorObservationsText = ''")
++  assert.ok(declIdx >= 0, "expected `let priorObservationsText = ''` in build-spec.js")
++  assert.ok(!isGuardedBy(text, declIdx, /A\.memory_ref/),
++    'the initial declaration of priorObservationsText must not itself be inside the args.memory_ref guard')
++})
+diff --git a/substrate/test/k19-AC-7-memory-read-agent-wiring.test.js b/substrate/test/k19-AC-7-memory-read-agent-wiring.test.js
+new file mode 100644
+index 0000000..febe6c8
+--- /dev/null
++++ b/substrate/test/k19-AC-7-memory-read-agent-wiring.test.js
+@@ -0,0 +1,80 @@
++// spec-wi-b1-b2-memory-to-build AC-7. Written from the Spec only.
++//
++// "build-spec invoked with args.memory_ref" / "the workflow runs" / "exactly one memory-read agent call
++// runs, once per run and not once per work item. It uses MODEL.cheap, a read-only agentType bound through
++// AT() (for example 'memory-analyst', or another type whose tools are only Read/Glob/Grep, never
++// 'mechanical'), and a JSON schema returning { patterns: [...], canaries: [...] }. Its prompt tells it to
++// read the file at memory_ref, take result.roll or else result, return patterns and canaries verbatim,
++// never judge or filter, and write or change nothing."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { readWorkflowText } from './k19-patterns-extract-helpers.js'
++import { REPO } from './fixloop-helpers.js'
++import { agentCalls, calleeArgSpans, isWithinAnySpan, isGuardedBy } from './k19-agent-call-helpers.js'
++
++// A "memory-read" call: an agent() call whose prompt mentions reading result.roll (the MemoryRoll shape,
++// per the spec's own "take result.roll or else result") — the one structural fingerprint the spec itself
++// gives this call, rather than assuming any particular label text (which the spec never quotes).
++function memoryReadCalls(text) {
++  return agentCalls(text).filter(c => /result\.roll/.test(c.prompt) || /memory_ref/.test(c.prompt))
++}
++
++function agentToolsOf(agentType) {
++  const p = path.join(REPO, '.claude', 'agents', `${agentType}.md`)
++  if (!fs.existsSync(p)) return null
++  const m = fs.readFileSync(p, 'utf8').match(/^tools:\s*(.*)$/m)
++  return m ? m[1].split(',').map(s => s.trim()) : []
++}
++
++test('AC-7: build-spec.js makes exactly one memory-read agent call', () => {
++  const text = readWorkflowText()
++  const calls = memoryReadCalls(text)
++  assert.equal(calls.length, 1, `expected exactly one memory-read agent() call, found ${calls.length}`)
++})
++
++test('AC-7: the memory-read agent call runs once per run, not once per work item (outside the per-work-item pipeline callback)', () => {
++  const text = readWorkflowText()
++  const [call] = memoryReadCalls(text)
++  assert.ok(call, 'expected a memory-read agent() call')
++  const pipelineSpans = calleeArgSpans(text, 'pipeline')
++  assert.ok(pipelineSpans.length > 0, 'expected build-spec.js to call pipeline(...) over work items')
++  assert.ok(!isWithinAnySpan(call.nameStart, pipelineSpans),
++    'the memory-read agent call must not be nested inside the per-work-item pipeline(...) callback')
++})
++
++test('AC-7: the memory-read agent call is guarded by args.memory_ref being truthy', () => {
++  const text = readWorkflowText()
++  const [call] = memoryReadCalls(text)
++  assert.ok(call)
++  assert.ok(isGuardedBy(text, call.nameStart, /A\.memory_ref/), 'the call must sit inside an if (...A.memory_ref...) guard')
++})
++
++test('AC-7: the memory-read agent call uses MODEL.cheap and a read-only agentType (never "mechanical")', () => {
++  const text = readWorkflowText()
++  const [call] = memoryReadCalls(text)
++  assert.ok(call)
++  assert.equal(call.model, 'MODEL.cheap', `expected MODEL.cheap, got ${call.model}`)
++  assert.ok(call.agentType, 'expected the call to bind an agentType through AT(...)')
++  assert.notEqual(call.agentType, 'mechanical', 'the memory-read agentType must not be "mechanical" (that type is not read-only)')
++  const tools = agentToolsOf(call.agentType)
++  assert.ok(tools != null, `expected .claude/agents/${call.agentType}.md to exist`)
++  const allowed = new Set(['Read', 'Glob', 'Grep'])
++  assert.ok(tools.length > 0 && tools.every(t => allowed.has(t)),
++    `expected agentType ${call.agentType}'s tools (${tools.join(', ')}) to be a subset of Read/Glob/Grep`)
++})
++
++test('AC-7: the memory-read prompt tells the agent to read memory_ref, take result.roll or else result, return patterns and canaries verbatim, never judge or filter, and write/change nothing', () => {
++  const text = readWorkflowText()
++  const [call] = memoryReadCalls(text)
++  assert.ok(call)
++  assert.match(call.prompt, /result\.roll/, 'prompt must mention result.roll')
++  assert.match(call.prompt, /patterns/i)
++  assert.match(call.prompt, /canaries/i)
++  assert.match(call.prompt, /verbatim/i, 'prompt must tell the agent to return the data verbatim, unjudged')
++  assert.match(call.prompt, /never (judge|filter)|not (judge|filter)|without judg(e|ing)/i,
++    'prompt must instruct the agent never to judge or filter')
++  assert.match(call.prompt, /(write|change) nothing|never write|read-?only|read only/i,
++    'prompt must instruct the agent to write or change nothing')
++})
+diff --git a/substrate/test/k19-AC-8-build-spec-malformed-memory.test.js b/substrate/test/k19-AC-8-build-spec-malformed-memory.test.js
+new file mode 100644
+index 0000000..05b40fc
+--- /dev/null
++++ b/substrate/test/k19-AC-8-build-spec-malformed-memory.test.js
+@@ -0,0 +1,39 @@
++// spec-wi-b1-b2-memory-to-build AC-8. Written from the Spec only.
++//
++// "the memory-read agent returns null or throws, or returns an object with empty, missing or malformed
++// patterns" / "build-spec continues" / "the run does not fail. selectPatterns yields []. The Decomposer
++// prompt is identical to the no-memory_ref prompt, with no empty heading. The spec/graph/lint output
++// shape is unchanged."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, loadPatternFunctions } from './k19-patterns-extract-helpers.js'
++import { ifBlocksMatching } from './k19-agent-call-helpers.js'
++
++test('AC-8: selectPatterns yields [] for a null, missing, empty or malformed patterns value (mirrors an agent() result of null or a malformed object)', () => {
++  const { selectPatterns } = loadPatternFunctions()
++  assert.deepEqual(selectPatterns(undefined), [], 'a null/undefined mem.patterns (from a null mem or a missing field) must yield []')
++  assert.deepEqual(selectPatterns(null), [], 'a null patterns value must yield []')
++  assert.deepEqual(selectPatterns([]), [], 'an empty patterns array must yield []')
++  assert.deepEqual(selectPatterns([{}, { id: 1, claim: 2 }, null, 'nope']), [],
++    'a patterns array of only malformed entries must yield []')
++  assert.deepEqual(selectPatterns('not-an-array'), [], 'a non-array patterns value must yield [], never throw')
++})
++
++test('AC-8: chosenPatterns is computed from mem?.patterns (optional chaining), so the workflow does not fail when the memory-read agent returns null', () => {
++  const text = readWorkflowText()
++  assert.match(text, /selectPatterns\(\s*mem\?\.\s*patterns\s*\)/,
++    'expected chosenPatterns to be derived from selectPatterns(mem?.patterns), which stays safe (undefined -> []) when mem is null')
++})
++
++test('AC-8: an empty/malformed result (formatted === \'\') leaves the Decomposer prompt heading-free, exactly like the no-memory_ref case', () => {
++  const { selectPatterns, formatPatterns } = loadPatternFunctions()
++  // Reproduce the exact composition the workflow performs: selectPatterns(mem?.patterns) then formatPatterns(...).
++  for (const badPatterns of [undefined, null, [], [{}], 'garbage']) {
++    const formatted = formatPatterns(selectPatterns(badPatterns))
++    assert.equal(formatted, '', `expected formatPatterns(selectPatterns(...)) to be '' for malformed patterns input ${JSON.stringify(badPatterns)}`)
++  }
++  // And the workflow only ever sets priorObservationsText inside `if (formatted)`, so formatted === '' leaves
++  // priorObservationsText at its initial '' — the same value used when args.memory_ref is absent entirely.
++  const formattedBlocks = ifBlocksMatching(readWorkflowText(), /^\s*formatted\s*$/)
++  assert.ok(formattedBlocks.length > 0, 'expected an `if (formatted)` guard around the heading assignment')
++})
+diff --git a/substrate/test/k19-AC-9-decomposer-prompt-heading.test.js b/substrate/test/k19-AC-9-decomposer-prompt-heading.test.js
+new file mode 100644
+index 0000000..f93f7f8
+--- /dev/null
++++ b/substrate/test/k19-AC-9-decomposer-prompt-heading.test.js
+@@ -0,0 +1,44 @@
++// spec-wi-b1-b2-memory-to-build AC-9. Written from the Spec only.
++//
++// "a memory roll with at least one valid pattern" / "build-spec builds the Decomposer prompt" / "the
++// prompt includes the formatPatterns(selectPatterns(patterns)) text under a heading stating these are
++// prior observations from past runs to avoid, not rules. The text comes from structured items selected in
++// script code, never a raw JSON blob of the roll. The Spec Writer and Risk Router prompts are unchanged."
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import { readWorkflowText, loadPatternFunctions } from './k19-patterns-extract-helpers.js'
++import { agentCallsByLabelRegex } from './k19-agent-call-helpers.js'
++
++test('AC-9: selectPatterns(patterns) then formatPatterns(...) renders the exact text injected under the heading', () => {
++  const { selectPatterns, formatPatterns } = loadPatternFunctions()
++  const patterns = [{ id: 'p1', sample_size: 4, claim: 'X', kind: 'pattern' }]
++  const expected = formatPatterns(selectPatterns(patterns))
++  assert.equal(expected, 'p1 (n=4): X')
++})
++
++test('AC-9: the heading text frames the injected patterns as prior observations from past runs to avoid, not rules', () => {
++  const text = readWorkflowText()
++  const headingIdx = text.indexOf('Prior observations from past runs')
++  assert.ok(headingIdx >= 0, 'expected a prior-observations heading literal')
++  const headingWindow = text.slice(headingIdx, headingIdx + 300)
++  assert.match(headingWindow, /AVOID/i, 'the heading must frame the patterns as things to avoid')
++  assert.match(headingWindow, /not rules/i, 'the heading must explicitly say these are not rules')
++  assert.match(headingWindow, /past runs/i, 'the heading must attribute the patterns to past runs')
++  // The heading interpolates `formatted` (selectPatterns/formatPatterns output), never the raw mem/roll object.
++  assert.match(headingWindow, /\$\{formatted\}/, 'expected the heading text to interpolate the structured `formatted` string')
++  assert.doesNotMatch(headingWindow, /\$\{JSON\.stringify\(mem\)\}|\$\{mem\}/,
++    'the heading must never interpolate a raw JSON blob of the memory-read result')
++})
++
++test('AC-9: the Spec Writer (spec:*) and Risk Router (route:*) prompts never reference priorObservationsText, mem, or the memory roll', () => {
++  const text = readWorkflowText()
++  const specCalls = agentCallsByLabelRegex(text, /^`spec:/)
++  const routeCalls = agentCallsByLabelRegex(text, /^`route:/)
++  assert.equal(specCalls.length, 1, 'expected exactly one spec:* agent() call')
++  assert.equal(routeCalls.length, 1, 'expected exactly one route:* agent() call')
++  for (const call of [...specCalls, ...routeCalls]) {
++    assert.doesNotMatch(call.prompt, /priorObservationsText/, 'Spec Writer/Risk Router prompts must not reference priorObservationsText')
++    assert.doesNotMatch(call.prompt, /\bmem\b/, 'Spec Writer/Risk Router prompts must not reference the memory-read result')
++    assert.doesNotMatch(call.prompt, /Prior observations/i, 'Spec Writer/Risk Router prompts must carry no prior-observations heading')
++  }
++})
+diff --git a/substrate/test/k19-agent-call-helpers.js b/substrate/test/k19-agent-call-helpers.js
+new file mode 100644
+index 0000000..ab94f81
+--- /dev/null
++++ b/substrate/test/k19-agent-call-helpers.js
+@@ -0,0 +1,141 @@
++// Helper for locating agent() CALL SITES (never a bare textual/indexOf search) in the workflow scripts
++// under test, for spec-wi-b1-b2-memory-to-build. Built directly on top of the existing
++// substrate/test/b5-wiring-helpers.js call-structure primitives (codeMask, callSites) so a call to
++// `agent` is found the same way that file finds any other call: by scanning real call sites, never by
++// the first textual occurrence of the word "agent" in the file (which would just as happily match a
++// comment, a variable named agentType, or a declaration).
++//
++// Reuses codeMask()/callSites() exactly as exported by b5-wiring-helpers.js (copied alongside this file)
++// rather than reimplementing string/comment/template skipping.
++import { codeMask, callSites, matchBrace } from './b5-wiring-helpers.js'
++
++// Index just past the ')' that closes the '(' at `openIdx`, using the same code/string/comment mask
++// b5-wiring-helpers.js already computes for the whole text, so parens inside strings/templates/comments
++// are correctly ignored.
++export function matchParenIdx(text, mask, openIdx) {
++  let depth = 0
++  for (let i = openIdx; i < text.length; i++) {
++    if (!mask[i]) continue
++    const c = text[i]
++    if (c === '(') depth++
++    else if (c === ')') { depth--; if (depth === 0) return i }
++  }
++  throw new Error(`matchParenIdx: unmatched ( at ${openIdx}`)
++}
++
++// Every real call to `agent(...)` within text[from, to). For each, splits the argument list into the
++// leading prompt text and the trailing `{ label: ..., ..., schema: ... }` options object (the shape every
++// agent() call in this repo uses — see build-spec.js / build-implement.js), and pulls out label / model /
++// schema / agentType for convenience.
++export function agentCalls(text, from = 0, to = text.length) {
++  const mask = codeMask(text)
++  const nameStarts = callSites(text, 'agent', from, to)
++  return nameStarts.map(nameStart => {
++    let i = nameStart + 'agent'.length
++    while (/\s/.test(text[i])) i++
++    if (text[i] !== '(') throw new Error(`agentCalls: expected ( right after "agent" at ${nameStart}`)
++    const closeIdx = matchParenIdx(text, mask, i)
++    const argsText = text.slice(i + 1, closeIdx)
++    const optMatch = argsText.match(/\{\s*label:[\s\S]*schema:\s*\w+[\s\S]*?\}\s*$/)
++    const options = optMatch ? optMatch[0] : ''
++    const prompt = optMatch ? argsText.slice(0, optMatch.index) : argsText
++    const label = options.match(/label:\s*(`[^`]*`|'[^']*'|"[^"]*")/)?.[1] ?? null
++    const model = options.match(/model:\s*(MODEL\.\w+)/)?.[1] ?? null
++    const schema = options.match(/schema:\s*(\w+)/)?.[1] ?? null
++    const agentType = options.match(/agentType:\s*['"]([\w-]+)['"]/)?.[1]
++      ?? options.match(/\.\.\.\s*(?:AT|NEW)\(\s*['"]([\w-]+)['"]\s*\)/)?.[1] ?? null
++    return { nameStart, argsStart: i + 1, argsEnd: closeIdx, argsText, prompt, options, label, model, schema, agentType }
++  })
++}
++
++// Every agent() call within [from, to) whose `label` field's literal text includes `labelSubstring`.
++export function agentCallsByLabel(text, labelSubstring, from = 0, to = text.length) {
++  return agentCalls(text, from, to).filter(c => c.label != null && c.label.includes(labelSubstring))
++}
++
++// Every agent() call within [from, to) whose `label` field's literal text matches `labelRegex`.
++export function agentCallsByLabelRegex(text, labelRegex, from = 0, to = text.length) {
++  return agentCalls(text, from, to).filter(c => c.label != null && labelRegex.test(c.label))
++}
++
++// The [start, end) argument-list paren span (start just after '(', end at the matching ')') of every
++// real call to `name(...)`, found the same call-site way as agentCalls above (via b5-wiring-helpers'
++// callSites + codeMask), for ANY callee identifier — not just `agent`. Used to test whether some other
++// call site lies textually inside (nested within) a given call's argument list, e.g. inside the callback
++// argument of pipeline(...) / parallel(...).
++export function calleeArgSpans(text, name, from = 0, to = text.length) {
++  const mask = codeMask(text)
++  const nameStarts = callSites(text, name, from, to)
++  return nameStarts.map(nameStart => {
++    let i = nameStart + name.length
++    while (/\s/.test(text[i])) i++
++    if (text[i] !== '(') throw new Error(`calleeArgSpans: expected ( right after "${name}" at ${nameStart}`)
++    const closeIdx = matchParenIdx(text, mask, i)
++    return { nameStart, argsStart: i + 1, argsEnd: closeIdx }
++  })
++}
++
++export function isWithinAnySpan(idx, spans) {
++  return spans.some(s => idx > s.argsStart && idx < s.argsEnd)
++}
++
++// Every {...} brace block (found via b5-wiring-helpers' own matchBrace, over real code positions only)
++// that encloses `idx`, innermost first. Used to check whether a call site sits inside some guarding
++// `if (...) { ... }` block, without assuming any particular variable name for that guard beyond scanning
++// the text immediately preceding the block's opening brace.
++export function enclosingBraces(text, idx) {
++  const mask = codeMask(text)
++  const spans = []
++  for (let i = 0; i < idx; i++) {
++    if (!mask[i] || text[i] !== '{') continue
++    let end
++    try { end = matchBrace(text, i) } catch { continue }
++    if (end > idx) spans.push({ start: i, end })
++  }
++  spans.sort((a, b) => (a.end - a.start) - (b.end - b.start))
++  return spans
++}
++
++// True if `idx` sits inside a brace block whose "header" (the ~`headerWindow` characters immediately
++// before the block's opening `{`) matches `headerRegex` — e.g. an `if (A.memory_ref) { ... }` guard.
++export function isGuardedBy(text, idx, headerRegex, headerWindow = 300) {
++  return enclosingBraces(text, idx).some(({ start }) => headerRegex.test(text.slice(Math.max(0, start - headerWindow), start)))
++}
++
++// Every braced `if (<cond>) { ... } [else { ... }]` in text whose <cond> matches conditionRegex — with
++// proper paren depth matching (so a condition containing its own nested parens, e.g.
++// `A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)`, is read in full rather
++// than truncated at the first `)`). Returns { condText, ifBlock: {start,end}, elseBlock: {start,end}|null }
++// for each match (elseBlock null when there is no following else).
++export function ifBlocksMatching(text, conditionRegex) {
++  const mask = codeMask(text)
++  const out = []
++  const re = /\bif\s*\(/g
++  let m
++  while ((m = re.exec(text))) {
++    if (!mask[m.index]) continue
++    const openParen = m.index + m[0].length - 1
++    let closeParen
++    try { closeParen = matchParenIdx(text, mask, openParen) } catch { continue }
++    const condText = text.slice(openParen + 1, closeParen)
++    if (!conditionRegex.test(condText)) continue
++    let i = closeParen + 1
++    while (i < text.length && /\s/.test(text[i])) i++
++    if (text[i] !== '{') continue
++    const bodyEnd = matchBrace(text, i)
++    let j = bodyEnd
++    while (j < text.length && /\s/.test(text[j])) j++
++    let elseBlock = null
++    if (text.slice(j, j + 4) === 'else') {
++      let k = j + 4
++      while (k < text.length && /\s/.test(text[k])) k++
++      if (text[k] === '{') {
++        elseBlock = { start: k, end: matchBrace(text, k) }
++      } else if (text.slice(k, k + 2) === 'if') {
++        elseBlock = { start: k, end: text.length } // coarse: rest of the else-if chain, good enough for containment checks
++      }
++    }
++    out.push({ condText, ifBlock: { start: i, end: bodyEnd }, elseBlock })
++  }
++  return out
++}
+diff --git a/substrate/test/k19-canary-extract-helpers.js b/substrate/test/k19-canary-extract-helpers.js
+new file mode 100644
+index 0000000..d9d7388
+--- /dev/null
++++ b/substrate/test/k19-canary-extract-helpers.js
+@@ -0,0 +1,20 @@
++// Helper for the B2 (build-implement.js) selectCanary tests, spec-wi-b1-b2-memory-to-build.
++//
++// Reuses extract-fixloop.js's existing sentinel-extraction (BEGIN/END 'fix-loop decisions', the same
++// idiom AC-10 itself names) rather than re-implementing it, per CLAUDE.md rule 3. Evaluates the block
++// with `new Function` exactly as AC-10 describes and returns selectCanary plus withinOwned (AC-10: the
++// pure function "uses withinOwned from the same block").
++//
++// selectCanary does not exist in the block yet at test-authoring time (this task is unbuilt); this
++// helper simply asks the block, once it exists, for those two names. Until then, loading throws, which
++// is the correct "not implemented yet" signal for a test written before the implementation.
++import { readWorkflowText, extractBlock } from './extract-fixloop.js'
++
++export function loadSelectCanary() {
++  const { block } = extractBlock(readWorkflowText())
++  if (block == null) throw new Error('fix-loop decisions block not found between the sentinel lines')
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + `
++    return { selectCanary, withinOwned }`)
++  return factory()
++}
+diff --git a/substrate/test/k19-patterns-extract-helpers.js b/substrate/test/k19-patterns-extract-helpers.js
+new file mode 100644
+index 0000000..9cd8c25
+--- /dev/null
++++ b/substrate/test/k19-patterns-extract-helpers.js
+@@ -0,0 +1,61 @@
++// Helper for the B1 (build-spec.js) selectPatterns/formatPatterns tests, spec-wi-b1-b2-memory-to-build.
++//
++// AC-1's given is explicit that the sentinel-extraction idiom pulls the block holding selectPatterns/
++// formatPatterns from EITHER the existing '// ---- BEGIN graph-lint ----'/'// ---- END graph-lint ----'
++// block (reused in place) OR a new '// ---- BEGIN memory-patterns ----'/'// ---- END memory-patterns ----'
++// block — the spec deliberately leaves that choice to the implementation. This helper tries the new
++// sentinel pair first, then falls back to the existing graph-lint one, exactly mirroring that "either/or".
++//
++// Repo root is resolved via process.cwd() through fixloop-helpers.js's existing REPO export (never by
++// counting '..' from this file's own on-disk location — this TestSet is authored under
++// .artifacts/tests/implement-memory-to-build/ and lands under substrate/test/, two different depths
++// below the repository root).
++import fs from 'node:fs'
++import path from 'node:path'
++import { REPO } from './fixloop-helpers.js'
++
++export const WORKFLOW_PATH = path.join(REPO, '.claude', 'workflows', 'build-spec.js')
++
++export const NEW_BEGIN = '// ---- BEGIN memory-patterns ----'
++export const NEW_END = '// ---- END memory-patterns ----'
++export const OLD_BEGIN = '// ---- BEGIN graph-lint ----'
++export const OLD_END = '// ---- END graph-lint ----'
++
++export function readWorkflowText() {
++  return fs.readFileSync(WORKFLOW_PATH, 'utf8')
++}
++
++function extractBetween(text, beginSentinel, endSentinel) {
++  const lines = text.split('\n')
++  const beginIdxs = []
++  const endIdxs = []
++  lines.forEach((line, i) => {
++    if (line === beginSentinel) beginIdxs.push(i)
++    if (line === endSentinel) endIdxs.push(i)
++  })
++  const beginIdx = beginIdxs[0]
++  const endIdx = endIdxs.find(i => beginIdx != null && i > beginIdx)
++  return (beginIdx == null || endIdx == null) ? null : lines.slice(beginIdx + 1, endIdx).join('\n')
++}
++
++// Returns { block, which } where `which` is 'memory-patterns' or 'graph-lint', or { block: null, which: null }
++// if neither sentinel pair is present.
++export function extractPatternsBlock(text) {
++  const fresh = extractBetween(text, NEW_BEGIN, NEW_END)
++  if (fresh != null) return { block: fresh, which: 'memory-patterns' }
++  const reused = extractBetween(text, OLD_BEGIN, OLD_END)
++  if (reused != null) return { block: reused, which: 'graph-lint' }
++  return { block: null, which: null }
++}
++
++// Evaluates whichever block is found exactly as AC-1 describes and returns { selectPatterns, formatPatterns }.
++export function loadPatternFunctions() {
++  const { block, which } = extractPatternsBlock(readWorkflowText())
++  if (block == null) {
++    throw new Error('neither memory-patterns nor graph-lint sentinel block found in build-spec.js')
++  }
++  // eslint-disable-next-line no-new-func
++  const factory = new Function(block + `
++    return { selectPatterns, formatPatterns }`)
++  return { ...factory(), which }
++}

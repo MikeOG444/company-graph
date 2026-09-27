@@ -197,7 +197,9 @@ Each item says where it lives so it can be picked up cold. Nothing here blocks P
 
 `C8 → A7 → B3 (absorbing A6) → A5 → C5 → A1 → B1+B2 → C10`. **Confirmed next, after A5 landed: `B5 → C5 → B1+B2 → C10`** (B5 first because it is a defect in the machine
 that builds everything after it; spec draft carries options 1 + 2 + 3). **B5 landed at `k9d`, B6 at `k11d`, C5 at `k13d`** (see each). B8 landed at `k15d`; C13 + B7 part 1 at `k17d`.
-**Next: B1+B2 → C10's remainder → B7 part 2 (convert the remaining freeze tests to named extension lists).** B6 moved to the
+**B7 part 2 and C10 landed by hand after PR #10 merged** (test-only; graph-lint check 5 forbids a Spec naming
+`substrate/test/`, so the line cannot take them). **B1+B2 (carrying C14's prompt half) landed at `k19d`** — the
+confirmed order is now exhausted; what comes next is the human's call (proposed: C15 → C12 → C14's remaining check). B6 moved to the
 front because `k9b` spent a full run failing correct work on invalid tests. B6 first engages on the next build.
 B7 (below) is the same family and should be picked up with the next build that touches `build-implement.js`.
 
@@ -465,9 +467,35 @@ the current one, so a fourth instance cannot hide the way the first three did.
 
 ### B. Missing edges
 
-**B1 — Memory → Build does not exist.** `grep -n "memory\|pattern\|prompt_refinement" .claude/workflows/build-spec.js` returns nothing. `/memory-roll` produces patterns and canaries (`ledger/runs/mr2-memory-roll.json` → `roll.patterns` ×10, `roll.canaries` ×10) and nothing consumes any of it. This is the edge that would catch a bad decomposition without a human in the loop.
+**B1 — Memory → Build does not exist.** *(Landed `k19d` with B2 — see the B2 entry.)* `grep -n "memory\|pattern\|prompt_refinement" .claude/workflows/build-spec.js` returns nothing. `/memory-roll` produces patterns and canaries (`ledger/runs/mr2-memory-roll.json` → `roll.patterns` ×10, `roll.canaries` ×10) and nothing consumes any of it. This is the edge that would catch a bad decomposition without a human in the loop.
 
 **B2 — The canary library is not wired.** `.claude/workflows/build-implement.js:599` reads `A.canary` from `args` only; a human hand-picks one. Phase 8's exit test needs the runner to pull from `roll.canaries`.
+
+*B1+B2 landed at `k19d`, by direct drive of `k19`* (spec `k18`, low risk, no gate, one task). Both workflows take
+an optional `args.memory_ref` (e.g. `ledger/runs/mr2-memory-roll.json`); absent, unsafe (absolute, `~`, `..`, or
+non-path characters) or unreadable, nothing runs and both behave exactly as before. **B1:** one read-only
+`memory:read` agent (`memory-analyst`, cheap) copies the roll; pure `selectPatterns`/`formatPatterns` (sentinel
+block `memory-patterns` in `build-spec.js`) put at most five patterns, anti-patterns first, under a "prior
+observations to AVOID, not rules" heading in the **Decomposer prompt only**. **B2:** the same read feeds pure
+`selectCanary` (fix-loop block), which picks one canary whose mutation names a path inside the task's
+`owned_surfaces` by FNV-1a of `run_id:task.id`; an explicit `args.canary` always wins; the bundle carries
+`canaries: [{ task_id, canary_source: 'args'|'library'|'none', canary_id? }]`. On `mr2`, a task owning
+`toy/src/app.js` draws c4/c3/c10/c7 for `k20`–`k23`; a task owning only tests draws none. Note `withinOwned`
+semantics: an owned ref without a trailing `/` covers only itself, so `toy/src` covers nothing below it.
+**`k19` escalated at the round cap with the implementation finished**, because of two fix-loop defects, both fixed
+in `k19d` with `substrate/test/k19d-testset-paths.test.js`: (1) the Test Runner reports an import's `file` relative
+to the TestSet (`x.test.js`), `escapingImports` resolved it against `''`, so **every** `./helpers.js` read as an
+escape and every round was declared invalid — and the escape repair was aimed at `${worktree}/x.test.js`, so Test
+Authors wrote the TestSet onto the task branch; now `testSetFile` places such a name inside the TestSet first.
+(2) `widenTestsRef` accepted any path under `.artifacts/`, which includes the task worktree, so a repaired copy on
+the branch became the TestSet and later rounds ran one file; now only `.artifacts/tests/` may replace it, and a
+repair beside a single-file TestSet widens to its directory. Review also: `.catch(() => null)` on both memory reads
+(a thrown read is the same as none), `isSafeMemoryRef` moved into the fix-loop block. Three TestSet tests were
+wrong, not the code (a wrapped "current directory", shorthand `escalations,`, a phrase list the spec never quotes)
+and `k19-suite-hygiene` read a gitignored path; all four fixed. 13 planted mutations each turn a test red; root
+417/417, toy 60/60. `a5-bind-AC-13` gains the two `memory:read` sites as a named extension. `k19` cost **$7.00**
+(sonnet $4.98, haiku $1.80, opus-5-5 $0.22) — 3.1M tokens against a 600k budget; see C15. Evidence:
+`ledger/runs/k19/`.
 
 **B3 — Graph lint belongs in code, not in the decomposer prompt.** `.claude/workflows/build-spec.js:87-93` states the rules and validates none of them. `t7`'s decomposition still shipped a false edge *and* assigned AC-12 to a task that did not own the file it names. Two checks, zero tokens: every criterion's required surface ∈ its task's `owned_surfaces`; every `depends_on` justified by a variable actually crossing.
 
@@ -707,6 +735,13 @@ outside the artifact dir. `b8-AC-12` was retired (four "nothing else changed" fr
 other workflow — it went red on this change and the implementer edited it out of scope). The freezes that remain
 (`a5-bind-AC-13` and kin) are B7 part 2.
 
+*B7 part 2 landed by hand (after PR #10).* `a5-bind-AC-13` is now A5's untouched BASELINE plus a named
+`EXTENSIONS` list (work item, reason, sites, control-flow deltas) — a new agent() site is a one-line reviewed entry;
+an unlisted site, or a listed one that disappears, still fails (both checked by planting each). The four "Escalation
+reason enum is exactly these five" checks now assert the five are still present, so a spec may add a reason.
+`b6-regression-baseline.test.js` is retired: its five tests froze reviewer/judge code byte-for-byte — the
+"nothing else changed" shape `changeScopedCriteria` now keeps from being written in the first place.
+
 ### C. Durability and substrate
 
 **C1 — `WorkItem.branch` and `patch_ref` name local branches in an ephemeral container.** Dead on the next session. Open question: should `/maintain-triage` push `WorkItem.branch`? `patch_ref` has the identical defect.
@@ -740,6 +775,9 @@ landed exactly as the Implementer wrote it. `k13` cost $2.18 (haiku $1.14, sonne
 with `k12` $2.43. **What the line could not do:** every failure was harness or line, not code — see B8. **Not
 yet done:** nothing is configured to deliver. Setting `NOTIFY_DRIVER=github`, `NOTIFY_GITHUB_TOKEN`,
 `NOTIFY_GITHUB_REPO` for real is an outward-facing act (it opens issues on a repo) and is the human's call.
+**Decided by the human after `k19`: issues go to `MikeOG444/company-graph`.** Still to do, by the human: set
+`NOTIFY_DRIVER=github`, `NOTIFY_GITHUB_REPO=MikeOG444/company-graph` and `NOTIFY_GITHUB_TOKEN` (a fine-grained token
+for that repo only, Issues read/write) in the cloud environment's settings; a new session picks them up.
 
 **C4 — This repository has no CI.** No `.github/workflows/`. `/create-project` §6 is supposed to stand CI up, and venture 0 never had it, so nothing runs the suites on a push.
 
@@ -832,9 +870,18 @@ them (their shell starts at the repository root). Seven untracked `b6-*.test.js`
 the session's stop hook; a stray copy there can also shadow what a later landing sees. *Fix:* every fix-loop prompt
 that runs tests names the worktree as the directory to run from, and the Test Runner runs a TestSet in place with
 `process.cwd()` = the worktree; a mechanical check after each round reports any new untracked file outside
-`.artifacts/`.
+`.artifacts/`. *Prompt half landed at `k19d`:* the Test Runner and every `testfix:`, `fix:` and `impl:…:repair`
+prompt names the worktree as the current directory and forbids writing into the main checkout. The per-round
+untracked-file check is still open.
 
-*C10 mostly landed:* `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
+**C15 — The run's budget guard counts output tokens only, so a run can spend 5× its budget unchecked.** `k19` was
+given `work_item_budgets: 600k`; its bundle reported `spend.tokens` 674,634 (output tokens, the only figure the
+script sees) while the runtime billed 3,103,346 tokens, $7.00. Most of it was the four invalid rounds above, which a
+correct cap would have stopped far sooner. *Fix:* budget in the same unit the ledger bills — either scale the cap to
+output tokens from the ledger's measured input/output ratio per node, or cap rounds that were declared invalid
+separately from rounds that produced evidence.
+
+*C10 landed:* every test helper and test now takes `REPO` from `helpers.js`. Previously — `fixloop-helpers.js` (`k11d`) and `helpers.js` (`k13d`) resolve `REPO` by walking up from
 `process.cwd()` to the repo markers (fallback: from their own directory). `ci-workflow.test.js`,
 `node-support-floor-and-test-glob.test.js` and `t2-doc-paths.js` still count `..`.
 

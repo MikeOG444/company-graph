@@ -1,0 +1,1481 @@
+{
+  "entry": {
+    "id": "k19-build-implement",
+    "run_id": "k19",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-26T22:30:10.715Z",
+    "finished_at": "2026-09-27T00:06:32.495Z",
+    "wall_clock_sec": 5782,
+    "result_ref": "ledger/runs/k19-build-implement.json",
+    "artifact_count": 14,
+    "escalations": 1,
+    "tokens": 3103346,
+    "tokens_by_model": {
+      "claude-sonnet-5": 1777853,
+      "claude-haiku-4-5": 1285338,
+      "claude-opus-5-5": 40155
+    },
+    "cost_est_usd": 7,
+    "agents": 78,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k19",
+      "created_at": "2026-09-26T22:29:25Z"
+    },
+    "trace_ref": ".artifacts/traces/k19-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k19",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "no task passed",
+    "specs": [
+      "spec-wi-b1-b2-memory-to-build"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "implement-memory-to-build-r0",
+        "result": "fail",
+        "veto_by": "security",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Checked whether MemoryExtraction schemas in build-spec.js and build-implement.js are compatible - found build-implement forbids patterns while build-spec requires them, violating AC-7's specification",
+              "Verified memory-read agent prompts for consistency across workflows - found build-spec.js says 'Return its patterns and canaries' while build-implement.js only says 'Return its canaries', creating inconsistent instructions",
+              "Tested whether build-implement's schema would accept a correct MemoryRoll response - schema validation would fail due to additionalProperties: false forbidding the patterns field required by AC-7"
+            ],
+            "findings": [
+              {
+                "id": "memory-extract-schema-required-mismatch",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:26-27",
+                "claim": "MemoryExtraction schema in build-implement.js forbids patterns field that AC-7 requires the schema to return",
+                "evidence": "build-implement.js line 26-27 defines: `const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['canaries'], properties: { canaries: { type: 'array', items: { type: 'object' } } } }` which forbids additional properties. AC-7 states 'a JSON schema returning { patterns: [...], canaries: [...] }'. build-spec.js line 78-79 correctly requires both patterns and canaries.",
+                "dedupe_key": ".claude/workflows/build-implement.js:26-27|schema forbids patterns required by AC-7",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "memory-agent-prompt-inconsistency",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:982-985",
+                "claim": "Memory-read agent prompt in build-implement only asks for canaries, not patterns, inconsistent with build-spec prompt",
+                "evidence": "build-implement.js line 982-983 says 'Return its canaries EXACTLY as found there' without mentioning patterns. build-spec.js line 495-496 says 'Return its patterns and canaries EXACTLY as found there, verbatim'. Both read the same file; instructions should be consistent.",
+                "dedupe_key": ".claude/workflows/build-implement.js:982-985|agent prompt asks only for canaries not patterns",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.92,
+            "change_set_id": "implement-memory-to-build-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "fail",
+            "confidence": 0.92,
+            "attempts": [
+              "Prompt injection via memory_ref: inject newlines and override instructions into agent prompt by controlling args.memory_ref parameter",
+              "Path traversal via memory_ref: access files outside intended directory (e.g., ../../.env, /etc/passwd) through unvalidated path interpolation",
+              "Workflow crash via missing error handling: trigger agent failure to violate AC-8 requirement that workflow degrades gracefully when agent throws"
+            ],
+            "findings": [
+              {
+                "id": "F1-memory-ref-injection",
+                "lens": "security",
+                "severity": "high",
+                "location": ".claude/workflows/build-spec.js:495",
+                "claim": "A.memory_ref is directly interpolated into agent prompt without escaping, enabling prompt injection attacks",
+                "evidence": "Line 495: `Read the file at ${A.memory_ref}` — no escaping or validation of user-supplied input before template interpolation",
+                "dedupe_key": ".claude/workflows/build-spec.js:495|prompt injection memory_ref",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F2-memory-ref-injection-impl",
+                "lens": "security",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:982",
+                "claim": "A.memory_ref is directly interpolated into agent prompt without escaping, enabling prompt injection attacks",
+                "evidence": "Line 982: `Read the file at ${A.memory_ref}` — identical unescaped interpolation as build-spec.js",
+                "dedupe_key": ".claude/workflows/build-implement.js:982|prompt injection memory_ref",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F3-memory-ref-traversal",
+                "lens": "security",
+                "severity": "medium",
+                "location": ".claude/workflows/build-spec.js:493-501",
+                "claim": "No validation that memory_ref is repository-relative; path traversal attacks can read files outside intended directory",
+                "evidence": "Agent prompt says 'repository-relative path' but code contains no validation logic before interpolating memory_ref into the Read instruction",
+                "dedupe_key": ".claude/workflows/build-spec.js:493|path traversal memory_ref unvalidated",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F4-memory-read-error-handling",
+                "lens": "security",
+                "severity": "medium",
+                "location": ".claude/workflows/build-spec.js:494-507",
+                "claim": "Memory-read agent call not wrapped in try-catch; throws violate AC-8 graceful degradation requirement",
+                "evidence": "Line 494: `const mem = await agent(...)` executes without error handling. Spec AC-8 requires: 'when the memory-read agent returns null or throws... the run does not fail' but uncaught throws crash workflow",
+                "dedupe_key": ".claude/workflows/build-spec.js:494|missing try-catch memory agent",
+                "status": "open",
+                "target": "implementation"
+              },
+              {
+                "id": "F5-memory-read-error-handling-impl",
+                "lens": "security",
+                "severity": "medium",
+                "location": ".claude/workflows/build-implement.js:981-989",
+                "claim": "Memory-read agent call not wrapped in try-catch; throws violate AC-17 graceful degradation requirement",
+                "evidence": "Line 981: `const mem = await agent(...)` executes without error handling. Spec AC-17 requires graceful degradation when agent fails but uncaught exception crashes workflow",
+                "dedupe_key": ".claude/workflows/build-implement.js:981|missing try-catch memory agent",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "change_set_id": "implement-memory-to-build-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "confidence": 0.85,
+            "attempts": [
+              "Attempt 1: Remove selectPatterns function from memory-patterns block - should fail AC-1 (pure functions requirement), but test couldn't run reliably due to import issues in invalid test run",
+              "Attempt 2: Add Math.random() call to selectCanary function - should fail AC-10 and AC-12 (purity and determinism requirements), but tests couldn't run reliably due to import issues",
+              "Attempt 3: Remove priorObservationsText injection from Decomposer prompt when memory_ref is provided - should fail AC-6 (byte-identical when no memory_ref) and AC-9 (patterns heading requirement), but NO TESTS EXIST for these criteria"
+            ],
+            "findings": [
+              {
+                "id": "missing-ac6-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-memory-to-build/k19-AC-6-*.test.js",
+                "claim": "AC-6 acceptance criterion has no test file",
+                "evidence": "Test file for AC-6 ('build-spec invoked without args.memory_ref... Decomposer prompt is byte-identical to today's') does not exist in .artifacts/tests/implement-memory-to-build/ directory. Glob search found 18 test files but no k19-AC-6-* file.",
+                "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac6-test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "missing-ac8-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-memory-to-build/k19-AC-8-*.test.js",
+                "claim": "AC-8 acceptance criterion has no test file",
+                "evidence": "Test file for AC-8 ('the memory-read agent returns null or throws... the run does not fail') does not exist. This criterion requires graceful degradation when memory-read fails in build-spec, but no test verifies this behavior.",
+                "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac8-test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "missing-ac9-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-memory-to-build/k19-AC-9-*.test.js",
+                "claim": "AC-9 acceptance criterion has no test file",
+                "evidence": "Test file for AC-9 ('a memory roll with at least one valid pattern... the prompt includes formatPatterns text under a heading') does not exist. This criterion requires verifying the patterns heading injection in Decomposer prompt, but no test covers it.",
+                "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac9-test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "missing-ac17-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/implement-memory-to-build/k19-AC-17-*.test.js",
+                "claim": "AC-17 acceptance criterion has no test file",
+                "evidence": "Test file for AC-17 ('build-implement invoked with args.memory_ref whose read returns null... the run does not fail') does not exist. This criterion requires graceful degradation when memory-read fails in build-implement, but no test verifies this behavior.",
+                "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac17-test",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "ac18-test-regex-issue",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/implement-memory-to-build/k19-AC-18-evidence-bundle-canary-field.test.js:37",
+                "claim": "AC-18 test regex expects explicit syntax 'field:' but code uses ES6 shorthand 'escalations,' which is valid but doesn't match the regex pattern",
+                "evidence": "Test at line 37 uses regex `new RegExp('\\\\b${field}\\\\s*:')` expecting colon syntax, but build-implement.js line 2000 uses shorthand property: `escalations,` instead of `escalations: escalations,`. The test failure message was \"'expected the pre-existing field escalations to still be present'\" because the regex didn't match the shorthand syntax.",
+                "dedupe_key": ".artifacts/tests/implement-memory-to-build/k19-AC-18-evidence-bundle-canary-field.test.js:37|regex-too-strict",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "ac7-prompt-wording-mismatch",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-spec.js:498-500",
+                "claim": "AC-7 memory-read agent prompt wording doesn't match test regex expectations for 'write or change nothing' instruction",
+                "evidence": "AC-7 test k19-AC-7-memory-read-agent-wiring.test.js line 78-79 expects regex `/(write|change) nothing|never write|read-?only|read only/i` to match the prompt. Actual prompt at build-spec.js:498-500 says 'Do not create, edit or delete any file, and do not run any command that changes the repository' which contains 'changes' but doesn't match any of the expected regex patterns. Test failed with error \"'prompt must instruct the agent to write or change nothing'\"",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-spec.js:498|ac7-prompt-wording",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "change_set_id": "implement-memory-to-build-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "memory-extract-schema-required-mismatch",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:26-27",
+            "claim": "MemoryExtraction schema in build-implement.js forbids patterns field that AC-7 requires the schema to return",
+            "evidence": "build-implement.js line 26-27 defines: `const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['canaries'], properties: { canaries: { type: 'array', items: { type: 'object' } } } }` which forbids additional properties. AC-7 states 'a JSON schema returning { patterns: [...], canaries: [...] }'. build-spec.js line 78-79 correctly requires both patterns and canaries.",
+            "dedupe_key": ".claude/workflows/build-implement.js:26-27|schema forbids patterns required by AC-7",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "memory-agent-prompt-inconsistency",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:982-985",
+            "claim": "Memory-read agent prompt in build-implement only asks for canaries, not patterns, inconsistent with build-spec prompt",
+            "evidence": "build-implement.js line 982-983 says 'Return its canaries EXACTLY as found there' without mentioning patterns. build-spec.js line 495-496 says 'Return its patterns and canaries EXACTLY as found there, verbatim'. Both read the same file; instructions should be consistent.",
+            "dedupe_key": ".claude/workflows/build-implement.js:982-985|agent prompt asks only for canaries not patterns",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F1-memory-ref-injection",
+            "lens": "security",
+            "severity": "high",
+            "location": ".claude/workflows/build-spec.js:495",
+            "claim": "A.memory_ref is directly interpolated into agent prompt without escaping, enabling prompt injection attacks",
+            "evidence": "Line 495: `Read the file at ${A.memory_ref}` — no escaping or validation of user-supplied input before template interpolation",
+            "dedupe_key": ".claude/workflows/build-spec.js:495|prompt injection memory_ref",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F2-memory-ref-injection-impl",
+            "lens": "security",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:982",
+            "claim": "A.memory_ref is directly interpolated into agent prompt without escaping, enabling prompt injection attacks",
+            "evidence": "Line 982: `Read the file at ${A.memory_ref}` — identical unescaped interpolation as build-spec.js",
+            "dedupe_key": ".claude/workflows/build-implement.js:982|prompt injection memory_ref",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F3-memory-ref-traversal",
+            "lens": "security",
+            "severity": "medium",
+            "location": ".claude/workflows/build-spec.js:493-501",
+            "claim": "No validation that memory_ref is repository-relative; path traversal attacks can read files outside intended directory",
+            "evidence": "Agent prompt says 'repository-relative path' but code contains no validation logic before interpolating memory_ref into the Read instruction",
+            "dedupe_key": ".claude/workflows/build-spec.js:493|path traversal memory_ref unvalidated",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F4-memory-read-error-handling",
+            "lens": "security",
+            "severity": "medium",
+            "location": ".claude/workflows/build-spec.js:494-507",
+            "claim": "Memory-read agent call not wrapped in try-catch; throws violate AC-8 graceful degradation requirement",
+            "evidence": "Line 494: `const mem = await agent(...)` executes without error handling. Spec AC-8 requires: 'when the memory-read agent returns null or throws... the run does not fail' but uncaught throws crash workflow",
+            "dedupe_key": ".claude/workflows/build-spec.js:494|missing try-catch memory agent",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "F5-memory-read-error-handling-impl",
+            "lens": "security",
+            "severity": "medium",
+            "location": ".claude/workflows/build-implement.js:981-989",
+            "claim": "Memory-read agent call not wrapped in try-catch; throws violate AC-17 graceful degradation requirement",
+            "evidence": "Line 981: `const mem = await agent(...)` executes without error handling. Spec AC-17 requires graceful degradation when agent fails but uncaught exception crashes workflow",
+            "dedupe_key": ".claude/workflows/build-implement.js:981|missing try-catch memory agent",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "missing-ac6-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-memory-to-build/k19-AC-6-*.test.js",
+            "claim": "AC-6 acceptance criterion has no test file",
+            "evidence": "Test file for AC-6 ('build-spec invoked without args.memory_ref... Decomposer prompt is byte-identical to today's') does not exist in .artifacts/tests/implement-memory-to-build/ directory. Glob search found 18 test files but no k19-AC-6-* file.",
+            "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac6-test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "missing-ac8-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-memory-to-build/k19-AC-8-*.test.js",
+            "claim": "AC-8 acceptance criterion has no test file",
+            "evidence": "Test file for AC-8 ('the memory-read agent returns null or throws... the run does not fail') does not exist. This criterion requires graceful degradation when memory-read fails in build-spec, but no test verifies this behavior.",
+            "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac8-test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "missing-ac9-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-memory-to-build/k19-AC-9-*.test.js",
+            "claim": "AC-9 acceptance criterion has no test file",
+            "evidence": "Test file for AC-9 ('a memory roll with at least one valid pattern... the prompt includes formatPatterns text under a heading') does not exist. This criterion requires verifying the patterns heading injection in Decomposer prompt, but no test covers it.",
+            "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac9-test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "missing-ac17-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/implement-memory-to-build/k19-AC-17-*.test.js",
+            "claim": "AC-17 acceptance criterion has no test file",
+            "evidence": "Test file for AC-17 ('build-implement invoked with args.memory_ref whose read returns null... the run does not fail') does not exist. This criterion requires graceful degradation when memory-read fails in build-implement, but no test verifies this behavior.",
+            "dedupe_key": ".artifacts/tests/implement-memory-to-build/*|missing-ac17-test",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "ac18-test-regex-issue",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/implement-memory-to-build/k19-AC-18-evidence-bundle-canary-field.test.js:37",
+            "claim": "AC-18 test regex expects explicit syntax 'field:' but code uses ES6 shorthand 'escalations,' which is valid but doesn't match the regex pattern",
+            "evidence": "Test at line 37 uses regex `new RegExp('\\\\b${field}\\\\s*:')` expecting colon syntax, but build-implement.js line 2000 uses shorthand property: `escalations,` instead of `escalations: escalations,`. The test failure message was \"'expected the pre-existing field escalations to still be present'\" because the regex didn't match the shorthand syntax.",
+            "dedupe_key": ".artifacts/tests/implement-memory-to-build/k19-AC-18-evidence-bundle-canary-field.test.js:37|regex-too-strict",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "ac7-prompt-wording-mismatch",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-spec.js:498-500",
+            "claim": "AC-7 memory-read agent prompt wording doesn't match test regex expectations for 'write or change nothing' instruction",
+            "evidence": "AC-7 test k19-AC-7-memory-read-agent-wiring.test.js line 78-79 expects regex `/(write|change) nothing|never write|read-?only|read only/i` to match the prompt. Actual prompt at build-spec.js:498-500 says 'Do not create, edit or delete any file, and do not run any command that changes the repository' which contains 'changes' but doesn't match any of the expected regex patterns. Test failed with error \"'prompt must instruct the agent to write or change nothing'\"",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-spec.js:498|ac7-prompt-wording",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "implement-memory-to-build-r1",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal via double-dot segments in memory_ref: isSafeMemoryRef function at line 980 explicitly checks ref.split(/[\\\\/]+/).some(seg => seg === '..') to reject any '..' path component",
+              "Prompt injection via shell metacharacters and newlines in memory_ref: blocked by strict regex at line 981 /^[A-Za-z0-9_.\\-/]+$/ which forbids newlines, semicolons, backticks, dollar signs, pipes, and all shell metacharacters",
+              "Absolute path escape via leading forward slash, tilde, or Windows drive letters: blocked by explicit checks at line 979 /^[/~]/.test(ref) and /^[A-Za-z]:[\\\\\\/]/.test(ref) to reject absolute paths and home directory references"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Tried to bypass AC-14 by checking if args.canary could be overridden by library canary selection - implementation correctly guards args.canary in a separate if-branch that skips library selection entirely",
+              "Tried to break AC-12 deterministic hash by finding non-deterministic behavior in selectCanary - implementation uses only stable run_id and task.id values with FNV-1a algorithm, no randomness source exists",
+              "Tried to bypass AC-6 memory_ref validation by injecting a path traversal attack - isSafeMemoryRef correctly blocks absolute paths, ~ prefixes, .. segments, and special characters used in shell injection"
+            ],
+            "confidence": 0.35,
+            "findings": [
+              {
+                "id": "missing-ac1-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/test/ (no k19-AC-1-*.test.js file)",
+                "claim": "AC-1 (selectPatterns and formatPatterns are pure functions callable standalone with no reference to args, agent, fs, Date, or Math.random) has no explicit test file verifying sentinel block extraction works in isolation",
+                "evidence": "Only test files found are k19-AC-{3,4,7,14,15,16,18,20}-*.test.js. Tests for AC-3 and AC-4 implicitly exercise selectPatterns/formatPatterns by calling loadPatternFunctions(), but AC-1 specifically requires a test that extracts and evaluates the memory-patterns block as a pure code block standalone, the way substrate/test/extract-fixloop.js idiom would handle it",
+                "dedupe_key": "substrate/test/|no-test-for-AC-1-pure-functions",
+                "status": "open"
+              },
+              {
+                "id": "missing-ac10-test",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/test/ (no k19-AC-10-*.test.js file)",
+                "claim": "AC-10 (selectCanary is a pure function using withinOwned from the same fix-loop block, no Math.random, Date, args, or agent) has no explicit test file",
+                "evidence": "Only k19 test files provided are for AC-{3,4,7,14,15,16,18,20}. AC-10 is foundational: it requires that selectCanary and withinOwned can be extracted from the fix-loop decisions block via the sentinel idiom and evaluated as pure script with no runtime handles",
+                "dedupe_key": "substrate/test/|no-test-for-AC-10-selectCanary-pure",
+                "status": "open"
+              },
+              {
+                "id": "missing-ac11-12-13-tests",
+                "lens": "correctness",
+                "severity": "high",
+                "location": "substrate/test/ (no k19-AC-11-*.test.js, k19-AC-12-*.test.js, k19-AC-13-*.test.js files)",
+                "claim": "AC-11 (selectCanary returns null when no eligible canaries), AC-12 (deterministic hash selection), and AC-13 (ignores malformed entries) have no explicit tests",
+                "evidence": "selectCanary function at .artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-implement.js:895-905 contains critical logic (eligibility filtering, hash modulo selection, null return on empty) with no dedicated tests. These are behavioral tests that should verify the function works correctly in isolation, not source structure tests",
+                "dedupe_key": "substrate/test/|no-tests-for-AC-11-12-13-selectCanary-logic",
+                "status": "open"
+              },
+              {
+                "id": "missing-ac6-8-9-17-tests",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "substrate/test/ (no tests for edge cases)",
+                "claim": "AC-6 (no memory agent when no memory_ref), AC-8 (graceful null handling in build-spec), AC-9 (priorObservationsText injection), and AC-17 (graceful null handling in build-implement) have no behavior verification tests",
+                "evidence": "These criteria specify silent degradation and no-op behaviors when inputs are absent or malformed. They are testable behavioral requirements (e.g., AC-6 should have a test with A.memory_ref=undefined showing no agent call occurs) but lack explicit test files",
+                "dedupe_key": "substrate/test/|no-tests-for-edge-case-degradation-AC-6-8-9-17",
+                "status": "open"
+              },
+              {
+                "id": "missing-ac19-21-tests",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": "substrate/test/ (no source text verification tests)",
+                "claim": "AC-19 (test prompts mention task worktree as current directory) and AC-21 (args comments document memory_ref) have no tests",
+                "evidence": "These are verifiable by source code matching: AC-19 requires 'Run every command with ${wt} as your current directory' text in prompts, AC-21 requires memory_ref documentation in args comments. No k19-AC-19 or k19-AC-21 test files were added",
+                "dedupe_key": "substrate/test/|no-tests-for-AC-19-21-documentation",
+                "status": "open"
+              },
+              {
+                "id": "ac22-failing-tests",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/results/implement-memory-to-build.r2.json (tests 19-20, 204, 308, 319)",
+                "claim": "AC-22 (all existing tests still pass) is failing: 5 tests failed in the results, including pre-existing AC-13 tests checking agent() call counts",
+                "evidence": "Test 19 (AC-13): 'the set of agent() sites... must be unchanged' failed because build-spec now has 4 agent calls instead of 3 (added memory:read agent). Test 20 (AC-13): expected 3 agent() sites, found 4. These failures may be expected per spec, but AC-22 requires all existing tests to pass. The Test Author may need to update the baseline expectations for agent counts in pre-existing tests.",
+                "dedupe_key": ".artifacts/results/implement-memory-to-build.r2.json|AC-22-pre-existing-tests-failing",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "tiebreak",
+            "verdict": "pass",
+            "attempts": [
+              "Read the full spec at ledger/runs/k18/spec-wi-b1-b2-memory-to-build.json. It lists 'Writing or editing tests under substrate/test/' as out of scope for the implementer, so the correctness lens's five 'missing test for AC-x' findings are coverage gaps for the Test Author. They are not defects in the implementation under review.",
+              "Read every failure_output in .artifacts/results/implement-memory-to-build.r2.json. The two pre-existing AC-13 failures (the agent() site count and set are 'unchanged') come from the new memory-read agent call, which spec AC-7 and AC-20 require. Under the rules, a finding about behavior the spec requires cannot justify a fail.",
+              "Checked the two new k19 test failures against the source. AC-18 fails with 'escalations pre-existing field missing', but the return object at build-implement.js:~2011 still has `escalations,` in shorthand form, so the test's pattern is too narrow. AC-7 fails with 'must instruct write or change nothing', but the prompt says 'Do not create, edit or delete any file, and do not run any command that changes the repository', which meets the spec wording. Both are test defects. The AC-15 fresh-checkout failure only repeats these same two errors.",
+              "Spot-checked the implementation structure. selectCanary sits at line 895, inside the fix-loop decisions sentinel block (lines 204-921). The memory-read call is guarded once per run by A.memory_ref && isSafeMemoryRef (line 991) and runs before the per-task pipeline. canary_source is set to 'args', 'library' or 'none' (lines 1214-1223), with the additive canaries field at line 2009 and memory_ref documented in the header (line 31). The security lens found no issue with isSafeMemoryRef, and it degrades to the no-memory behavior."
+            ],
+            "findings": [
+              {
+                "id": "tb-missing-tests-overruled",
+                "lens": "tiebreak",
+                "severity": "low",
+                "location": "substrate/test/ (k19 coverage for AC-1, 6, 8-13, 17, 19, 21)",
+                "claim": "The correctness lens's missing-test findings do not count against the implementation. They are coverage gaps for the Test Author to close.",
+                "evidence": "The spec's out_of_scope list includes 'Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)'. The lens did not find any criterion that the code violates. Its own attempts confirm that AC-6, AC-12 and AC-14 behave correctly.",
+                "dedupe_key": "substrate/test/|missing-k19-coverage-owned-by-test-author",
+                "status": "overruled",
+                "target": "test"
+              },
+              {
+                "id": "tb-ac13-count-tests-spec-required",
+                "lens": "tiebreak",
+                "severity": "medium",
+                "location": "substrate/test (pre-existing AC-13 agent-site count/set tests, results r2 tests 19-20)",
+                "claim": "The pre-existing AC-13 tests fail only because the spec-required memory-read agent() call was added. Their baselines need updating. This is not an implementation defect.",
+                "evidence": "The failures report build-spec going from 3 to 4 agent sites. Spec AC-7 and AC-20 require exactly one new memory-read agent call in each workflow. A test that pins the old count therefore cannot pass alongside the spec.",
+                "dedupe_key": ".artifacts/results/implement-memory-to-build.r2.json|AC-22-pre-existing-tests-failing",
+                "status": "overruled",
+                "target": "test"
+              },
+              {
+                "id": "tb-k19-ac18-test-defect",
+                "lens": "tiebreak",
+                "severity": "medium",
+                "location": "substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js:37",
+                "claim": "The AC-18 test wrongly reports that the pre-existing 'escalations' field is missing. The field is present in shorthand form, so the test's pattern is too narrow.",
+                "evidence": "The failure output shows the return object containing `escalations,` directly after the new canaries field. The error is 'expected the pre-existing field escalations to still be present'.",
+                "dedupe_key": "substrate/test/k19-AC-18|escalations-shorthand-regex",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "tb-k19-ac7-test-defect",
+                "lens": "tiebreak",
+                "severity": "medium",
+                "location": "substrate/test/k19-AC-7-memory-read-agent-wiring.test.js:78",
+                "claim": "The AC-7 test rejects a prompt that does instruct the agent to write or change nothing. The test's wording match is too narrow.",
+                "evidence": "The prompt says 'Do not create, edit or delete any file, and do not run any command that changes the repository — you read one file and report its contents, nothing else.' That meets AC-7's 'write or change nothing'. The same two errors also cause the AC-15 fresh-checkout failure (test 204).",
+                "dedupe_key": "substrate/test/k19-AC-7|write-change-nothing-regex",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.8,
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:tiebreak",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "opus",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "missing-ac1-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/ (no k19-AC-1-*.test.js file)",
+            "claim": "AC-1 (selectPatterns and formatPatterns are pure functions callable standalone with no reference to args, agent, fs, Date, or Math.random) has no explicit test file verifying sentinel block extraction works in isolation",
+            "evidence": "Only test files found are k19-AC-{3,4,7,14,15,16,18,20}-*.test.js. Tests for AC-3 and AC-4 implicitly exercise selectPatterns/formatPatterns by calling loadPatternFunctions(), but AC-1 specifically requires a test that extracts and evaluates the memory-patterns block as a pure code block standalone, the way substrate/test/extract-fixloop.js idiom would handle it",
+            "dedupe_key": "substrate/test/|no-test-for-AC-1-pure-functions",
+            "status": "open"
+          },
+          {
+            "id": "missing-ac10-test",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/ (no k19-AC-10-*.test.js file)",
+            "claim": "AC-10 (selectCanary is a pure function using withinOwned from the same fix-loop block, no Math.random, Date, args, or agent) has no explicit test file",
+            "evidence": "Only k19 test files provided are for AC-{3,4,7,14,15,16,18,20}. AC-10 is foundational: it requires that selectCanary and withinOwned can be extracted from the fix-loop decisions block via the sentinel idiom and evaluated as pure script with no runtime handles",
+            "dedupe_key": "substrate/test/|no-test-for-AC-10-selectCanary-pure",
+            "status": "open"
+          },
+          {
+            "id": "missing-ac11-12-13-tests",
+            "lens": "correctness",
+            "severity": "high",
+            "location": "substrate/test/ (no k19-AC-11-*.test.js, k19-AC-12-*.test.js, k19-AC-13-*.test.js files)",
+            "claim": "AC-11 (selectCanary returns null when no eligible canaries), AC-12 (deterministic hash selection), and AC-13 (ignores malformed entries) have no explicit tests",
+            "evidence": "selectCanary function at .artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-implement.js:895-905 contains critical logic (eligibility filtering, hash modulo selection, null return on empty) with no dedicated tests. These are behavioral tests that should verify the function works correctly in isolation, not source structure tests",
+            "dedupe_key": "substrate/test/|no-tests-for-AC-11-12-13-selectCanary-logic",
+            "status": "open"
+          },
+          {
+            "id": "missing-ac6-8-9-17-tests",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "substrate/test/ (no tests for edge cases)",
+            "claim": "AC-6 (no memory agent when no memory_ref), AC-8 (graceful null handling in build-spec), AC-9 (priorObservationsText injection), and AC-17 (graceful null handling in build-implement) have no behavior verification tests",
+            "evidence": "These criteria specify silent degradation and no-op behaviors when inputs are absent or malformed. They are testable behavioral requirements (e.g., AC-6 should have a test with A.memory_ref=undefined showing no agent call occurs) but lack explicit test files",
+            "dedupe_key": "substrate/test/|no-tests-for-edge-case-degradation-AC-6-8-9-17",
+            "status": "open"
+          },
+          {
+            "id": "missing-ac19-21-tests",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": "substrate/test/ (no source text verification tests)",
+            "claim": "AC-19 (test prompts mention task worktree as current directory) and AC-21 (args comments document memory_ref) have no tests",
+            "evidence": "These are verifiable by source code matching: AC-19 requires 'Run every command with ${wt} as your current directory' text in prompts, AC-21 requires memory_ref documentation in args comments. No k19-AC-19 or k19-AC-21 test files were added",
+            "dedupe_key": "substrate/test/|no-tests-for-AC-19-21-documentation",
+            "status": "open"
+          },
+          {
+            "id": "tb-ac13-count-tests-spec-required",
+            "lens": "tiebreak",
+            "severity": "medium",
+            "location": "substrate/test (pre-existing AC-13 agent-site count/set tests, results r2 tests 19-20)",
+            "claim": "The pre-existing AC-13 tests fail only because the spec-required memory-read agent() call was added. Their baselines need updating. This is not an implementation defect.",
+            "evidence": "The failures report build-spec going from 3 to 4 agent sites. Spec AC-7 and AC-20 require exactly one new memory-read agent call in each workflow. A test that pins the old count therefore cannot pass alongside the spec.",
+            "dedupe_key": ".artifacts/results/implement-memory-to-build.r2.json|AC-22-pre-existing-tests-failing",
+            "status": "overruled",
+            "target": "test"
+          },
+          {
+            "id": "tb-missing-tests-overruled",
+            "lens": "tiebreak",
+            "severity": "low",
+            "location": "substrate/test/ (k19 coverage for AC-1, 6, 8-13, 17, 19, 21)",
+            "claim": "The correctness lens's missing-test findings do not count against the implementation. They are coverage gaps for the Test Author to close.",
+            "evidence": "The spec's out_of_scope list includes 'Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)'. The lens did not find any criterion that the code violates. Its own attempts confirm that AC-6, AC-12 and AC-14 behave correctly.",
+            "dedupe_key": "substrate/test/|missing-k19-coverage-owned-by-test-author",
+            "status": "overruled",
+            "target": "test"
+          },
+          {
+            "id": "tb-k19-ac18-test-defect",
+            "lens": "tiebreak",
+            "severity": "medium",
+            "location": "substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js:37",
+            "claim": "The AC-18 test wrongly reports that the pre-existing 'escalations' field is missing. The field is present in shorthand form, so the test's pattern is too narrow.",
+            "evidence": "The failure output shows the return object containing `escalations,` directly after the new canaries field. The error is 'expected the pre-existing field escalations to still be present'.",
+            "dedupe_key": "substrate/test/k19-AC-18|escalations-shorthand-regex",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "tb-k19-ac7-test-defect",
+            "lens": "tiebreak",
+            "severity": "medium",
+            "location": "substrate/test/k19-AC-7-memory-read-agent-wiring.test.js:78",
+            "claim": "The AC-7 test rejects a prompt that does instruct the agent to write or change nothing. The test's wording match is too narrow.",
+            "evidence": "The prompt says 'Do not create, edit or delete any file, and do not run any command that changes the repository — you read one file and report its contents, nothing else.' That meets AC-7's 'write or change nothing'. The same two errors also cause the AC-15 fresh-checkout failure (test 204).",
+            "dedupe_key": "substrate/test/k19-AC-7|write-change-nothing-regex",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "implement-memory-to-build-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Verified acceptance criteria AC-1 through AC-21 are addressed in build-spec.js and build-implement.js: selectPatterns/formatPatterns are pure functions with correct ordering, isSafeMemoryRef guards against injection, memory-read calls use MODEL.cheap with read-only agentType, selectCanary picks deterministically via hash, args.canary wins, and all EvidenceBundle fields are structured correctly.",
+              "Checked that no work occurs outside spec.touched_surfaces: spec permits only .claude/workflows/build-spec.js and build-implement.js, but diff also writes to substrate/test/k19-AC-14-args-canary-wins.test.js, k19-AC-7-memory-read-agent-wiring.test.js, k19-patterns-extract-helpers.js, and eight other test files under substrate/test/, all outside the permitted envelope.",
+              "Confirmed that isSafeMemoryRef implementation correctly rejects absolute paths, home-dir refs, .. traversals, and invalid characters before memory_ref reaches agent prompts, protecting against free-text injection in the filename parameter."
+            ],
+            "findings": [
+              {
+                "id": "OOS-1",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/k19-AC-14-args-canary-wins.test.js",
+                "claim": "The diff writes test files to substrate/test/, violating the explicit out_of_scope rule: 'Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)'",
+                "evidence": "The diff creates new files substrate/test/k19-AC-14-args-canary-wins.test.js, substrate/test/k19-AC-7-memory-read-agent-wiring.test.js, substrate/test/k19-AC-3-selectPatterns-max.test.js, substrate/test/k19-AC-4-selectPatterns-malformed.test.js, substrate/test/k19-AC-15-library-canary-injection.test.js, substrate/test/k19-AC-16-no-memory-ref-canary-none.test.js, substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js, substrate/test/k19-AC-20-memory-read-wiring-implement.test.js, substrate/test/k19-agent-call-helpers.js, substrate/test/k19-patterns-extract-helpers.js, and substrate/test/k19-canary-extract-helpers.js. These are new files (mode 100644) added to substrate/test/ which is outside spec.touched_surfaces and forbidden by out_of_scope.",
+                "dedupe_key": "substrate/test/k19-AC-14-args-canary-wins.test.js|test_author_owns_substrate_test",
+                "status": "open"
+              },
+              {
+                "id": "OOS-2",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-spec.js",
+                "claim": "The diff writes to surfaces outside the spec.touched_surfaces permission envelope. The spec only permits .claude/workflows/build-spec.js and build-implement.js but the diff also modifies substrate/test/*.js files.",
+                "evidence": "spec.touched_surfaces lists only path surfaces for .claude/workflows/ but diff.touched_surfaces includes substrate/test/ paths; touched_surfaces is described as 'a permission envelope, not a mandate' and surfaces not listed cannot be touched.",
+                "dedupe_key": ".claude/workflows/build-spec.js|work_outside_touched_surfaces_envelope",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "OOS-1",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/k19-AC-14-args-canary-wins.test.js",
+            "claim": "The diff writes test files to substrate/test/, violating the explicit out_of_scope rule: 'Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)'",
+            "evidence": "The diff creates new files substrate/test/k19-AC-14-args-canary-wins.test.js, substrate/test/k19-AC-7-memory-read-agent-wiring.test.js, substrate/test/k19-AC-3-selectPatterns-max.test.js, substrate/test/k19-AC-4-selectPatterns-malformed.test.js, substrate/test/k19-AC-15-library-canary-injection.test.js, substrate/test/k19-AC-16-no-memory-ref-canary-none.test.js, substrate/test/k19-AC-18-evidence-bundle-canary-field.test.js, substrate/test/k19-AC-20-memory-read-wiring-implement.test.js, substrate/test/k19-agent-call-helpers.js, substrate/test/k19-patterns-extract-helpers.js, and substrate/test/k19-canary-extract-helpers.js. These are new files (mode 100644) added to substrate/test/ which is outside spec.touched_surfaces and forbidden by out_of_scope.",
+            "dedupe_key": "substrate/test/k19-AC-14-args-canary-wins.test.js|test_author_owns_substrate_test",
+            "status": "open"
+          },
+          {
+            "id": "OOS-2",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-spec.js",
+            "claim": "The diff writes to surfaces outside the spec.touched_surfaces permission envelope. The spec only permits .claude/workflows/build-spec.js and build-implement.js but the diff also modifies substrate/test/*.js files.",
+            "evidence": "spec.touched_surfaces lists only path surfaces for .claude/workflows/ but diff.touched_surfaces includes substrate/test/ paths; touched_surfaces is described as 'a permission envelope, not a mandate' and surfaces not listed cannot be touched.",
+            "dedupe_key": ".claude/workflows/build-spec.js|work_outside_touched_surfaces_envelope",
+            "status": "open"
+          }
+        ],
+        "round": 2
+      },
+      {
+        "change_set_id": "implement-memory-to-build-r1",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal injection via memory_ref: rejected by isSafeMemoryRef segment validation; unsafe refs degrade silently per AC-6/AC-16",
+              "Memory roll missing or malformed: handled by defaulting libraryCanaries to empty array; selectCanary returns null; canary_source records 'none' per AC-17",
+              "Pattern sorting with duplicate sample_size values: implementation correctly applies secondary sort by id ascending within same-size groups per AC-2"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Parent directory traversal with ../ sequences: Attempted to pass `../../etc/passwd` as memory_ref; validation function correctly identifies and rejects any path segment equal to '..' after splitting on forward or back slashes, preventing directory traversal",
+              "Null byte path truncation injection: Attempted to inject null byte as `ledger/runs/file.json\\x00.json` to truncate path at the agent; validation function's strict character whitelist [A-Za-z0-9_.\\-/] only permits ASCII alphanumerics, dots, hyphens and forward slashes, blocking null bytes and all control characters",
+              "Absolute path bypass with /etc/passwd: Attempted to read arbitrary system files by passing `/etc/passwd` directly; validation explicitly checks for leading forward slash (Unix absolute paths) and leading tilde (home directory), rejecting both before the path reaches the agent prompt",
+              "Command injection through shell metacharacters: Attempted shell command injection via backticks and $() like `\\`touch /tmp/pwned\\`` or `$(whoami)`; validation character whitelist completely excludes parentheses, backticks, dollar signs, semicolons, pipes, redirects and all other shell metacharacters needed for injection",
+              "Prompt injection via memory_ref interpolation: Attempted newline injection like `ledger/runs/file.json\\nIgnore previous instructions` to break out of the agent prompt context; validation whitelist does not permit newline characters, making prompt injection through memory_ref impossible"
+            ],
+            "findings": [],
+            "confidence": 0.92,
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Attempt 1: Checked if all test files exist for the claimed criteria - found that test files for AC-4, AC-7, AC-14, AC-15, AC-16, AC-18, AC-20 were created but not run, indicating incomplete test execution coverage.",
+              "Attempt 2: Verified the criteria_coverage metadata claim against actual test execution results - the metadata claims 18 criteria (AC-1,2,3,4,5,7,10,11,12,13,14,15,16,18,19,20,21,22) are covered, but the test runner results show only 1 test executed from k19-AC-3-selectPatterns-max.test.js testing only AC-3.",
+              "Attempt 3: Analyzed the single test file that was run (k19-AC-3-selectPatterns-max.test.js) to determine what it actually tests - found it only contains one test assertion checking AC-3 behavior (max:2 returns exactly 2 items), while AC-5 (formatPatterns output format) is never called or asserted despite being claimed as covered."
+            ],
+            "findings": [
+              {
+                "id": "correctness-1",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js:1-26",
+                "claim": "AC-5 (formatPatterns output format) is claimed as covered but the test file never calls formatPatterns and contains no assertion testing its output format",
+                "evidence": "Test file k19-AC-3-selectPatterns-max.test.js extracts loadPatternFunctions() which returns {selectPatterns, formatPatterns}, but the test only calls selectPatterns. The test contains zero calls to formatPatterns() or assertions about its output format. The spec AC-5 requires \"formatPatterns(selected) returns exactly 'p1 (n=4): X\\\\np2 (n=2): Y'\" but this is never tested.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js|AC-5-formatPatterns-not-called-or-tested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "correctness-2",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/results/implement-memory-to-build.r3.json",
+                "claim": "Criteria coverage metadata claims 18 criteria are covered (AC-1,2,3,4,5,7,10,11,12,13,14,15,16,18,19,20,21,22) but test execution results show only 1 test passed covering only AC-3",
+                "evidence": "Test metadata criteria_coverage lists 18 criteria, but the test results show only one test named 'AC-3: selectPatterns(patterns, { max: 2 }) returns exactly 2 items...' was executed and passed. The test results summary shows total:1, passed:1, failed:0, indicating only a single test file was run.",
+                "dedupe_key": ".artifacts/results/implement-memory-to-build.r3.json|criteria-coverage-claim-exceeds-actual-test-execution",
+                "status": "open"
+              },
+              {
+                "id": "correctness-3",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js:1-26",
+                "claim": "AC-2 ordering requirement (anti_pattern before other kinds, sample_size desc, id asc) is only implicitly tested through comparison with full ordering, with no explicit assertion of the ordering rules",
+                "evidence": "The test calls selectPatterns(input, { max: 100 }) to get the full ordering, then selectPatterns(input, { max: 2 }) and asserts deepEqual with full.slice(0, 2). This assumes the full ordering is correct but never asserts the specific ordering rules: that anti_pattern comes first, sample_size orders descending, and id orders ascending. The test does not validate these rules exist.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js|AC-2-ordering-rules-implicitly-tested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "correctness-4",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test",
+                "claim": "AC-6, AC-8, AC-9, AC-17 have no tests despite being acceptance criteria owned by this task",
+                "evidence": "Searched all test files in the worktree. Test files exist for AC-3, AC-4, AC-7, AC-14, AC-15, AC-16, AC-18, AC-20 but no test files were found for AC-6 (build-spec without memory_ref makes no agent call), AC-8 (memory-read agent returns null), AC-9 (patterns injected into Decomposer prompt), or AC-17 (build-implement with malformed canaries). These four acceptance criteria have no associated tests.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test|AC-6-AC-8-AC-9-AC-17-no-tests",
+                "status": "open"
+              },
+              {
+                "id": "correctness-5",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build",
+                "claim": "Test files k19-AC-4, k19-AC-7, k19-AC-14, k19-AC-15, k19-AC-16, k19-AC-18, k19-AC-20 exist but were not executed by the test runner, leaving their covered criteria untested",
+                "evidence": "Glob search found these test files in substrate/test/: k19-AC-4-selectPatterns-malformed.test.js, k19-AC-7-memory-read-agent-wiring.test.js, k19-AC-14-args-canary-wins.test.js, k19-AC-15-library-canary-injection.test.js, k19-AC-16-no-memory-ref-canary-none.test.js, k19-AC-18-evidence-bundle-canary-field.test.js, k19-AC-20-memory-read-wiring-implement.test.js. But the test runner results show only k19-AC-3-selectPatterns-max.test.js was executed (tests_ref points to that single file). The other test files were created but not run.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test|test-files-created-but-not-run",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "implement-memory-to-build-r1",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "correctness-1",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js:1-26",
+            "claim": "AC-5 (formatPatterns output format) is claimed as covered but the test file never calls formatPatterns and contains no assertion testing its output format",
+            "evidence": "Test file k19-AC-3-selectPatterns-max.test.js extracts loadPatternFunctions() which returns {selectPatterns, formatPatterns}, but the test only calls selectPatterns. The test contains zero calls to formatPatterns() or assertions about its output format. The spec AC-5 requires \"formatPatterns(selected) returns exactly 'p1 (n=4): X\\\\np2 (n=2): Y'\" but this is never tested.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js|AC-5-formatPatterns-not-called-or-tested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "correctness-2",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/results/implement-memory-to-build.r3.json",
+            "claim": "Criteria coverage metadata claims 18 criteria are covered (AC-1,2,3,4,5,7,10,11,12,13,14,15,16,18,19,20,21,22) but test execution results show only 1 test passed covering only AC-3",
+            "evidence": "Test metadata criteria_coverage lists 18 criteria, but the test results show only one test named 'AC-3: selectPatterns(patterns, { max: 2 }) returns exactly 2 items...' was executed and passed. The test results summary shows total:1, passed:1, failed:0, indicating only a single test file was run.",
+            "dedupe_key": ".artifacts/results/implement-memory-to-build.r3.json|criteria-coverage-claim-exceeds-actual-test-execution",
+            "status": "open"
+          },
+          {
+            "id": "correctness-3",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js:1-26",
+            "claim": "AC-2 ordering requirement (anti_pattern before other kinds, sample_size desc, id asc) is only implicitly tested through comparison with full ordering, with no explicit assertion of the ordering rules",
+            "evidence": "The test calls selectPatterns(input, { max: 100 }) to get the full ordering, then selectPatterns(input, { max: 2 }) and asserts deepEqual with full.slice(0, 2). This assumes the full ordering is correct but never asserts the specific ordering rules: that anti_pattern comes first, sample_size orders descending, and id orders ascending. The test does not validate these rules exist.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js|AC-2-ordering-rules-implicitly-tested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "correctness-4",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test",
+            "claim": "AC-6, AC-8, AC-9, AC-17 have no tests despite being acceptance criteria owned by this task",
+            "evidence": "Searched all test files in the worktree. Test files exist for AC-3, AC-4, AC-7, AC-14, AC-15, AC-16, AC-18, AC-20 but no test files were found for AC-6 (build-spec without memory_ref makes no agent call), AC-8 (memory-read agent returns null), AC-9 (patterns injected into Decomposer prompt), or AC-17 (build-implement with malformed canaries). These four acceptance criteria have no associated tests.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test|AC-6-AC-8-AC-9-AC-17-no-tests",
+            "status": "open"
+          },
+          {
+            "id": "correctness-5",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build",
+            "claim": "Test files k19-AC-4, k19-AC-7, k19-AC-14, k19-AC-15, k19-AC-16, k19-AC-18, k19-AC-20 exist but were not executed by the test runner, leaving their covered criteria untested",
+            "evidence": "Glob search found these test files in substrate/test/: k19-AC-4-selectPatterns-malformed.test.js, k19-AC-7-memory-read-agent-wiring.test.js, k19-AC-14-args-canary-wins.test.js, k19-AC-15-library-canary-injection.test.js, k19-AC-16-no-memory-ref-canary-none.test.js, k19-AC-18-evidence-bundle-canary-field.test.js, k19-AC-20-memory-read-wiring-implement.test.js. But the test runner results show only k19-AC-3-selectPatterns-max.test.js was executed (tests_ref points to that single file). The other test files were created but not run.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test|test-files-created-but-not-run",
+            "status": "open"
+          }
+        ],
+        "round": 3
+      },
+      {
+        "change_set_id": "implement-memory-to-build-r3",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Searched for test files covering all 22 acceptance criteria and found that AC-12 (deterministic canary selection using hash of run_id:task.id) has no corresponding test file, despite being explicitly testable in the spec and being one of the 22 criteria this task owns",
+              "Verified AC-2 and AC-5 have implicit test coverage through AC-3 and AC-9 test files respectively, confirming that some criteria are tested indirectly rather than directly",
+              "Checked that all test-running prompts in build-implement.js (Test Runner, testfix, fix, and impl agents) contain the AC-19 requirement to run from task worktree, confirming full prompt coverage for that criterion"
+            ],
+            "findings": [
+              {
+                "id": "f1-ac12-missing-test",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": "substrate/test/",
+                "claim": "AC-12 (deterministic canary selection) has no test file to verify selectCanary returns one of eligible canaries using deterministic hash of (run_id:task.id) mod eligible.length, with repeated calls returning same canary and different run_ids selecting different canaries among eligible set",
+                "evidence": "Acceptance criterion AC-12 is explicitly testable per spec but no test file k19-AC-12-*.test.js exists. AC-3 tests selectPatterns with max option, AC-4 tests malformed inputs, AC-17 tests that selectCanary returns null without throwing, but none test the deterministic hash behavior that AC-12 requires",
+                "dedupe_key": "substrate/test/|AC-12 missing test for deterministic hash selection",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "change_set_id": "implement-memory-to-build-r3",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Directory traversal attack via escaped path (..) sequences in memory_ref — blocked by isSafeMemoryRef split check",
+              "Prompt injection via special characters in memory_ref path — blocked by strict alphanumeric+dash+slash regex validation",
+              "Malicious memory file content injection assuming attacker writes to ledger/runs/ — mitigated by read-only agent, schema validation, and filtering of malformed entries"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "implement-memory-to-build-r3",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "Examined selectPatterns/formatPatterns/selectCanary implementations for purity requirements (no Math.random, Date, args, agent) - they correctly use deterministic FNV-1a hashing and pure logic only",
+              "Verified test file coverage: AC-3 test passed, most others couldn't run due to invalid test run with escaping imports, test files exist for AC-3,4,6,7,8,9,14,15,16,17,18,20 but missing for AC-1,2,5,10,12,13,19,21,22",
+              "Traced canary selection flow: args.canary correctly wins (AC-14), library selection uses deterministic hash of run_id+task.id (AC-12 not tested), canary_source properly recorded for all paths (AC-18 correct)"
+            ],
+            "findings": [
+              {
+                "id": "AC-1-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-1 requirement that selectPatterns and formatPatterns are pure functions with no reference to args, agent, fs, Date or Math.random has no dedicated test file",
+                "evidence": "Glob search finds test files for AC-3,4,6,7,8,9,14,15,16,17,18,20 but no k19-AC-1-* test file exists. AC-4 test loads the functions and verifies they work with malformed input, but does not verify purity by checking for external references or side effects.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-1 untested purity requirement",
+                "status": "open"
+              },
+              {
+                "id": "AC-2-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-2 requirement for selectPatterns ordering (anti_pattern items first, within kinds by sample_size descending then id ascending) is not tested",
+                "evidence": "AC-3 test only verifies max parameter truncation, AC-4 test only verifies malformed handling. Neither tests the complete ordering rules. No k19-AC-2-* test file exists. The ordering is implemented correctly in the code but there is no test asserting the ordering behavior.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-2 ordering rules untested",
+                "status": "open"
+              },
+              {
+                "id": "AC-10-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-10 requirement that selectCanary is a pure function with no reference to Math.random, Date, args or agent has no dedicated test file",
+                "evidence": "No k19-AC-10-* test file exists. The AC-17 test loads selectCanary and tests null-return cases but does not verify purity or the absence of Math.random/Date references. AC-1 was pure-function testing for build-spec functions; AC-10 is the parallel requirement for build-implement's selectCanary, which lacks equivalent testing.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-10 untested purity requirement",
+                "status": "open"
+              },
+              {
+                "id": "AC-12-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-12 requirement for deterministic canary selection from multiple eligible canaries using hash of run_id+task.id has no test verifying selection determinism across different run_ids",
+                "evidence": "No k19-AC-12-* test file exists. AC-17 test at line 26-29 tests selectCanary with empty/malformed canaries but never tests a scenario where multiple canaries are eligible and different run_id values produce different selections. The implementation uses hashString with FNV-1a which is deterministic, but no test verifies the determinism requirement or that different run_ids select different eligible canaries.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-12 deterministic selection untested",
+                "status": "open"
+              },
+              {
+                "id": "AC-19-untested",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-19 requirement that Test Runner and repair agent prompts mention running from task worktree has no test file to verify the requirement is met",
+                "evidence": "Prompts in build-implement.js were updated with text 'Run every command with ${wt} as your current directory — the task worktree, never the main checkout' (lines 1297-1299, 1373-1374, 1437-1438, 1599-1600, 1868-1869). However, no k19-AC-19-* test file exists to assert these requirements are present. Other structural requirements (AC-6, AC-7, AC-14, AC-15, etc.) have test files that verify prompts via regex matching; AC-19 should have one too.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-19 prompt text untested",
+                "status": "open"
+              },
+              {
+                "id": "AC-21-untested",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+                "claim": "AC-21 requirement that args header comments document memory_ref as optional with meaning and degradation behavior has no test file to verify the requirement",
+                "evidence": "Args comments in build-spec.js (lines 9-15) and build-implement.js (lines 31-37) document memory_ref as optional and describe silent degradation. However, no k19-AC-21-* test file exists to assert this documentation is present. Other documentation requirements (AC-20, AC-7, etc.) are tested via file inspection; AC-21 should follow the same pattern.",
+                "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-21 args documentation untested",
+                "status": "open"
+              }
+            ],
+            "confidence": 0.82,
+            "change_set_id": "implement-memory-to-build-r3",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k19",
+              "created_at": "2026-09-26T22:29:25Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "f1-ac12-missing-test",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": "substrate/test/",
+            "claim": "AC-12 (deterministic canary selection) has no test file to verify selectCanary returns one of eligible canaries using deterministic hash of (run_id:task.id) mod eligible.length, with repeated calls returning same canary and different run_ids selecting different canaries among eligible set",
+            "evidence": "Acceptance criterion AC-12 is explicitly testable per spec but no test file k19-AC-12-*.test.js exists. AC-3 tests selectPatterns with max option, AC-4 tests malformed inputs, AC-17 tests that selectCanary returns null without throwing, but none test the deterministic hash behavior that AC-12 requires",
+            "dedupe_key": "substrate/test/|AC-12 missing test for deterministic hash selection",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "AC-1-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-1 requirement that selectPatterns and formatPatterns are pure functions with no reference to args, agent, fs, Date or Math.random has no dedicated test file",
+            "evidence": "Glob search finds test files for AC-3,4,6,7,8,9,14,15,16,17,18,20 but no k19-AC-1-* test file exists. AC-4 test loads the functions and verifies they work with malformed input, but does not verify purity by checking for external references or side effects.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-1 untested purity requirement",
+            "status": "open"
+          },
+          {
+            "id": "AC-2-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-2 requirement for selectPatterns ordering (anti_pattern items first, within kinds by sample_size descending then id ascending) is not tested",
+            "evidence": "AC-3 test only verifies max parameter truncation, AC-4 test only verifies malformed handling. Neither tests the complete ordering rules. No k19-AC-2-* test file exists. The ordering is implemented correctly in the code but there is no test asserting the ordering behavior.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-2 ordering rules untested",
+            "status": "open"
+          },
+          {
+            "id": "AC-10-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-10 requirement that selectCanary is a pure function with no reference to Math.random, Date, args or agent has no dedicated test file",
+            "evidence": "No k19-AC-10-* test file exists. The AC-17 test loads selectCanary and tests null-return cases but does not verify purity or the absence of Math.random/Date references. AC-1 was pure-function testing for build-spec functions; AC-10 is the parallel requirement for build-implement's selectCanary, which lacks equivalent testing.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-10 untested purity requirement",
+            "status": "open"
+          },
+          {
+            "id": "AC-12-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-12 requirement for deterministic canary selection from multiple eligible canaries using hash of run_id+task.id has no test verifying selection determinism across different run_ids",
+            "evidence": "No k19-AC-12-* test file exists. AC-17 test at line 26-29 tests selectCanary with empty/malformed canaries but never tests a scenario where multiple canaries are eligible and different run_id values produce different selections. The implementation uses hashString with FNV-1a which is deterministic, but no test verifies the determinism requirement or that different run_ids select different eligible canaries.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-12 deterministic selection untested",
+            "status": "open"
+          },
+          {
+            "id": "AC-19-untested",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-19 requirement that Test Runner and repair agent prompts mention running from task worktree has no test file to verify the requirement is met",
+            "evidence": "Prompts in build-implement.js were updated with text 'Run every command with ${wt} as your current directory — the task worktree, never the main checkout' (lines 1297-1299, 1373-1374, 1437-1438, 1599-1600, 1868-1869). However, no k19-AC-19-* test file exists to assert these requirements are present. Other structural requirements (AC-6, AC-7, AC-14, AC-15, etc.) have test files that verify prompts via regex matching; AC-19 should have one too.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-19 prompt text untested",
+            "status": "open"
+          },
+          {
+            "id": "AC-21-untested",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/worktrees/implement-memory-to-build/substrate/test/",
+            "claim": "AC-21 requirement that args header comments document memory_ref as optional with meaning and degradation behavior has no test file to verify the requirement",
+            "evidence": "Args comments in build-spec.js (lines 9-15) and build-implement.js (lines 31-37) document memory_ref as optional and describe silent degradation. However, no k19-AC-21-* test file exists to assert this documentation is present. Other documentation requirements (AC-20, AC-7, etc.) are tested via file inspection; AC-21 should follow the same pattern.",
+            "dedupe_key": ".artifacts/worktrees/implement-memory-to-build/substrate/test/|AC-21 args documentation untested",
+            "status": "open"
+          }
+        ],
+        "round": 4
+      }
+    ],
+    "suite": {
+      "passed": 0,
+      "failed": 0,
+      "results_ref": ""
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "test_validity": [],
+    "import_escapes": [
+      {
+        "round": 1,
+        "file": "extract-fixloop.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-1-sentinel-purity.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-1-sentinel-purity.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-10-selectCanary-purity.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-10-selectCanary-purity.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-10-selectCanary-purity.test.js",
+        "specifier": "./k19-canary-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-11-selectCanary-none-eligible.test.js",
+        "specifier": "./k19-canary-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-12-selectCanary-deterministic.test.js",
+        "specifier": "./k19-canary-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-13-selectCanary-malformed.test.js",
+        "specifier": "./k19-canary-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-14-args-canary-wins.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-14-args-canary-wins.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-15-library-canary-injection.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-15-library-canary-injection.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-16-no-memory-ref-canary-none.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-18-evidence-bundle-canary-field.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-18-evidence-bundle-canary-field.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-19-worktree-cwd-prompts.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-19-worktree-cwd-prompts.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-2-selectPatterns-ordering.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-21-header-doc-memory-ref.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-21-header-doc-memory-ref.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-3-selectPatterns-max.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-4-selectPatterns-malformed.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-5-formatPatterns.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-agent-call-helpers.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-canary-extract-helpers.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-patterns-extract-helpers.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 1,
+        "file": "k19-suite-hygiene.test.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-14-args-canary-wins.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-14-args-canary-wins.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-15-library-canary-injection.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-15-library-canary-injection.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-16-no-memory-ref-canary-none.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-18-evidence-bundle-canary-field.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-18-evidence-bundle-canary-field.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-20-memory-read-wiring-implement.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-3-selectPatterns-max.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-4-selectPatterns-malformed.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./k19-agent-call-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-AC-7-memory-read-agent-wiring.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-agent-call-helpers.js",
+        "specifier": "./b5-wiring-helpers.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-canary-extract-helpers.js",
+        "specifier": "./extract-fixloop.js"
+      },
+      {
+        "round": 2,
+        "file": "k19-patterns-extract-helpers.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 3,
+        "file": "substrate/test/k19-AC-3-selectPatterns-max.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 3,
+        "file": "substrate/test/k19-patterns-extract-helpers.js",
+        "specifier": "./fixloop-helpers.js"
+      },
+      {
+        "round": 4,
+        "file": "substrate/test/k19-AC-3-selectPatterns-max.test.js",
+        "specifier": "./k19-patterns-extract-helpers.js"
+      },
+      {
+        "round": 4,
+        "file": "substrate/test/k19-patterns-extract-helpers.js",
+        "specifier": "./fixloop-helpers.js"
+      }
+    ],
+    "boundary_repairs": [],
+    "escalations": [
+      {
+        "task_id": "implement-memory-to-build",
+        "reason": "max_rounds",
+        "history": [
+          "r1: 22 TestSet file(s) imported outside /home/user/company-graph/.artifacts/worktrees/implement-memory-to-build/substrate/test/k19-canary-extract-helpers.js; routed to the Test Author and this round's run marked invalid",
+          "r1 [spec_conformance,security,correctness]: fail (13 findings, veto by security)",
+          "r1: deferred 9 findings past the fixer cap: missing-ac6-test,missing-ac8-test,missing-ac9-test,missing-ac17-test,F3-memory-ref-traversal,F4-memory-read-error-handling,F5-memory-read-error-handling-impl,ac18-test-regex-issue,ac7-prompt-wording-mismatch",
+          "r1: overruled spec_conformance at .claude/workflows/build-implement.js:26-27: The finding misapplies AC-7. AC-7's \"given\" clause is explicitly scoped to build-spec.js (\"build-spec invoked with args.memory_ref\") and its requirement of a schema returning { patterns, canaries } governs build-spec's memory-read agent only. build-spec.js's MemoryExtraction (build-spec.js:78-79) already requires both patterns and canaries, satisfying AC-7 — the finding's own evidence concedes this. build-implement.js's memory-read agent is governed instead by AC-20, which requires only \"MODEL.cheap and a read-only agentType through AT()\" with no mention of a patterns field, and by the spec text itself, which states build-implement's read-only extraction \"feeds a pure selectCanary({ canaries, task, run_id })\" — patterns are never consumed in build-implement (out_of_scope explicitly restricts patterns to the Decomposer only, via build-spec). Verified in the actual worktree source (.artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-implement.js:166) that its MemoryExtraction correctly requires only ['canaries'], and build-spec.js:78-79 correctly requires ['patterns','canaries']. These are two intentionally distinct schemas for two distinct agents with distinct jobs; requiring build-implement's schema to also return patterns would be requesting behavior the spec does not call for and that AC-20 does not require. Finding overruled.",
+          "r1: overruled spec_conformance at .claude/workflows/build-implement.js:982-985: Verified against the actual implementation (.artifacts/worktrees/implement-memory-to-build/.claude/workflows/build-implement.js:166-167,994-998 and build-spec.js:78-79,507-512). build-implement.js's MemoryExtraction schema is `{ additionalProperties: false, required: ['canaries'], properties: { canaries: {...} } }` — it has no `patterns` property at all, and its extraction agent only feeds libraryCanaries into selectCanary. build-spec.js's MemoryExtraction schema requires both `patterns` and `canaries` because it feeds selectPatterns/formatPatterns into the Decomposer prompt. The spec explicitly restricts patterns to the Decomposer only ('Feeding patterns to the Spec Writer, Risk Router, lenses, fixer or any agent other than the Decomposer' is out of scope), and build-implement's B2 half is defined purely in terms of canaries (selectCanary({ canaries, task, run_id })) with no role for patterns. Asking the build-implement memory-read agent to also return patterns would violate its own additionalProperties:false schema and would create an unused, out-of-scope data flow. The two prompts are correctly scoped to their distinct schemas/purposes; this is not a defect but a finding objecting to behavior the spec requires (and asking for something the spec's exclusions forbid).",
+          "r2: 11 TestSet file(s) imported outside .artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js; routed to the Test Author and this round's run marked invalid",
+          "r2 [security,correctness]: pass (9 findings)",
+          "r2: confirming spec_conformance",
+          "r2c [spec_conformance]: fail (2 findings)",
+          "r2c: a previously passing lens failed after a fix; running all lenses until green",
+          "r2: overruled spec_conformance at substrate/test/k19-AC-14-args-canary-wins.test.js: The exclusion cited (\"Writing or editing tests under substrate/test/ ... the Test Author owns these\") is an ownership boundary for this task's implementer/fixer, not a prohibition on test files ever appearing in substrate/test/ during this work item's build. Per HANDOFF.md/OPERATING_MODEL.md, test authoring for a spec's acceptance criteria is a separate node (Test Author) in the same Build stretch, not the fixer's job. The finding blames the fixer — whose owned_surfaces are only .claude/workflows/build-spec.js and build-implement.js — for test files it did not necessarily write and, critically, demands a remedy (editing/removing files under substrate/test/) that this same spec's out_of_scope list explicitly forbids the fixer from performing. This is not a defect in how build-spec.js/build-implement.js implement the spec; it is a request for the fixer to act outside its owned scope and violate its own out-of-scope rule to satisfy the finding. The fixer's dispute is correct: this belongs to the Test Author's contract, not to a fix in the two workflow files it owns.",
+          "r2: overruled spec_conformance at .claude/workflows/build-spec.js: Spec touched_surfaces (ledger/runs/k18/spec-wi-b1-b2-memory-to-build.json) is exactly [.claude/workflows/build-spec.js, .claude/workflows/build-implement.js], and out_of_scope explicitly assigns substrate/test/ writes to the Test Author (\"Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)\"). The finding's evidence is a branch-level diff observation, not a defect in this fixer's change to its owned surfaces: per the dispute, the substrate/test/*.js files were added by separate, clearly-attributed Test Author commits, and neither build-spec.js nor build-implement.js references or writes to substrate/test/. Upholding would require the fixer to edit substrate/test/ to 'fix' this — precisely what the spec forbids. The finding objects to content the spec assigns to a different, legitimately co-existing contribution on the same branch, not to a real defect in how build-spec.js/build-implement.js implement the spec.",
+          "r3: 2 TestSet file(s) imported outside .artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js; routed to the Test Author and this round's run marked invalid",
+          "r3 [spec_conformance,security,correctness]: fail (5 findings)",
+          "r3: grace round — at the cap with 5 finding(s) that never reached a fixer; granting one fix pass rather than discarding the panel that found them",
+          "r3: deferred 1 findings past the fixer cap: correctness-3",
+          "r3: overruled correctness at .artifacts/results/implement-memory-to-build.r3.json: The finding's evidence — round-to-round test-count instability (r1:44, r2:372, r3:1) with criteria_coverage still listing 18 AC's — traces, per the fixer's reproduction, to resolveRound/widenTestsRef, pre-existing generic fix-loop test-selection/round-carry logic in build-implement.js (~lines 524-604) that predates and is orthogonal to the B1/B2/C14 memory-to-build change. The fixer independently reproduced the actual code under test by running the full k19 TestSet directly (44 tests, 40 pass, 4 gaps unrelated to this finding), showing the B1/B2/C14 implementation itself is not broken in the way claimed. The spec's out_of_scope list explicitly bars 'Changing graph-lint checks, the boundary check, withinOwned semantics or fix-loop logic,' and the round-selection/widenTestsRef machinery is exactly that shared fix-loop logic — not part of touched_surfaces' B1/B2/C14 delta. A finding whose only remedy requires editing logic the spec expressly places out of scope does not name a defect in how this change implements the spec; it names a pre-existing, unrelated instability in shared infrastructure. Overrule.",
+          "r3: 2 test finding(s) repaired by the Test Author",
+          "r4: 2 TestSet file(s) imported outside .artifacts/worktrees/implement-memory-to-build/substrate/test/k19-AC-3-selectPatterns-max.test.js; routed to the Test Author and this round's run marked invalid",
+          "r4 [spec_conformance,security,correctness]: fail (7 findings)"
+        ],
+        "repeats": [],
+        "hypothesis": "The workflow implementation looks finished, but the loop is stuck on the test side. In every round (r1 through r4) the TestSet imported files outside the file the runner was given, so each run was marked invalid. The test counts per round swung between 44, 372 and 1 because of the fix loop's test-selection logic (resolveRound/widenTestsRef), and the spec rules that logic out of scope. Every r4 finding still open is a missing Test Author file for AC-1, 2, 10, 12, 19 or 21, and no fixer can close those within this spec. No finding repeated and no dispute was lost; the judge overruled six findings, all as out of scope or misread.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 674634,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k19",
+      "created_at": "2026-09-26T22:29:25Z"
+    }
+  }
+}

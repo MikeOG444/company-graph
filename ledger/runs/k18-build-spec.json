@@ -1,0 +1,554 @@
+{
+  "entry": {
+    "id": "k18-build-spec",
+    "run_id": "k18",
+    "workflow": "build-spec",
+    "status": "ok",
+    "started_at": "2026-09-26T22:25:48.927Z",
+    "finished_at": "2026-09-26T22:28:21.000Z",
+    "wall_clock_sec": 152,
+    "result_ref": "ledger/runs/k18-build-spec.json",
+    "artifact_count": 4,
+    "escalations": 0,
+    "tokens": 90200,
+    "tokens_by_model": {
+      "claude-opus-5-5": 31917,
+      "claude-haiku-4-5": 58283
+    },
+    "cost_est_usd": 0.26,
+    "agents": 3,
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k18",
+      "created_at": "2026-09-26T22:25:29Z"
+    },
+    "trace_ref": ".artifacts/traces/k18-build-spec.jsonl"
+  },
+  "result": {
+    "ready": [
+      {
+        "spec": {
+          "id": "spec-wi-b1-b2-memory-to-build",
+          "work_item_id": "wi-b1-b2-memory-to-build",
+          "goal": "Build the Memory to Build edge. Today build-spec.js has no memory input, and build-implement.js reads its canary only from args.canary (the injection block at about line 1120). After this change both workflows accept an optional args.memory_ref: a repository-relative path to a stored memory-roll run file whose result.roll (or result) is a MemoryRoll. (B1) In build-spec, one cheap read-only agent reads that file and returns { patterns, canaries } under a schema, and it never judges. Pure script code, selectPatterns and formatPatterns in a sentinel block, picks the patterns and renders them into the Decomposer prompt as prior observations to avoid, not rules. (B2) In build-implement, the same read-only extraction feeds a pure selectCanary({ canaries, task, run_id }) inside the '// ---- BEGIN/END fix-loop decisions ----' block. It picks a library canary whose mutation names a path inside the task's owned_surfaces, using a deterministic hash of run_id + ':' + task.id (no Math.random, no Date). An explicit args.canary always wins. The chosen canary goes through the existing canary injection path unchanged, and each task records canary_source ('library' | 'args' | 'none') plus the canary id in the run output. Both halves degrade silently and safely. A missing, unreadable, empty or malformed roll leaves behavior identical to today. With no memory_ref, no extra agent runs (zero added tokens). Separately (C14), every build-implement prompt that runs tests says to run from the task worktree as the current directory and never to copy or write files into the main checkout.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "given": "build-spec.js source",
+              "when": "the sentinel-extraction idiom pulls the block holding selectPatterns/formatPatterns (either the existing '// ---- BEGIN graph-lint ----'..'// ---- END graph-lint ----' block or a new '// ---- BEGIN memory-patterns ----'/'// ---- END memory-patterns ----' block) and evaluates it standalone",
+              "then": "selectPatterns and formatPatterns are callable as pure functions with no reference to args, agent, fs, Date or Math.random",
+              "testable": true
+            },
+            {
+              "id": "AC-2",
+              "given": "a patterns array that mixes kinds 'pattern', 'prompt_refinement' and 'anti_pattern' with various sample_size values and ids",
+              "when": "selectPatterns(patterns) runs with the default options",
+              "then": "it returns at most 5 items. Every 'anti_pattern' item comes before any other kind. Within each kind group, items are ordered by sample_size descending, then by id ascending. The input array is not mutated.",
+              "testable": true
+            },
+            {
+              "id": "AC-3",
+              "given": "more than max valid patterns",
+              "when": "selectPatterns(patterns, { max: 2 }) runs",
+              "then": "exactly 2 items are returned, and they are the first 2 of the full ordering",
+              "testable": true
+            },
+            {
+              "id": "AC-4",
+              "given": "a patterns input with entries missing id, entries missing claim, null or non-object entries, or a non-array value (undefined, null, an object)",
+              "when": "selectPatterns runs",
+              "then": "it does not throw. Malformed entries are dropped. A non-array input yields [].",
+              "testable": true
+            },
+            {
+              "id": "AC-5",
+              "given": "selected patterns [{id:'p1', sample_size:4, claim:'X'}, {id:'p2', sample_size:2, claim:'Y'}]",
+              "when": "formatPatterns(selected) runs",
+              "then": "it returns exactly 'p1 (n=4): X\\np2 (n=2): Y', one line per pattern in the form '<id> (n=<sample_size>): <claim>'. formatPatterns([]) returns ''.",
+              "testable": true
+            },
+            {
+              "id": "AC-6",
+              "given": "build-spec invoked without args.memory_ref",
+              "when": "the workflow runs",
+              "then": "no memory-reading agent call is made (source structure: the only memory-read agent call is guarded by args.memory_ref being truthy), and the Decomposer prompt contains no memory or prior-observation heading, so it is byte-identical to today's prompt text",
+              "testable": true
+            },
+            {
+              "id": "AC-7",
+              "given": "build-spec invoked with args.memory_ref",
+              "when": "the workflow runs",
+              "then": "exactly one memory-read agent call runs, once per run and not once per work item. It uses MODEL.cheap, a read-only agentType bound through AT() (for example 'memory-analyst', or another type whose tools are only Read/Glob/Grep, never 'mechanical'), and a JSON schema returning { patterns: [...], canaries: [...] }. Its prompt tells it to read the file at memory_ref, take result.roll or else result, return patterns and canaries verbatim, never judge or filter, and write or change nothing.",
+              "testable": true
+            },
+            {
+              "id": "AC-8",
+              "given": "the memory-read agent returns null or throws, or returns an object with empty, missing or malformed patterns",
+              "when": "build-spec continues",
+              "then": "the run does not fail. selectPatterns yields []. The Decomposer prompt is identical to the no-memory_ref prompt, with no empty heading. The spec/graph/lint output shape is unchanged.",
+              "testable": true
+            },
+            {
+              "id": "AC-9",
+              "given": "a memory roll with at least one valid pattern",
+              "when": "build-spec builds the Decomposer prompt",
+              "then": "the prompt includes the formatPatterns(selectPatterns(patterns)) text under a heading stating these are prior observations from past runs to avoid, not rules. The text comes from structured items selected in script code, never a raw JSON blob of the roll. The Spec Writer and Risk Router prompts are unchanged.",
+              "testable": true
+            },
+            {
+              "id": "AC-10",
+              "given": "build-implement.js source",
+              "when": "the '// ---- BEGIN fix-loop decisions ----'..'// ---- END fix-loop decisions ----' block is extracted by the sentinel idiom and evaluated standalone",
+              "then": "selectCanary is callable as a pure function. It uses withinOwned from the same block and references no Math.random, Date, args or agent.",
+              "testable": true
+            },
+            {
+              "id": "AC-11",
+              "given": "canaries in which none of the mutations contains a path-like token inside task.owned_surfaces (including canaries: [], undefined, null, or non-array)",
+              "when": "selectCanary({ canaries, task, run_id }) runs",
+              "then": "it returns null without throwing",
+              "testable": true
+            },
+            {
+              "id": "AC-12",
+              "given": "a task whose owned_surfaces include '.claude/workflows/build-implement.js', and canaries where exactly two mutations name paths inside the owned surfaces and one names only a path outside them",
+              "when": "selectCanary runs with a fixed run_id and task.id",
+              "then": "it returns one of the two eligible canaries. The index is a deterministic hash of (run_id + ':' + task.id) modulo 2. Repeated calls with the same inputs return the same canary, and at least one pair of differing run_id values selects different eligible canaries.",
+              "testable": true
+            },
+            {
+              "id": "AC-13",
+              "given": "canary entries missing id or mutation, or with a non-string mutation",
+              "when": "selectCanary runs",
+              "then": "those entries are ignored as ineligible and nothing throws",
+              "testable": true
+            },
+            {
+              "id": "AC-14",
+              "given": "build-implement invoked with both args.canary and args.memory_ref",
+              "when": "a task matches args.canary (task_id or spec_id)",
+              "then": "args.canary's mutation is injected, the library is not consulted for that task, and the task records canary_source 'args'",
+              "testable": true
+            },
+            {
+              "id": "AC-15",
+              "given": "build-implement invoked with args.memory_ref and no args.canary, and selectCanary returns a canary for a task",
+              "when": "the task reaches the canary step",
+              "then": "the library canary's mutation goes through the same existing canary mutation agent call (same label pattern canary:<task.id>, same prompt wording and ChangeSet schema, with only the mutation text taken from the library). The task records canary_source 'library' and the canary id.",
+              "testable": true
+            },
+            {
+              "id": "AC-16",
+              "given": "build-implement invoked with no args.memory_ref",
+              "when": "the workflow runs",
+              "then": "no memory-read agent call is made, canary behavior is identical to today (args.canary only), and tasks with no canary record canary_source 'none'",
+              "testable": true
+            },
+            {
+              "id": "AC-17",
+              "given": "build-implement invoked with args.memory_ref whose read returns null, throws, or yields an empty, missing or malformed canaries list",
+              "when": "the workflow runs",
+              "then": "the run does not fail, no library canary is injected, tasks record canary_source 'none' (or 'args' where args.canary matched), and every other output field is unchanged",
+              "testable": true
+            },
+            {
+              "id": "AC-18",
+              "given": "the returned EvidenceBundle",
+              "when": "a run completes",
+              "then": "it carries a per-task canary record, for example canaries: [{ task_id, canary_source: 'library'|'args'|'none', canary_id? }]. canary_id is present for 'library' and omitted or null otherwise. The field is additive and every existing field keeps its shape.",
+              "testable": true
+            },
+            {
+              "id": "AC-19",
+              "given": "build-implement.js source",
+              "when": "the Test Runner prompt (the run:<task.id>:<tag> agent) and each fix-loop repair agent prompt that runs tests (the testfix, fix and impl repair agents) are inspected",
+              "then": "each states that it runs from the task worktree as the current directory and must never copy or write files into the main checkout",
+              "testable": true
+            },
+            {
+              "id": "AC-20",
+              "given": "the memory-read agent call in build-implement",
+              "when": "source structure is inspected",
+              "then": "it runs at most once per run, before the per-task pipeline and not once per task, and only when args.memory_ref is truthy. It uses MODEL.cheap and a read-only agentType through AT().",
+              "testable": true
+            },
+            {
+              "id": "AC-21",
+              "given": "the header args comments of build-spec.js and build-implement.js",
+              "when": "read",
+              "then": "each documents memory_ref? as optional, including its meaning and its silent-degradation behavior",
+              "testable": true
+            },
+            {
+              "id": "AC-22",
+              "given": "the repository test suite",
+              "when": "npm test runs after the change",
+              "then": "all existing tests, including the graph-lint and fix-loop sentinel tests, still pass",
+              "testable": true
+            }
+          ],
+          "touched_surfaces": [
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-spec.js"
+            },
+            {
+              "kind": "path",
+              "ref": ".claude/workflows/build-implement.js"
+            }
+          ],
+          "out_of_scope": [
+            "Writing or editing tests under substrate/test/ (the Test Author owns these; graph-lint check 5)",
+            "Changing /memory-roll, the memory-roll workflow, or any stored roll under ledger/runs/",
+            "Changing the MemoryRoll or any other definition in contracts.schema.json",
+            "Creating or editing any .claude/agents/*.md definition (use an existing read-only type such as memory-analyst)",
+            "Feeding patterns to the Spec Writer, Risk Router, lenses, fixer or any agent other than the Decomposer",
+            "Using prompt_refinement patterns to rewrite prompts automatically",
+            "Selecting more than one canary per task, or canaries for tasks with no owned surface named in the mutation",
+            "Changing the existing canary mutation agent's prompt, schema or label beyond where the mutation text comes from",
+            "Changing graph-lint checks, the boundary check, withinOwned semantics or fix-loop logic",
+            "Ledger/Method Ledger updates or catch-rate accounting for library canaries",
+            "HANDOFF.md, OPERATING_MODEL.md and COMPANY.md documentation updates"
+          ],
+          "risk": "low",
+          "risk_reasons": [
+            "The spec adds optional args.memory_ref input ('both workflows accept an optional args.memory_ref') which existing callers do not provide, preserving backward compatibility",
+            "Additive output fields only (AC-18: 'The field is additive and every existing field keeps its shape') rather than schema-breaking changes",
+            "Explicit silent degradation guarantee: 'A missing, unreadable, empty or malformed roll leaves behavior identical to today' (AC-8, AC-17)",
+            "Byte-identical behavior when args.memory_ref is absent: AC-6 confirms Decomposer prompt is 'byte-identical to today's prompt text' and AC-16 confirms 'canary behavior is identical to today (args.canary only)'",
+            "No changes to data storage, authentication, secrets, payments, or infrastructure",
+            "Touched surfaces are workflow scripts only (.claude/workflows/build-spec.js and .claude/workflows/build-implement.js); out-of-scope explicitly excludes memory-roll workflow and contracts.schema.json changes"
+          ],
+          "gate": "not_required",
+          "provenance": {
+            "node": "spec_writer",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "opus",
+            "run_id": "k18",
+            "created_at": "2026-09-26T22:25:29Z"
+          }
+        },
+        "graph": {
+          "spec_id": "spec-wi-b1-b2-memory-to-build",
+          "tasks": [
+            {
+              "id": "implement-memory-to-build",
+              "spec_id": "spec-wi-b1-b2-memory-to-build",
+              "description": "Implement Memory to Build edge. In build-spec.js: add optional args.memory_ref handling with a cheap read-only agent to extract patterns and canaries from a memory roll; implement selectPatterns and formatPatterns pure functions in a sentinel block; inject formatted patterns into the Decomposer prompt under a prior-observations heading. In build-implement.js: add optional args.memory_ref handling; implement selectCanary function in the fix-loop decisions sentinel block to deterministically pick library canaries matching task owned surfaces using a hash of run_id + ':' + task.id; route selected canaries through the existing canary mutation agent; record canary_source ('library'|'args'|'none') and canary_id in EvidenceBundle; update Test Runner and fix-loop repair agent prompts to specify running from task worktree and never writing to main checkout. Both halves degrade silently when memory_ref is missing, unreadable, or malformed. Update header comments in both files to document memory_ref as optional.",
+              "owned_surfaces": [
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-spec.js"
+                },
+                {
+                  "kind": "path",
+                  "ref": ".claude/workflows/build-implement.js"
+                }
+              ],
+              "depends_on": [],
+              "criteria_ids": [
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-6",
+                "AC-7",
+                "AC-8",
+                "AC-9",
+                "AC-10",
+                "AC-11",
+                "AC-12",
+                "AC-13",
+                "AC-14",
+                "AC-15",
+                "AC-16",
+                "AC-17",
+                "AC-18",
+                "AC-19",
+                "AC-20",
+                "AC-21",
+                "AC-22"
+              ]
+            }
+          ],
+          "provenance": {
+            "node": "decomposer",
+            "executor": "ai_agent",
+            "method": "dark_factory",
+            "model": "haiku",
+            "run_id": "k18",
+            "created_at": "2026-09-26T22:25:29Z"
+          }
+        },
+        "lint": {
+          "violations": [],
+          "warnings": [
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-1",
+              "path": "build-spec.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-1",
+              "path": "selectPatterns/formatPatterns"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-2"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-3"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-4"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-5"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-6"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-7",
+              "path": "Read/Glob/Grep"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-8",
+              "path": "spec/graph/lint"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-9"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-10",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-11"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-13"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-14"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-15"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-16"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-17"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-18"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-19",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-20"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-21",
+              "path": "build-spec.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "path_not_in_touched_surfaces",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-21",
+              "path": "build-implement.js"
+            },
+            {
+              "check": "criterion_reachability",
+              "reason": "names_no_path",
+              "task": "implement-memory-to-build",
+              "criterion": "AC-22"
+            }
+          ],
+          "criteria": [
+            {
+              "id": "AC-1",
+              "verification": "test"
+            },
+            {
+              "id": "AC-2",
+              "verification": "test"
+            },
+            {
+              "id": "AC-3",
+              "verification": "test"
+            },
+            {
+              "id": "AC-4",
+              "verification": "test"
+            },
+            {
+              "id": "AC-5",
+              "verification": "test"
+            },
+            {
+              "id": "AC-6",
+              "verification": "panel",
+              "matched": "byte-identical"
+            },
+            {
+              "id": "AC-7",
+              "verification": "test"
+            },
+            {
+              "id": "AC-8",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-9",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-10",
+              "verification": "test"
+            },
+            {
+              "id": "AC-11",
+              "verification": "test"
+            },
+            {
+              "id": "AC-12",
+              "verification": "test"
+            },
+            {
+              "id": "AC-13",
+              "verification": "test"
+            },
+            {
+              "id": "AC-14",
+              "verification": "test"
+            },
+            {
+              "id": "AC-15",
+              "verification": "test"
+            },
+            {
+              "id": "AC-16",
+              "verification": "test"
+            },
+            {
+              "id": "AC-17",
+              "verification": "panel",
+              "matched": "unchanged"
+            },
+            {
+              "id": "AC-18",
+              "verification": "test"
+            },
+            {
+              "id": "AC-19",
+              "verification": "test"
+            },
+            {
+              "id": "AC-20",
+              "verification": "test"
+            },
+            {
+              "id": "AC-21",
+              "verification": "test"
+            },
+            {
+              "id": "AC-22",
+              "verification": "test"
+            }
+          ],
+          "gate_required": false,
+          "provenance": {
+            "node": "graph_lint",
+            "executor": "ai_agent",
+            "method": "hotl",
+            "model": "n/a",
+            "run_id": "k18",
+            "created_at": "2026-09-26T22:25:29Z"
+          }
+        }
+      }
+    ],
+    "gated": [],
+    "provenance": {
+      "node": "build-spec",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k18",
+      "created_at": "2026-09-26T22:25:29Z"
+    }
+  }
+}

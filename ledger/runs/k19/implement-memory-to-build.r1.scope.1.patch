@@ -1,0 +1,30 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 40d3414..c18820c 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -28,6 +28,13 @@ export const meta = {
+ //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
+ //   agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
+ //   missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
++//   memory_ref?: OPTIONAL. A repository-relative path to a stored memory-roll run file whose result.roll (or result)
++//         is a MemoryRoll. When present, one cheap read-only agent reads it ONCE per run — before the per-task
++//         pipeline, never once per task — and its canaries feed the pure selectCanary (fix-loop decisions sentinel
++//         block) that deterministically picks, per task, a library canary whose mutation names a path inside that
++//         task's owned surfaces. An explicit args.canary always wins over the library. Absent, unreadable, empty or
++//         malformed — this whole half degrades SILENTLY: no agent call, no library canary is ever injected, and
++//         every task's canary_source records 'none' (or 'args' where args.canary matched) exactly as before.
+ // returns: EvidenceBundle (see contracts.schema.json)
+ //
+ // Human touchpoints: none inside this run. Escalations come back in the bundle;
+@@ -153,6 +160,11 @@ const TestValidityEntry = { type: 'object', additionalProperties: false, require
+ // addition to its original use in the fix loop below. Declared once, here, so every caller shares one definition.
+ const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
+   properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
++// Memory to Build (B2): the read-only extraction's own return shape. Loose item shape on purpose — the agent's
++// job is to copy a MemoryRoll's canaries VERBATIM; selectCanary below (fix-loop decisions block) is what
++// validates and filters the individual canary objects it actually needs fields from.
++const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['canaries'],
++  properties: { canaries: { type: 'array', items: { type: 'object' } } } }
+ 
+ // ---- pure-code edges ----
+ const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
