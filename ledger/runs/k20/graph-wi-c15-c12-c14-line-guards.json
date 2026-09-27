@@ -1,0 +1,45 @@
+{
+  "spec_id": "spec-wi-c15-c12-c14-line-guards",
+  "tasks": [
+    {
+      "id": "impl-build-implement-c15-c12-c14",
+      "spec_id": "spec-wi-c15-c12-c14-line-guards",
+      "description": "Implement three fixes to .claude/workflows/build-implement.js: (1) C15 - Add budget token conversion logic (outputCeiling function, billed_per_output ratio handling, DEFAULT_BILLED_PER_OUTPUT constant with ledger measurement comment, change TASK_TOKENS default from 250000 to 1000000 billed tokens, update shouldEscalate for 2x ceiling hard-stop checks, add over_budget tracking with billed_est, and extend spend field with billed_per_output and billed_tokens_est). (2) C12 - Add required string 'id' field to GateCheck schema and its required list, update gate:spec_gate prompt to ask for id and gate separately, add verifyGate pure function to fix-loop decisions block, and implement retry logic in spec-gate check (re-invoke once on retry:true, refuse on any other failure). (3) C14 remainder - Add optional 'untracked' field to TestResults schema, add newStrays pure function to fix-loop decisions block for detecting stray files outside .artifacts/ and baseline, update Test Runner prompt (label run:${task.id}:${tag}) to run git status and report untracked paths verbatim, and implement stray_files tracking in run output with baseline source and deduping by path.",
+      "owned_surfaces": [
+        {
+          "kind": "path",
+          "ref": ".claude/workflows/build-implement.js"
+        }
+      ],
+      "depends_on": [],
+      "criteria_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8",
+        "AC-9",
+        "AC-10",
+        "AC-11",
+        "AC-12",
+        "AC-13",
+        "AC-14",
+        "AC-15",
+        "AC-16",
+        "AC-17",
+        "AC-18"
+      ]
+    }
+  ],
+  "provenance": {
+    "node": "decomposer",
+    "executor": "ai_agent",
+    "method": "dark_factory",
+    "model": "haiku",
+    "run_id": "k20",
+    "created_at": "2026-09-27T02:56:27Z"
+  }
+}
