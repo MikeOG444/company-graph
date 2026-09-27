@@ -1,0 +1,48 @@
+{
+  "entry": {
+    "id": "k23d-build-implement",
+    "run_id": "k23d",
+    "workflow": "build-implement",
+    "status": "ok",
+    "started_at": "2026-09-27T05:12:03.362Z",
+    "finished_at": "2026-09-27T05:18:10.000Z",
+    "wall_clock_sec": 367,
+    "result_ref": "ledger/runs/k23d-build-implement.json",
+    "artifact_count": 0,
+    "escalations": 0,
+    "tokens": 0,
+    "agents": 0,
+    "human_min": 0,
+    "provenance": {
+      "node": "escalation_resolution",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "model": "main-session",
+      "run_id": "k23d",
+      "created_at": "2026-09-27T05:18:10.000Z"
+    }
+  },
+  "result": {
+    "resolves": "k23: c11-ledger-surgical-impl escalated no_fresh_findings — a round-1 correctness finding (AC-13, test-suite hygiene) was deferred past the 4-fixer cap, never repaired, and never re-raised by round 2 (which only saw the already-repaired tests), so the panel would have gone green without it; the escalation packager correctly refused to pass on that silence.",
+    "option_taken": "direct_drive (review-and-land), decided by the main session under the operating rule (HANDOFF §6): a fix-loop mechanics gap, not a budget/irreversibility/strategy question.",
+    "landed": {
+      "commits": [
+        "90112e7",
+        "555c767"
+      ],
+      "task_branch": "task/c11-ledger-surgical-impl (344bcc0, base 2b3bd7d)",
+      "diff_ref": ".artifacts/diffs/c11-ledger-surgical-impl.r0.patch"
+    },
+    "review_defects_fixed": [
+      "AC-13 (test-suite hygiene) had no test: no k23-AC-13-*.test.js existed and criteria_coverage stopped at AC-12. Written by hand from the Spec's AC-13 given/when/then alone: no k23 test file invokes npm test/npm run test; every ledger CLI call in the k23 TestSet names an explicit throwaway root; the repository's own ledger/index.jsonl and ledger/runs/ are byte-identical before and after the suite runs (recursive snapshot, since ledger/runs/ nests subdirectories)."
+    ],
+    "verification": {
+      "full_testset_against_worktree": "18/18 (14 files, 13 authored by k23's Test Author + the hand-written AC-13)",
+      "mutation_check": "reverted substrate/ledger.js to its pre-change form (git show 2b3bd7d) and re-ran the 18-test TestSet: 10/18 correctly failed, confirming the tests are meaningful; restored the fix",
+      "root": "489/489 (471 pre-existing + 18 new)",
+      "manual_cli_smoke_test": "throwaway root with an index row and a hand-corrected run file (tokens, wall_clock_unknown, differing from the index): `ledger check` named both fields and exited 1 before recost; `ledger recost` updated only cost_est_usd, left tokens and wall_clock_unknown untouched, and `check` (run internally at the end of recost) still exited 1 on the pre-existing drift, exactly as C11's fix requires"
+    },
+    "cost_usd_k23": 1.62,
+    "note": "k23's implementation code (substrate/ledger.js) passed correctness, security and spec_conformance across two rounds with three logged canary/attack attempts each, all blocked; only the TestSet was short one file."
+  }
+}

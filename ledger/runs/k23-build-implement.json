@@ -1,0 +1,358 @@
+{
+  "entry": {
+    "id": "k23-build-implement",
+    "run_id": "k23",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-27T04:47:15.191Z",
+    "finished_at": "2026-09-27T05:12:03.362Z",
+    "wall_clock_sec": 1488,
+    "result_ref": "ledger/runs/k23-build-implement.json",
+    "artifact_count": 7,
+    "escalations": 1,
+    "tokens": 764900,
+    "tokens_by_model": {
+      "claude-haiku-4-5": 425197,
+      "claude-sonnet-5": 322221,
+      "claude-opus-5": 17482
+    },
+    "cost_est_usd": 1.62,
+    "agents": 16,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k23",
+      "created_at": "2026-09-27T04:34:49Z"
+    }
+  },
+  "result": {
+    "release_candidate_id": "rc-k23",
+    "project_id": "venture0",
+    "iteration": "k22",
+    "artifact_ref": "no task passed",
+    "specs": [
+      "spec-wi-c11-ledger-recost-surgical"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "c11-ledger-surgical-impl-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "Attempted to break AC-1 (surgical run file update): verified lines 247-248 only set cost_est_usd, leaving doc.result and all other fields untouched; the entire doc object preserves pre-existing entry fields while updating only the cost field",
+              "Attempted to break AC-2 (byte preservation of unchanged lines): verified line 255 preserves original raw line 'l' for unchanged rows using conditional map; only rows with changed cost are re-stringified through JSON.stringify; trailing newline shape is correctly reconstructed",
+              "Attempted to break AC-10 (atomic operations with error safety): verified lines 226-235 pre-load all matching run files BEFORE any writes; if any file is missing or unparseable, die() aborts immediately before touching index or run files, guaranteeing atomicity"
+            ],
+            "findings": [],
+            "confidence": 0.99,
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path Traversal via Malformed Index Entries: Attempted to inject path traversal sequences through r.id in path.join() calls (lines 79, 229, 248). Attack blocked because r.id is sanitized by safe() function in append command, path.join() normalizes paths, and this pattern is pre-existing in pre-change code.",
+              "Information Disclosure via Error Messages: Examined error handling in checkRows() and recost for potential secret leaks through exception messages and file paths. No exploitable disclosure found; error messages are properly wrapped, paths are sanitized via absToRef(), LedgerEntry schema excludes sensitive fields, and output goes to appropriate stderr channel.",
+              "JSON Injection via Malformed Index Lines: Tested JSON.parse() at line 214 on malformed input. Attack fails because uncaught errors crash cleanly with no security degradation; this behavior is identical to pre-change readIndex() function; index format is internal and controlled by append command."
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "attempts": [
+              "AC-2: Create two rows, one reprices and one does not. Verify unchanged row's line is byte-identical to original text, total line count is unchanged, row order is unchanged, and trailing-newline shape is preserved. No test covers this.",
+              "AC-4: Create a root where all row costs already match recomputed values. Run recost and verify exit code is 0, index.jsonl is byte-identical to before, and every run file is byte-identical to before. No test covers this.",
+              "AC-5: Create two rows A and B both with stale costs. Run `ledger recost <A.id>` and verify only A is updated while B remains byte-identical; stdout reports 1 row recosted. No test covers this ID filter end-to-end.",
+              "AC-10: Create a row whose run file is missing or unparseable. Run recost and verify it exits non-zero with a descriptive error, and ledger/index.jsonl and all existing run files are byte-identical to before (no partial writes). No test covers this.",
+              "AC-13: Scan the source text of all test files to verify none contain npm test invocation and every cli() call uses explicit tmpRoot; verify repository's ledger/index.jsonl and ledger/runs/ are unchanged after test suite execution. No explicit test covers this."
+            ],
+            "findings": [
+              {
+                "id": "AC-2-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+                "claim": "AC-2 (unchanged rows byte-identical, line count and row order preserved) is not tested",
+                "evidence": "No test file k23-AC-2-*.test.js exists; criteria_coverage claims only 8 criteria are covered (AC-1,AC-3,AC-6,AC-7,AC-8,AC-9,AC-11,AC-12), and AC-2 is not listed",
+                "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-2 untested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "AC-4-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+                "claim": "AC-4 (no-op recost: exit 0, files byte-identical when nothing changes) is not tested",
+                "evidence": "No test file k23-AC-4-*.test.js exists; criteria_coverage does not include AC-4",
+                "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-4 untested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "AC-5-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+                "claim": "AC-5 (ID filter: only matching row updated, others byte-identical) is not tested",
+                "evidence": "No test file k23-AC-5-*.test.js exists; criteria_coverage does not include AC-5",
+                "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-5 untested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "AC-10-untested",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+                "claim": "AC-10 (missing/unreadable run file detected before any write) is not tested",
+                "evidence": "No test file k23-AC-10-*.test.js exists; criteria_coverage does not include AC-10; implementation reads all run files before writing (correct), but behavior is not verified by any test",
+                "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-10 untested",
+                "status": "open",
+                "target": "test"
+              },
+              {
+                "id": "AC-13-untested",
+                "lens": "correctness",
+                "severity": "medium",
+                "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+                "claim": "AC-13 (test suite hygiene: no npm test invocation, tmpRoot usage, repo ledger unchanged) is not tested",
+                "evidence": "No test file k23-AC-13-*.test.js exists; criteria_coverage does not include AC-13; the spec requires verification that repo's ledger/index.jsonl and ledger/runs/ are byte-identical after suite execution, but no test exercises this",
+                "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-13 untested",
+                "status": "open",
+                "target": "test"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "AC-2-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+            "claim": "AC-2 (unchanged rows byte-identical, line count and row order preserved) is not tested",
+            "evidence": "No test file k23-AC-2-*.test.js exists; criteria_coverage claims only 8 criteria are covered (AC-1,AC-3,AC-6,AC-7,AC-8,AC-9,AC-11,AC-12), and AC-2 is not listed",
+            "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-2 untested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "AC-4-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+            "claim": "AC-4 (no-op recost: exit 0, files byte-identical when nothing changes) is not tested",
+            "evidence": "No test file k23-AC-4-*.test.js exists; criteria_coverage does not include AC-4",
+            "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-4 untested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "AC-5-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+            "claim": "AC-5 (ID filter: only matching row updated, others byte-identical) is not tested",
+            "evidence": "No test file k23-AC-5-*.test.js exists; criteria_coverage does not include AC-5",
+            "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-5 untested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "AC-10-untested",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+            "claim": "AC-10 (missing/unreadable run file detected before any write) is not tested",
+            "evidence": "No test file k23-AC-10-*.test.js exists; criteria_coverage does not include AC-10; implementation reads all run files before writing (correct), but behavior is not verified by any test",
+            "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-10 untested",
+            "status": "open",
+            "target": "test"
+          },
+          {
+            "id": "AC-13-untested",
+            "lens": "correctness",
+            "severity": "medium",
+            "location": ".artifacts/tests/c11-ledger-surgical-impl/",
+            "claim": "AC-13 (test suite hygiene: no npm test invocation, tmpRoot usage, repo ledger unchanged) is not tested",
+            "evidence": "No test file k23-AC-13-*.test.js exists; criteria_coverage does not include AC-13; the spec requires verification that repo's ledger/index.jsonl and ledger/runs/ are byte-identical after suite execution, but no test exercises this",
+            "dedupe_key": ".artifacts/tests/c11-ledger-surgical-impl/|AC-13 untested",
+            "status": "open",
+            "target": "test"
+          }
+        ],
+        "round": 1
+      },
+      {
+        "change_set_id": "c11-ledger-surgical-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "correctness",
+            "verdict": "pass",
+            "attempts": [
+              "Attempt to make recost overwrite run-file fields other than cost_est_usd by replacing entire doc.entry — implementation reads existing doc entry and modifies only doc.entry.cost_est_usd; AC-1 validates hand-corrected fields survive; attempt fails",
+              "Attempt to make recost re-serialize unchanged index lines through JSON.stringify — implementation preserves unchanged lines byte-for-byte using changed.has(i) conditional; AC-2 tests with non-canonical spacing and verifies byte-identity; attempt fails",
+              "Attempt to make recost leave index/run-file drift undetected — implementation invokes checkRows() at completion and exits non-zero when issues found; AC-6/AC-7/AC-8 test reporting and exit behavior; attempt fails"
+            ],
+            "confidence": 0.98,
+            "findings": [],
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      },
+      {
+        "change_set_id": "c11-ledger-surgical-impl-r0",
+        "result": "pass",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "pass",
+            "attempts": [
+              "AC-1: Run file preservation - code only modifies doc.entry.cost_est_usd, preserves doc.result and hand-corrected fields",
+              "AC-2: Index byte preservation - unchanged lines use original raw text, only changed rows are JSON.stringify'd",
+              "AC-8: Recost runs check at end - checkRows is called after all writes, reports issues and exits 1 if found"
+            ],
+            "confidence": 0.95,
+            "findings": [],
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Path traversal via crafted id field in checkRows/recost — attempt to use id='../../../etc/passwd' to escape RUNS directory and read /etc/passwd.json; blocked by path.join() normalization which resolves the path safely",
+              "JSON DoS via malformed index line — attempt to corrupt index with invalid JSON like '{invalid}'; code throws SyntaxError on line 214, same as original readIndex() behavior at line 37, spec does not require index-file parse-error handling (only run-file per AC-10)",
+              "Symlink attack to read arbitrary files — attempt to create ledger/runs/k1-x.json → /etc/passwd symlink and trigger read via recost; blocked by JSON.parse() validation and entry-field check at line 233 which dies if entry is missing"
+            ],
+            "findings": [],
+            "confidence": 0.95,
+            "change_set_id": "c11-ledger-surgical-impl-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k23",
+              "created_at": "2026-09-27T04:34:49Z"
+            }
+          }
+        ],
+        "findings": [],
+        "round": 2
+      }
+    ],
+    "suite": {
+      "passed": 0,
+      "failed": 0,
+      "results_ref": ""
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "test_validity": [],
+    "import_escapes": [],
+    "boundary_repairs": [],
+    "canaries": [
+      {
+        "task_id": "c11-ledger-surgical-impl",
+        "canary_source": "none"
+      }
+    ],
+    "escalations": [
+      {
+        "task_id": "c11-ledger-surgical-impl",
+        "reason": "no_fresh_findings",
+        "history": [
+          "r1 [spec_conformance,security,correctness]: fail (5 findings)",
+          "r1: deferred 1 findings past the fixer cap: AC-13-untested",
+          "r1: 4 test finding(s) repaired by the Test Author",
+          "r2 [correctness]: pass (0 findings)",
+          "r2: confirming spec_conformance,security",
+          "r2c [spec_conformance,security]: pass (0 findings)",
+          "r2c: panel is green but 1 earlier finding(s) were never fixed or overruled (.artifacts/tests/c11-ledger-surgical-impl/|AC-13 untested) — escalating instead of passing on a lens's silence",
+          "packager verification (read-only): .artifacts/tests/c11-ledger-surgical-impl/ contains k23-AC-1..k23-AC-12 test files and no k23-AC-13-*; the string 'AC-13' appears nowhere in that staged test set; .artifacts/results/c11-ledger-surgical-impl.r2.json criteria_coverage stops at AC-12"
+        ],
+        "repeats": [],
+        "hypothesis": "The loop cannot finish itself: AC-13's missing test was deferred past r1's fixer cap, and because r2/r2c lenses only re-read the r1 changeset they had no reason to re-raise a test that was never written — so the panel goes green while the one real gap (a suite-hygiene test asserting no `npm test`, explicit tmpRoot on every CLI call, and a byte-identical repo ledger/ after the run) persists with no agent left in the cycle whose job is to author it.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "over_budget": [],
+    "stray_files": [],
+    "stray_baseline_source": "args",
+    "spend": {
+      "tokens": 255049,
+      "wall_clock_min": 0,
+      "human_min": 0,
+      "billed_per_output": 4,
+      "billed_tokens_est": 1020196
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k23",
+      "created_at": "2026-09-27T04:34:49Z"
+    }
+  }
+}
