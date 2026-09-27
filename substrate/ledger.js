@@ -10,7 +10,13 @@
 //     explicitly overrides the derived value for that field. Without --from-output, --started and --result are
 //     required exactly as before:
 //   ledger append --workflow <name> --run <run_id> --started <iso> --result <file.json> [...same flags...]
-//   ledger recost [<id>]            recompute cost_est_usd from substrate/lib/pricing.json (all rows, or one)
+//   ledger recost [<id>]            recompute cost_est_usd from substrate/lib/pricing.json (all rows, or one).
+//     Surgical: only cost_est_usd is rewritten, in the index line and in the run file's entry — every other
+//     field of both copies, and the run file's result, is left untouched; unchanged index lines are preserved
+//     byte-for-byte. Runs `check` at the end so any index/run-file drift surfaces immediately.
+//   ledger check [<id>]             compare index rows against ledger/runs/<id>.json entries (all rows, or one);
+//     ignores cost_est_usd, fails loudly (exit 1) naming any row and field that disagree, or any run file that
+//     is missing/unparseable
 //   ledger list [--json]
 //   ledger summary [--by method|workflow|node|model] [--json]
 //   ledger show <run_id>
@@ -29,6 +35,62 @@ const safe = s => String(s).replace(/[^A-Za-z0-9._-]+/g, '_')
 function readIndex() {
   if (!fs.existsSync(INDEX)) return []
   return fs.readFileSync(INDEX, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
+
+// Read the index as raw lines (for recost's surgical rewrite), preserving line count, order and the
+// file's trailing-newline shape. Returns null when there is no index file at all.
+function readIndexRaw() {
+  if (!fs.existsSync(INDEX)) return null
+  const raw = fs.readFileSync(INDEX, 'utf8')
+  const trailingNewline = raw.endsWith('\n')
+  const body = trailingNewline ? raw.slice(0, -1) : raw
+  const lines = body.length ? body.split('\n') : []
+  return { lines, trailingNewline }
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true
+  if (typeof a !== typeof b || a === null || b === null) return false
+  if (typeof a === 'object') {
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    const ak = Object.keys(a), bk = Object.keys(b)
+    if (ak.length !== bk.length) return false
+    return ak.every(k => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]))
+  }
+  return false
+}
+
+// Field names (other than cost_est_usd) on which an index row and a run-file entry disagree.
+function diffFields(indexRow, runEntry) {
+  const keys = new Set([...Object.keys(indexRow), ...Object.keys(runEntry)])
+  keys.delete('cost_est_usd')
+  const bad = []
+  for (const k of keys) if (!deepEqual(indexRow[k], runEntry[k])) bad.push(k)
+  return bad
+}
+
+// Compare every index row (or just `idFilter`) against its ledger/runs/<id>.json entry, ignoring
+// cost_est_usd. Returns a list of { id, fields } (disagreeing field names) or { id, error } (run file
+// missing/unparseable/entry-less) for every offending row; never throws.
+function checkRows(rows, idFilter) {
+  const issues = []
+  for (const r of rows) {
+    if (idFilter && r.id !== idFilter) continue
+    const p = path.join(RUNS, `${r.id}.json`)
+    let doc
+    try { doc = readJson(p) }
+    catch (e) { issues.push({ id: r.id, error: `run file ${absToRef(p)} missing or unparseable: ${e.message}` }); continue }
+    if (!doc || typeof doc.entry !== 'object' || doc.entry === null) {
+      issues.push({ id: r.id, error: `run file ${absToRef(p)} has no entry` }); continue
+    }
+    const fields = diffFields(r, doc.entry)
+    if (fields.length) issues.push({ id: r.id, fields })
+  }
+  return issues
+}
+
+function reportIssues(issues) {
+  for (const iss of issues) process.stderr.write(`${iss.id}: ${iss.fields ? iss.fields.join(', ') : iss.error}\n`)
 }
 const int = (v, name) => { if (v === undefined) return undefined; const n = Number(v); if (!Number.isInteger(n) || n < 0) die(`--${name} must be a non-negative integer`); return n }
 
@@ -146,16 +208,65 @@ switch (cmd) {
   }
 
   case 'recost': {
-    const rows = readIndex()
-    let n = 0
-    for (const r of rows) {
+    const state = readIndexRaw()
+    const lines = state ? state.lines : []
+    const trailingNewline = state ? state.trailingNewline : true
+    const rows = lines.map(l => JSON.parse(l))
+
+    const matches = []
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
       if (a && r.id !== a) continue
       if (!r.tokens_by_model) continue
-      r.cost_est_usd = estimateCost(r.tokens_by_model).cost_est_usd; n++
-      const p = path.join(RUNS, `${r.id}.json`); const doc = readJson(p); doc.entry = r; writeJson(p, doc)
+      matches.push(i)
     }
-    fs.writeFileSync(INDEX, rows.map(r => JSON.stringify(r)).join('\n') + '\n')
+
+    // Read every run file that will be touched BEFORE writing anything, so a missing/unparseable run
+    // file for any matching row aborts the whole operation with nothing partially written.
+    const docs = new Map()
+    for (const i of matches) {
+      const r = rows[i]
+      const p = path.join(RUNS, `${r.id}.json`)
+      let doc
+      try { doc = readJson(p) }
+      catch (e) { die(`cannot recost ${r.id}: run file ${absToRef(p)} is missing or unparseable (${e.message})`) }
+      if (!doc || typeof doc.entry !== 'object' || doc.entry === null) die(`cannot recost ${r.id}: run file ${absToRef(p)} has no entry`)
+      docs.set(i, doc)
+    }
+
+    // Only rewrite cost_est_usd, in the run file's existing entry (never doc.result, never the whole
+    // entry) and, for the index, only on lines whose row actually changed.
+    let n = 0
+    const changed = new Map()
+    for (const i of matches) {
+      const r = rows[i]
+      const newCost = estimateCost(r.tokens_by_model).cost_est_usd
+      n++
+      if (newCost !== r.cost_est_usd) {
+        const doc = docs.get(i)
+        doc.entry.cost_est_usd = newCost
+        writeJson(path.join(RUNS, `${r.id}.json`), doc)
+        r.cost_est_usd = newCost
+        changed.set(i, JSON.stringify(r))
+      }
+    }
+
+    if (changed.size) {
+      const newLines = lines.map((l, i) => changed.has(i) ? changed.get(i) : l)
+      fs.writeFileSync(INDEX, newLines.join('\n') + (trailingNewline ? '\n' : ''))
+    }
+
     console.log(`recosted ${n} row(s) from substrate/lib/pricing.json`)
+
+    const issues = checkRows(readIndex())
+    if (issues.length) { reportIssues(issues); process.exit(1) }
+    break
+  }
+
+  case 'check': {
+    const issues = checkRows(readIndex(), a)
+    reportIssues(issues)
+    process.exit(issues.length ? 1 : 0)
     break
   }
 
@@ -214,5 +325,5 @@ switch (cmd) {
   }
 
   default:
-    die('usage: ledger append|list|show|summary|recost ...  (see header of substrate/ledger.js)')
+    die('usage: ledger append|list|show|summary|recost|check ...  (see header of substrate/ledger.js)')
 }
