@@ -450,5 +450,35 @@
       "run_id": "carry-seed-c15-c12-c14",
       "created_at": "2026-09-27T02:56:15Z"
     }
+  },
+  {
+    "id": "wi-c11-ledger-recost-surgical",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "`ledger recost` clobbers run files and re-serialises the whole index instead of touching only cost_est_usd",
+    "intent": "Found adding the claude-opus-5-5 rate to substrate/lib/pricing.json ($4/$20 per MTok; cache reads $0.20 ignored by the blend). `substrate/ledger.js`'s `recost` case (around line 148) does two things wrong. (1) For every matching row it computes `r.cost_est_usd = estimateCost(r.tokens_by_model).cost_est_usd`, then reads the run file at `ledger/runs/<id>.json`, sets `doc.entry = r` (the WHOLE index row, not just the recomputed field) and writes it back. If a run file's `entry` had ever been hand-corrected after append — the exact case that matters, since the index and a run file are two independent copies of the same data and can drift — recost overwrites that correction with whatever stale value sits in the index. A full recost on this repository's real ledger set `k1`'s `tokens` from 3,410,972 back down to the index's 122,328 and re-priced it at $0.56 instead of $15.83, and dropped `m2`'s `wall_clock_unknown` flag entirely. It was reverted by hand; `k7` alone was re-priced correctly ($1.38 -> $2.31), ledger total $84.89 -> $85.82. (2) The index rewrite (`fs.writeFileSync(INDEX, rows.map(r => JSON.stringify(r)).join('\\n') + '\\n')`) re-serialises EVERY row through `JSON.stringify`, including rows recost did not touch, so unrelated key ordering/spacing changes appear on lines that carried no actual cost change — 49 lines changed for zero semantic reason on the run that found this. Fix, surgical on both files: (a) in the run file, recost must update ONLY `doc.entry.cost_est_usd` (read the existing entry, set that one field, write it back — never replace `doc.entry` wholesale with the index row); (b) in the index, only rows whose `cost_est_usd` actually changed may have their serialized line replaced; every other row's original line text from `index.jsonl` must be preserved byte-for-byte (read the file as lines, edit only the changed ones, never round-trip a row through JSON.stringify unless its cost changed). (c) Add a consistency check — a new `ledger check` subcommand or equivalent invoked at the end of `recost` — that reads every row's index entry and its `ledger/runs/<id>.json` `entry`, and fails loudly (non-zero exit, one line per row naming the field) if they disagree on any field OTHER than `cost_est_usd`. This is the guard that makes future drift between the two copies visible immediately instead of being silently perpetuated (or silently overwritten) by the next recost. Tests belong in substrate/test/ and must not shell out to `npm test`; drive `recost` and the new check against small fixture index/run-file pairs written to a temp directory (never the real ledger/), covering: a row whose run file had a hand-corrected field survives recost with that field intact; an untouched row's index line is byte-identical after recost; a row whose cost_est_usd changes gets both files updated with only that field different; the check subcommand exits non-zero and names the field when a fixture pair is made to disagree on something other than cost_est_usd, and exits zero when they agree (or differ only in cost_est_usd, mid-recost). Out of scope: changing `estimateCost`, `substrate/lib/pricing.json`, the `append`/`list`/`summary`/`show` subcommands, or anything outside `substrate/ledger.js` and its tests.",
+    "priority": 3,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 1500000,
+      "wall_clock_min": 60
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": "substrate/ledger.js"
+      },
+      {
+        "kind": "path",
+        "ref": "substrate/test/"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "run_id": "carry-seed-c11",
+      "created_at": "2026-09-27T04:20:28Z"
+    }
   }
 ]
