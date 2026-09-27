@@ -1,0 +1,169 @@
+{
+  "id": "spec-wi-c15-c12-c14-line-guards",
+  "work_item_id": "wi-c15-c12-c14-line-guards",
+  "goal": "Fix three defects in .claude/workflows/build-implement.js as one task, all additive to the run output. (1) C15: every token budget in args (work_item_budgets[*].tokens, budget.task_tokens, budget.round_tokens) is read in BILLED units (input+output, what the ledger bills). Pure functions in the fix-loop decisions block convert them to the output-token units budget.spent() counts: outputCeiling(billed, ratio) = Math.floor(billed / ratio). The ratio is args.billed_per_output when it is a positive finite number, else a named constant DEFAULT_BILLED_PER_OUTPUT = 4, with a comment citing the ledger measurement (billed/output 2.5 to 9.0, 3.5 to 4.6 on k7 to k19; k19 was given 600k, billed 3.1M, and the script saw 675k). The constant must live inside the sentinel block, because the block is evaluated standalone via new Function. The TASK_TOKENS default becomes 1000000 billed, which is 250000 output at the default ratio. The hard stop (the existing escalation path, reason 'budget') fires only at twice the ceiling: cumulative task output tokens >= 2 x the task output ceiling, or one round's output tokens > 2 x the round output ceiling. Crossing 1x (and staying under 2x) records an over_budget entry { task_id, round, billed_est, budget } in the run output and logs a line, and the run continues. billed_est = ctx.tokens x ratio, and budget is the task's billed ceiling. run output spend gains billed_tokens_est (the output delta x ratio, rounded to an integer) and billed_per_output (the ratio used). spend.tokens keeps its meaning (output tokens). (2) C12: GateCheck in this file gains a required string id. The gate:spec_gate prompt asks for the record's id and its gate type as two separate fields. A pure verifyGate({ read, gate_id }) -> { ok, retry, failed_fields } in the fix-loop block gives ok only when found === true, status === 'decided', gate === 'spec_gate', option === 'approve' and id === gate_id. retry is true only when the failures are the known miscopy: only id and/or gate fail, and a failing gate equals gate_id, while found, status and option all verify. On retry the same agent() call site is re-invoked ONCE inside a loop (no new call site). The build refuses if the second read still fails, or immediately on any other failure. The refusal reason names the failed fields. (3) C14 remainder: the Test Runner prompt (label run:${task.id}:${tag}) additionally runs git status --porcelain --untracked-files=all in the main checkout (the first path printed by git -C <worktree> worktree list). It reports every untracked path verbatim as an optional untracked: string[] on TestResults. A pure newStrays({ reported, baseline, artifact_dir }) returns the reported paths that are neither inside artifact_dir nor in baseline. The baseline is args.untracked_baseline (string[]) when given. Otherwise it is the first runner report of the run, and the run records the baseline source. The run output gains stray_files: [{ round, task_id, path }], deduped by path across tasks, plus a log line per new stray. This is report only: nothing is deleted or moved.",
+  "acceptance": [
+    {
+      "id": "AC-1",
+      "given": "The fix-loop decisions block extracted between '// ---- BEGIN fix-loop decisions ----' and '// ---- END fix-loop decisions ----' and evaluated standalone with new Function (sentinel idiom, substrate/test/extract-fixloop.js)",
+      "when": "The block's return list is extended with outputCeiling, verifyGate, newStrays and any ratio or budget-state helper the implementation adds, and it is evaluated",
+      "then": "Every named function is defined and callable with no reference to args, budget, agent or any identifier outside the block. The block contains a named constant equal to 4 used as the default billed/output ratio, with a comment that cites the ledger measurement.",
+      "testable": true
+    },
+    {
+      "id": "AC-2",
+      "given": "outputCeiling from the extracted block",
+      "when": "It is called as outputCeiling(1000000, 4), outputCeiling(600000, 4), outputCeiling(1000001, 4) and outputCeiling(700000, 3.5)",
+      "then": "It returns 250000, 150000, 250000 and 200000 respectively (Math.floor(billed / ratio)).",
+      "testable": true
+    },
+    {
+      "id": "AC-3",
+      "given": "The ratio-selection logic (a pure helper in the block, or its equivalent inline use in the workflow body)",
+      "when": "args.billed_per_output is 3, then 0, then -2, then undefined, then the string '5', then NaN",
+      "then": "The ratio used is 3 for the first case and the default 4 for every other case. Only a positive finite number overrides the default.",
+      "testable": true
+    },
+    {
+      "id": "AC-4",
+      "given": "The workflow text of build-implement.js",
+      "when": "The TASK_TOKENS default and the per-task and per-round ceiling derivation are inspected (b5-wiring-helpers style text checks)",
+      "then": "The default task budget is 1000000 (billed), not 250000. The task and round ceilings placed on ctx.task_tokens and ctx.round_tokens are output-unit values produced by outputCeiling from the billed taskCeiling/roundBudget results (work_item_budgets[*].tokens, budget.task_tokens and budget.round_tokens are each treated as billed). With no budget args and no billed_per_output, ctx.task_tokens equals 250000, exactly as before.",
+      "testable": true
+    },
+    {
+      "id": "AC-5",
+      "given": "shouldEscalate (or a pure budget-state helper it uses) with ctx.task_tokens = 250000 and ctx.round_tokens = 83333 in output units",
+      "when": "It is evaluated with ctx.tokens = 260000 and last_round_tokens = 90000 (over 1x but under 2x on both), and again with ctx.tokens = 500000, and again with last_round_tokens = 166667",
+      "then": "The first case does NOT return 'budget' and falls through to the other escalation checks unchanged. The second and third cases return 'budget'. The hard stop fires at >= 2x the task ceiling (cumulative) or > 2x the round ceiling (single round), and nowhere below that.",
+      "testable": true
+    },
+    {
+      "id": "AC-6",
+      "given": "A task whose cumulative output tokens after a round are at or above 1x its output task ceiling but below 2x",
+      "when": "That round's spend is booked (after ctx.tokens is updated)",
+      "then": "The run output's over_budget array gains an entry { task_id, round, billed_est, budget }: billed_est is ctx.tokens x the ratio in use, and budget is the task's billed ceiling. A log line names the task, the round and both figures. The task continues to the next decision instead of escalating. over_budget is [] when no task ever crossed 1x.",
+      "testable": true
+    },
+    {
+      "id": "AC-7",
+      "given": "A completed build-implement run",
+      "when": "The returned EvidenceBundle's spend field is read",
+      "then": "spend.tokens is still the output-token delta budget.spent() - TOKENS_AT_START. spend additionally carries billed_per_output (the ratio used) and billed_tokens_est (spend.tokens x billed_per_output, rounded to an integer). The args header comment documents that the three budget args are in billed units and documents args.billed_per_output.",
+      "testable": true
+    },
+    {
+      "id": "AC-8",
+      "given": "The GateCheck schema in build-implement.js",
+      "when": "It is inspected",
+      "then": "It has a string property id, and 'id' is in its required list alongside found, status, gate and option. The gate:spec_gate prompt explicitly asks for the record's id and its gate type as two separate fields, and says they are different values.",
+      "testable": true
+    },
+    {
+      "id": "AC-9",
+      "given": "verifyGate from the extracted block with gate_id 'k8-spec_gate'",
+      "when": "read = { found: true, status: 'decided', gate: 'spec_gate', option: 'approve', id: 'k8-spec_gate' }",
+      "then": "It returns ok: true, retry: false, failed_fields: [].",
+      "testable": true
+    },
+    {
+      "id": "AC-10",
+      "given": "verifyGate with gate_id 'k8-spec_gate'",
+      "when": "read is { found: true, status: 'decided', gate: 'k8-spec_gate', option: 'approve', id: 'k8-spec_gate' } (the k9 miscopy), or the same read with id missing or id wrong but gate 'spec_gate'",
+      "then": "It returns ok: false, retry: true, and failed_fields names exactly the failing fields among 'gate' and 'id'.",
+      "testable": true
+    },
+    {
+      "id": "AC-11",
+      "given": "verifyGate with gate_id 'k8-spec_gate'",
+      "when": "read has option 'reject', or status 'open', or found false, or gate 'some_other_gate' (not equal to gate_id), or is null/undefined, with or without an id problem as well",
+      "then": "It returns ok: false, retry: false, and failed_fields includes every field that failed (for a null read, at least 'found'). The check fails closed.",
+      "testable": true
+    },
+    {
+      "id": "AC-12",
+      "given": "The spec-gate check in the workflow body",
+      "when": "Its wiring is inspected (b5-wiring-helpers style)",
+      "then": "There is exactly one agent() call with label 'gate:spec_gate'. It sits inside a loop that runs at most twice, re-invoked only when verifyGate returns retry: true on the first read. The build proceeds only on ok: true. Otherwise it returns { refused: true, reason, provenance }, and the reason contains the gate_id and the names of the failed_fields. No other workflow's GateCheck schema changes.",
+      "testable": true
+    },
+    {
+      "id": "AC-13",
+      "given": "The TestResults schema and the run:${task.id}:${tag} Test Runner prompt",
+      "when": "They are inspected",
+      "then": "TestResults has an optional untracked: { type: 'array', items: { type: 'string' } } property that is not in required, so a result without it still validates. The prompt instructs the runner to find the main checkout as the first path printed by git -C <worktree> worktree list, run git status --porcelain --untracked-files=all there, and report every untracked path verbatim as untracked. It also tells the runner not to delete, move or add any file. No new agent() call site is added.",
+      "testable": true
+    },
+    {
+      "id": "AC-14",
+      "given": "newStrays from the extracted block",
+      "when": "It is called with reported ['.artifacts/results/t1.r1.json', 'stray.js', 'notes/x.md', 'pre.txt'], baseline ['pre.txt'], artifact_dir '.artifacts'",
+      "then": "It returns ['stray.js', 'notes/x.md'] in reported order. A path equal to the artifact dir, or starting with '<artifact_dir>/', is excluded. A path that only shares the prefix text (e.g. '.artifactsX/a') is NOT excluded. A missing or empty reported list returns []. A missing baseline is treated as [].",
+      "testable": true
+    },
+    {
+      "id": "AC-15",
+      "given": "A run with args.untracked_baseline supplied",
+      "when": "Test Runner rounds report untracked paths",
+      "then": "Strays are computed against args.untracked_baseline, and the run output's stray_baseline_source is 'args'.",
+      "testable": true
+    },
+    {
+      "id": "AC-16",
+      "given": "A run without args.untracked_baseline",
+      "when": "The first Test Runner report of the run that carries an untracked array arrives",
+      "then": "That report becomes the baseline for the rest of the run: it yields no strays itself, and stray_baseline_source is 'first_report'. Later reports from any task are compared against it. If no runner ever reports untracked, stray_baseline_source is 'none' and stray_files is [].",
+      "testable": true
+    },
+    {
+      "id": "AC-17",
+      "given": "Two tasks whose runner reports both contain the same new stray path in different rounds",
+      "when": "The run completes",
+      "then": "The run output's stray_files holds exactly one { round, task_id, path } entry for that path (the first observation). One log line was emitted per new stray path. No agent or script step deletes, moves or edits any stray file.",
+      "testable": true
+    },
+    {
+      "id": "AC-18",
+      "given": "The full existing substrate test suite (node --test substrate/test/*.test.js)",
+      "when": "It runs against the changed build-implement.js",
+      "then": "Every previously passing test still passes. The existing escalation-reason enum, lens verdict derivation, judges, escapingImports, widenTestsRef and testValidity are unchanged.",
+      "testable": true
+    }
+  ],
+  "touched_surfaces": [
+    {
+      "kind": "path",
+      "ref": ".claude/workflows/build-implement.js"
+    }
+  ],
+  "out_of_scope": [
+    "Any file under substrate/test/ (tests are the Test Author's; this includes extending the return list in substrate/test/extract-fixloop.js)",
+    "GateCheck schemas or gate checks in any other workflow (build-spec, create-project, launch, deploy, build-reentry)",
+    "contracts.schema.json and the EvidenceBundle contract (new run-output fields are additive script output only)",
+    "Changing spend.tokens semantics, the ledger append, or how the ledger bills",
+    "Lens verdict derivation, tiebreak/dispute judges, escapingImports, widenTestsRef, testValidity, selectCanary, boundary checks",
+    "Adding any new agent() call site or any new .claude/agents/ definition",
+    "Deleting, moving or cleaning up stray files (report only)",
+    "Making the Escalation reason enum any different, or adding a new escalation reason",
+    "Merging PR #11, environment configuration, NOTIFY_GITHUB_TOKEN, and other items in the user's request outside this work item"
+  ],
+  "risk": "low",
+  "risk_reasons": [
+    "All changes are additive: new fields to run output (spend.billed_tokens_est, spend.billed_per_output, over_budget array, stray_files array, stray_baseline_source) are backward compatible; existing consumers continue to work",
+    "No changes to contracts.schema.json or EvidenceBundle contract structure; spec explicitly marks new run-output fields as 'additive script output only' (out_of_scope clause)",
+    "TestResults schema gains optional untracked field—optional means existing stored records without it still validate",
+    "GateCheck schema change (adding required id field) is internal to build-implement.js workflow only; represents a correctness fix for gate id miscopy bug, not a breaking API change; agent will be instructed to return this field",
+    "Client is internal only ('self, no external consumers'); no external route contracts broken",
+    "No changes to auth, secrets, payments, or infrastructure",
+    "All modifications are reversible and code-only; no deletions or destructive operations"
+  ],
+  "gate": "not_required",
+  "provenance": {
+    "node": "spec_writer",
+    "executor": "ai_agent",
+    "method": "hotl",
+    "model": "opus",
+    "run_id": "k20",
+    "created_at": "2026-09-27T02:56:27Z"
+  }
+}

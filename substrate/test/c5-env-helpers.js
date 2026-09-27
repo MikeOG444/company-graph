@@ -2,6 +2,7 @@
 // there before (deleting keys that didn't previously exist). substrate/test/helpers.js's cli() spreads
 // process.env into the child process env, so setting vars here is how these tests select the notify.js
 // driver and point it at a local server without touching the shared cli() helper.
+import './no-live-notify.js'   // never a real notification from the suite; see that file
 export async function withEnv(vars, fn) {
   const prev = {}
   for (const k of Object.keys(vars)) prev[k] = process.env[k]

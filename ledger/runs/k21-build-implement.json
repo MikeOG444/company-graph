@@ -1,0 +1,388 @@
+{
+  "entry": {
+    "id": "k21-build-implement",
+    "run_id": "k21",
+    "workflow": "build-implement",
+    "status": "failed",
+    "started_at": "2026-09-27T03:00:42.345Z",
+    "finished_at": "2026-09-27T03:41:22.821Z",
+    "wall_clock_sec": 2440,
+    "result_ref": "ledger/runs/k21-build-implement.json",
+    "artifact_count": 4,
+    "escalations": 1,
+    "tokens": 1238565,
+    "tokens_by_model": {
+      "claude-sonnet-5": 896347,
+      "claude-haiku-4-5": 329703,
+      "claude-opus-5-5": 12515
+    },
+    "cost_est_usd": 3.04,
+    "agents": 20,
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k21",
+      "created_at": "2026-09-27T02:59:57Z"
+    },
+    "trace_ref": ".artifacts/traces/k21-build-implement.jsonl"
+  },
+  "result": {
+    "release_candidate_id": "rc-k21",
+    "project_id": "venture0",
+    "iteration": 1,
+    "artifact_ref": "no task passed",
+    "specs": [
+      "spec-wi-c15-c12-c14-line-guards"
+    ],
+    "panel_results": [
+      {
+        "change_set_id": "changeset-impl-build-implement-c15-c12-c14-r0",
+        "result": "fail",
+        "verdicts": [
+          {
+            "lens": "spec_conformance",
+            "verdict": "fail",
+            "attempts": [
+              "Verified that DEFAULT_BILLED_PER_OUTPUT is defined inside the fix-loop decisions sentinel block with a comment citing ledger measurement; confirmed outputCeiling correctly implements Math.floor(billed/ratio) for all test cases; verified billedPerOutput ratio selection logic properly rejects non-positive and non-finite values. Found the ratio is correctly applied to convert billed ceilings to output units via outputCeiling calls at lines 1255-1256, with TASK_TOKENS defaulting to 1000000 billed (250000 output at default ratio 4).",
+              "Checked shouldEscalate hard-stop boundary: verified it fires at >= 2x on task tokens and > 2x on round tokens, not at 1x as required by AC-5; confirmed 1x to 2x crossing (under 2x) is handled by isOverBudget and over_budget entry recording, with over_budget entries correctly containing {task_id, round, billed_est, budget} fields per AC-6; verified billed_est is output tokens multiplied by RATIO and budget is the billed ceiling from ctx.task_tokens_billed.",
+              "Examined GateCheck schema and verifyGate implementation: confirmed 'id' is in the required list alongside 'found', 'status', 'gate', 'option' per AC-8; verified verifyGate correctly detects the k9 miscopy where both id and gate fields have the gate_id value by checking that coreOk passes but only id/gate fail, and if gate fails its value equals gate_id; confirmed the spec_gate agent call site at line 1060 is the only one, inside a loop running at most 2 attempts (attempt <= 2), with retry only when verifyGate returns retry:true."
+            ],
+            "findings": [
+              {
+                "id": "isOverBudget-round-boundary",
+                "lens": "spec_conformance",
+                "severity": "high",
+                "location": ".claude/workflows/build-implement.js:370",
+                "claim": "isOverBudget uses <= 2x for round tokens when spec AC-6 requires strictly below 2x (< 2x), creating inconsistency with task tokens logic and violating the 'below 2x' requirement.",
+                "evidence": "Line 370: `const overRound = last_round_tokens > round_tokens && last_round_tokens <= 2 * round_tokens`. Spec AC-6: 'A task whose cumulative output tokens after a round are at or above 1x its output task ceiling but below 2x'. Line 369 correctly uses `< 2 * task_tokens` (strictly less) for task; round should mirror this with `< 2 * round_tokens`, not `<= 2 * round_tokens`.",
+                "dedupe_key": ".claude/workflows/build-implement.js:370|isOverBudget round tokens boundary uses <= instead of < for 2x threshold",
+                "status": "open",
+                "target": "implementation"
+              }
+            ],
+            "confidence": 0.95,
+            "change_set_id": "changeset-impl-build-implement-c15-c12-c14-r0",
+            "provenance": {
+              "node": "lens:spec_conformance",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k21",
+              "created_at": "2026-09-27T02:59:57Z"
+            }
+          },
+          {
+            "lens": "security",
+            "verdict": "pass",
+            "attempts": [
+              "Command injection via gate_id in agent prompt: attempted shell metacharacter injection (k8; malicious_command) which fails because the agent is an LLM that follows literal instruction text, not a shell interpreter",
+              "JSON/log injection via unquoted gate_id in refusal reason: attempted newline/quote injection in the error message which fails because JSON serialization escapes special characters and the message is not auto-parsed as structured data",
+              "Gate verification bypass via id/gate field swap exploitation of retry logic: attempted to craft a response exploiting the verifyGate retry condition, which fails because the agent reads from authoritative substrate/gates.js and would need that source compromised to return false data"
+            ],
+            "findings": [],
+            "confidence": 0.92,
+            "change_set_id": "changeset-impl-build-implement-c15-c12-c14-r0",
+            "provenance": {
+              "node": "lens:security",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k21",
+              "created_at": "2026-09-27T02:59:57Z"
+            }
+          },
+          {
+            "lens": "correctness",
+            "verdict": "fail",
+            "confidence": 0.95,
+            "attempts": [
+              "Attempt 1: Modify shouldEscalate line 381 to check >= ctx.task_tokens instead of >= 2*ctx.task_tokens - breaks AC-5 hard stop but zero test coverage detects it",
+              "Attempt 2: Remove untracked field from TestResults schema line 122 - breaks AC-13 schema but zero test coverage detects it",
+              "Attempt 3: Delete git status instruction from Test Runner prompt lines 1435-1439 - breaks AC-13 prompt but zero test coverage detects it"
+            ],
+            "findings": [
+              {
+                "id": "AC-5-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:381",
+                "claim": "AC-5 is owned but untested",
+                "evidence": "No k21-AC-5 test file exists. criteria_coverage omits AC-5.",
+                "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:381|AC-5 untested",
+                "status": "open"
+              },
+              {
+                "id": "AC-13-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:122",
+                "claim": "AC-13 is owned but untested",
+                "evidence": "No k21-AC-13 test file exists. criteria_coverage omits AC-13.",
+                "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:122|AC-13 untested",
+                "status": "open"
+              },
+              {
+                "id": "AC-18-untested",
+                "lens": "correctness",
+                "severity": "high",
+                "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:1",
+                "claim": "AC-18 is owned but untested",
+                "evidence": "No k21-AC-18 test file exists. criteria_coverage omits AC-18. AC-18 requires substrate tests pass.",
+                "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:1|AC-18 untested",
+                "status": "open"
+              }
+            ],
+            "change_set_id": "changeset-impl-build-implement-c15-c12-c14-r0",
+            "provenance": {
+              "node": "lens:correctness",
+              "executor": "ai_agent",
+              "method": "dark_factory",
+              "model": "haiku",
+              "run_id": "k21",
+              "created_at": "2026-09-27T02:59:57Z"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "id": "isOverBudget-round-boundary",
+            "lens": "spec_conformance",
+            "severity": "high",
+            "location": ".claude/workflows/build-implement.js:370",
+            "claim": "isOverBudget uses <= 2x for round tokens when spec AC-6 requires strictly below 2x (< 2x), creating inconsistency with task tokens logic and violating the 'below 2x' requirement.",
+            "evidence": "Line 370: `const overRound = last_round_tokens > round_tokens && last_round_tokens <= 2 * round_tokens`. Spec AC-6: 'A task whose cumulative output tokens after a round are at or above 1x its output task ceiling but below 2x'. Line 369 correctly uses `< 2 * task_tokens` (strictly less) for task; round should mirror this with `< 2 * round_tokens`, not `<= 2 * round_tokens`.",
+            "dedupe_key": ".claude/workflows/build-implement.js:370|isOverBudget round tokens boundary uses <= instead of < for 2x threshold",
+            "status": "open",
+            "target": "implementation"
+          },
+          {
+            "id": "AC-5-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:381",
+            "claim": "AC-5 is owned but untested",
+            "evidence": "No k21-AC-5 test file exists. criteria_coverage omits AC-5.",
+            "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:381|AC-5 untested",
+            "status": "open"
+          },
+          {
+            "id": "AC-13-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:122",
+            "claim": "AC-13 is owned but untested",
+            "evidence": "No k21-AC-13 test file exists. criteria_coverage omits AC-13.",
+            "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:122|AC-13 untested",
+            "status": "open"
+          },
+          {
+            "id": "AC-18-untested",
+            "lens": "correctness",
+            "severity": "high",
+            "location": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:1",
+            "claim": "AC-18 is owned but untested",
+            "evidence": "No k21-AC-18 test file exists. criteria_coverage omits AC-18. AC-18 requires substrate tests pass.",
+            "dedupe_key": ".artifacts/worktrees/impl-build-implement-c15-c12-c14/.claude/workflows/build-implement.js:1|AC-18 untested",
+            "status": "open"
+          }
+        ],
+        "round": 1
+      }
+    ],
+    "suite": {
+      "passed": 0,
+      "failed": 0,
+      "results_ref": ""
+    },
+    "tests_landed": [],
+    "tests_skipped": [],
+    "test_validity": [
+      {
+        "test": "AC-12: exactly one agent() call site is labelled gate:spec_gate, sitting inside a loop bounded to at most two iterations",
+        "criterion": "AC-12",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-12: verifyGate is called (at least once) within the same function that runs the gate:spec_gate check",
+        "criterion": "AC-12",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-12: on any non-retryable failure (or a still-failing retry), the check refuses, naming the gate_id and the failed fields",
+        "criterion": "AC-12",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": true,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-15: when args.untracked_baseline is supplied, stray_baseline_source is recorded as \"args\"",
+        "criterion": "AC-15",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-16: with no runner ever reporting untracked, stray_baseline_source is \"none\" and stray_files is []",
+        "criterion": "AC-16",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-17: a stray_files entry is only pushed after checking the path was not already recorded (dedup across tasks/rounds)",
+        "criterion": "AC-17",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "code_defect"
+      },
+      {
+        "test": "AC-17: stray_files entries are shaped { round, task_id, path }",
+        "criterion": "AC-17",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-17: a log line accompanies each new stray recording",
+        "criterion": "AC-17",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-4: ctx.task_tokens and ctx.round_tokens are each assigned from outputCeiling wrapping taskCeiling/roundBudget in the same function",
+        "criterion": "AC-4",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-6: the run output initialises an over_budget collection that starts empty",
+        "criterion": "AC-6",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-6: over_budget entries carry task_id, round, billed_est and budget",
+        "criterion": "AC-6",
+        "facts": {
+          "locates_by_first_occurrence": false,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-6: a log line accompanies the over_budget recording, naming the task and round",
+        "criterion": "AC-6",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": false,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      },
+      {
+        "test": "AC-8: the gate:spec_gate prompt asks for the record's id and its gate type as two separate fields, and says they differ",
+        "criterion": "AC-8",
+        "facts": {
+          "locates_by_first_occurrence": true,
+          "requires_unquoted_literal": true,
+          "fails_on_base_same_reason": false,
+          "names_criterion_behaviour": true
+        },
+        "class": "test_defect"
+      }
+    ],
+    "import_escapes": [],
+    "boundary_repairs": [],
+    "canaries": [
+      {
+        "task_id": "impl-build-implement-c15-c12-c14",
+        "canary_source": "none"
+      }
+    ],
+    "escalations": [
+      {
+        "task_id": "impl-build-implement-c15-c12-c14",
+        "reason": "budget",
+        "history": [
+          "r1: 12 failing test(s) classified test_defect and routed to the Test Author before the correctness lens ran",
+          "r1 [spec_conformance,security,correctness]: fail (4 findings)",
+          "r1: budget breach — tokens 257820/750000 this task, 257820/250000 this round"
+        ],
+        "repeats": [],
+        "hypothesis": "Round 1 alone used 257,820 tokens against a 250,000 round cap, so the run stopped before any fix round. The cap is too small for a task that fixes three defects together (C15, C12, C14) and also sent 12 failing tests back to the Test Author. What was left is mostly about tests, not the code: three of the four open findings say AC-5, AC-13 and AC-18 are claimed but have no k21 test files. The fourth finding, the `<=` round boundary at build-implement.js:370, looks wrong on its merits: AC-5 sets the round hard stop at strictly more than 2x, so allowing up to and including 2x before the hard stop matches the spec.",
+        "options": [
+          "guide",
+          "direct_drive",
+          "kill_to_spec"
+        ],
+        "disputes_lost": []
+      }
+    ],
+    "starved_items": [],
+    "spend": {
+      "tokens": 348261,
+      "wall_clock_min": 0,
+      "human_min": 0
+    },
+    "provenance": {
+      "node": "build-implement",
+      "executor": "ai_agent",
+      "method": "hotl",
+      "model": "n/a",
+      "run_id": "k21",
+      "created_at": "2026-09-27T02:59:57Z"
+    }
+  }
+}

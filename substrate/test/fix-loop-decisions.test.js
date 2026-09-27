@@ -137,19 +137,23 @@ test('AC-10: taskCeiling splits a WorkItem token budget evenly across its tasks,
   assert.equal(taskCeiling({ tasks_for_work_item: 1, default_task_tokens: 250000 }), 250000)
 })
 
-test('AC-11: shouldEscalate returns "budget" once cumulative task spend reaches the task ceiling, even with rounds left and a fresh finding', () => {
+// C15 (k21d): the hard stop moved from 1x to 2x the ceiling (the operating rule's ask-the-human point); 1x only
+// records an over_budget entry. These three tests keep their shape with the thresholds doubled.
+test('AC-11: shouldEscalate returns "budget" once cumulative task spend reaches twice the task ceiling, even with rounds left and a fresh finding', () => {
   const { shouldEscalate } = loadFixLoopDecisions()
-  const ctx = { round: 1, k_rounds: 3, tokens: 560000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
+  const under2x = { round: 1, k_rounds: 3, tokens: 560000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
+  assert.equal(shouldEscalate(under2x, [finding({ dedupe_key: 'fresh-1' })]), null, 'over 1x but under 2x is not a hard stop')
+  const ctx = { round: 1, k_rounds: 3, tokens: 1100000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
   const findings = [finding({ dedupe_key: 'fresh-1' })]
   assert.equal(shouldEscalate(ctx, findings), 'budget')
 })
 
-test('AC-12: shouldEscalate returns "budget" when the round just finished overran its own per-round ceiling, else null when inside both ceilings', () => {
+test('AC-12: shouldEscalate returns "budget" when the round just finished overran twice its per-round ceiling, else null', () => {
   const { shouldEscalate } = loadFixLoopDecisions()
   const findings = [finding({ dedupe_key: 'fresh-1' })]
-  const overRound = { round: 1, k_rounds: 3, tokens: 200000, task_tokens: 550000, last_round_tokens: 250000, round_tokens: 183333, seen: new Set() }
+  const overRound = { round: 1, k_rounds: 3, tokens: 200000, task_tokens: 550000, last_round_tokens: 400000, round_tokens: 183333, seen: new Set() }
   assert.equal(shouldEscalate(overRound, findings), 'budget')
-  const withinRound = { ...overRound, last_round_tokens: 100000 }
+  const withinRound = { ...overRound, last_round_tokens: 250000 }   // over 1x, under 2x
   assert.equal(shouldEscalate(withinRound, findings), null)
 })
 
@@ -157,7 +161,7 @@ test('AC-13: shouldEscalate checks budget before max_rounds, and still reports t
   const { shouldEscalate } = loadFixLoopDecisions()
   const VALID_REASONS = ['max_rounds', 'repeat_finding', 'budget', 'no_fresh_findings', 'cannot_repro']
 
-  const overBudgetAtMaxRounds = { round: 3, k_rounds: 3, tokens: 600000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
+  const overBudgetAtMaxRounds = { round: 3, k_rounds: 3, tokens: 1100000, task_tokens: 550000, last_round_tokens: 10000, round_tokens: 183333, seen: new Set() }
   const r1 = shouldEscalate(overBudgetAtMaxRounds, [finding({ dedupe_key: 'fresh-1' })])
   assert.equal(r1, 'budget', 'budget must be checked before max_rounds so cost is the reported reason when cost is the cause')
 

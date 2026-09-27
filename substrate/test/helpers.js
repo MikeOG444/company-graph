@@ -1,3 +1,4 @@
+import './no-live-notify.js'   // never a real notification from the suite; see that file
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

@@ -11,9 +11,17 @@ export const meta = {
 //         canary?: { task_id? | spec_id?, mutation: string }, test_hint?: string, run_hint?: string, max_fixers? (default 4) }
 //   work_item_budgets?: { [work_item_id]: { tokens } } — optional, additive. A WorkItem's token budget, split evenly
 //         across that work item's tasks in THIS run to give each task a per-task ceiling; absent, falls back to
-//         budget.task_tokens (default 250000). A per-round ceiling defaults to that ceiling / k_rounds unless
-//         budget.round_tokens overrides it. A round that breaches either ceiling escalates with reason "budget"
-//         between rounds (never mid-round), checked before max_rounds.
+//         budget.task_tokens (default 1000000). ALL THREE of work_item_budgets[*].tokens, budget.task_tokens and
+//         budget.round_tokens are read in BILLED units (input+output, what the ledger actually bills) — never the
+//         output-token units budget.spent() counts — and are converted with outputCeiling before use. The per-round
+//         ceiling equals the task ceiling unless budget.round_tokens sets a tighter one (k21d). Crossing that OUTPUT
+//         ceiling (1x) records an over_budget entry and continues; only twice the ceiling (2x) is a hard stop,
+//         escalating with reason "budget" between rounds (never mid-round), checked before max_rounds.
+//   billed_per_output?: a positive finite number overriding DEFAULT_BILLED_PER_OUTPUT (fix-loop decisions sentinel
+//         block) as the ratio used to convert the three billed budgets above into output-token ceilings. Absent, zero,
+//         negative, non-finite or non-numeric all fall back to the default.
+//   untracked_baseline?: string[] — optional. Fixes the C14 stray-file baseline for this run instead of taking it
+//         from the first Test Runner report that carries an untracked array (stray_baseline_source records which).
 //   test_dir: where landed TestSets go, relative to the worktree root (default "<repo>/test"). The repo's own test
 //         runner must actually pick this glob up — for venture-0 work on the plant, repo is "." and this is
 //         "substrate/test". A test landed where the runner does not look is a green suite that proves nothing.
@@ -48,7 +56,12 @@ const K_ROUNDS = A.k_rounds ?? 3
 const MAX_FIXERS = A.max_fixers ?? 4
 const LENSES = ['spec_conformance', 'security', 'correctness']
 const SEV = { high: 0, medium: 1, low: 2 }
-const TASK_TOKENS = A.budget?.task_tokens ?? 250000
+// C15: budget.task_tokens (and work_item_budgets[*].tokens, and budget.round_tokens below) arrive in BILLED units;
+// 1000000 billed is 250000 output tokens at the default ratio, so a caller passing nothing sees the same 250000
+// output ceiling as before. RATIO is computed right after the fix-loop decisions block (below), never here: the
+// block's DEFAULT_BILLED_PER_OUTPUT is a const, and reading it before its line throws (k21d — as k21 wrote it,
+// every run died at startup; substrate/test/k21d-budget-and-startup.test.js runs the top level to prove it no longer does).
+const TASK_TOKENS = A.budget?.task_tokens ?? 1000000
 const ART = A.artifact_dir ?? '.artifacts'
 const BASE = A.base ?? 'HEAD'
 // .claude/agents/ definitions register from the COMMITTED tree, but NOT immediately: the runtime rescans on its own
@@ -102,7 +115,11 @@ const TestResults = { type: 'object', additionalProperties: false, required: ['p
     // reported without judging — escapingImports (fix-loop decisions, below) decides which of these escape the
     // TestSet directory. Optional/additive: an older runner result that never set it still validates.
     imports: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['file', 'specifier'],
-      properties: { file: { type: 'string' }, specifier: { type: 'string' } } } } } }
+      properties: { file: { type: 'string' }, specifier: { type: 'string' } } } },
+    // C14: every untracked path `git status --porcelain --untracked-files=all` reported in the MAIN checkout,
+    // verbatim — newStrays (fix-loop decisions, above) decides which of these are new strays outside the artifact
+    // dir and this run's baseline. Optional/additive: an older runner result that never set it still validates.
+    untracked: { type: 'array', items: { type: 'string' } } } }
 const Finding = { type: 'object', additionalProperties: false,
   required: ['id', 'lens', 'severity', 'location', 'claim', 'evidence', 'dedupe_key', 'status'],
   properties: { id: { type: 'string' }, lens: { type: 'string' }, severity: { enum: ['high', 'medium', 'low'] },
@@ -325,11 +342,43 @@ function emptyDiffAction({ diff_bytes, touched_surfaces_count, has_deps, recaptu
   return 'refuse'
 }
 
-// Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. A round that
-// overran its own ceiling, or cumulative spend at or past the task ceiling, both read as "budget". Otherwise: round
-// count, then a finding repeating a previously-attempted one, then no fresh finding at all (including an empty set).
+// ---- C15: billed-to-output token ceiling conversion ----
+// Every token ceiling the caller supplies (the work item allotment, the task ceiling, the round ceiling) arrives
+// in BILLED units — input+output, what the ledger actually bills — never the output-token units the run's own
+// spent-so-far counter counts. Ledger measurement (k7-k19): billed/output ranged 2.5-9.0, mostly 3.5-4.6; k19 was
+// given a 600000 billed ceiling, billed 3.1M, and the script's own visible (output) count was 675000. 4 is the
+// working default until the ledger gives a tighter number.
+const DEFAULT_BILLED_PER_OUTPUT = 4
+
+// A positive finite override wins; anything else (missing, zero, negative, NaN, a string) falls back to the
+// default — only a real, usable ratio may replace it.
+function billedPerOutput(configured) {
+  return (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) ? configured : DEFAULT_BILLED_PER_OUTPUT
+}
+
+// The OUTPUT-unit ceiling a BILLED figure converts to, at the given ratio. Math.floor: a partial output token
+// never rounds up into an extra one the ledger would not bill for.
+function outputCeiling(billed, ratio) {
+  return Math.floor((billed ?? 0) / ratio)
+}
+
+// True once a round's booked spend has crossed the OUTPUT ceiling (1x) but stays under the hard-stop shouldEscalate
+// enforces (2x) — on the task's cumulative tokens, or on this one round's own tokens. At or past 2x is the hard
+// stop instead (shouldEscalate's job, not this one); under 1x on both is not over budget at all.
+function isOverBudget({ tokens, task_tokens, last_round_tokens, round_tokens }) {
+  const overTask = tokens >= task_tokens && tokens < 2 * task_tokens
+  const overRound = last_round_tokens > round_tokens && last_round_tokens <= 2 * round_tokens
+  return overTask || overRound
+}
+
+// Stop on cost before stopping on round count, so cost is the reported reason when cost is the cause. ctx.tokens
+// and ctx.round_tokens/ctx.task_tokens are already OUTPUT-unit figures (outputCeiling has already converted the
+// billed ceilings before they reached ctx) by the time this runs, so this compares like units. The hard stop fires
+// only at TWICE the ceiling — crossing 1x alone records an over_budget entry (booked at the round-token-update call
+// site, not here) and the run continues past it. Otherwise: round count, then a finding repeating a previously-
+// attempted one, then no fresh finding at all (including an empty set).
 function shouldEscalate(ctx, findings) {
-  if (ctx.tokens >= ctx.task_tokens || ctx.last_round_tokens > ctx.round_tokens) return 'budget'
+  if (ctx.tokens >= 2 * ctx.task_tokens || ctx.last_round_tokens > 2 * ctx.round_tokens) return 'budget'
   // A stuck lens reports as repeat_finding — the existing enum value, because the contract's reason list is fixed
   // and this IS a repeat, just one the dedupe_key could not see.
   if (stuckLens(ctx.lens_streaks, ctx.k_rounds)) return 'repeat_finding'
@@ -948,7 +997,45 @@ function isSafeMemoryRef(ref) {
   if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
   return /^[A-Za-z0-9_.\-/]+$/.test(ref)
 }
+
+// ---- C12: the spec_gate miscopy (k9-class: the record's own id and its gate TYPE landed in the wrong field) ----
+// ok only when every field verifies against gate_id. retry is true ONLY for that known miscopy shape — found,
+// status and option all verify, and the only field(s) failing are 'id' and/or 'gate', and if 'gate' is among the
+// failures its (wrong) value equals gate_id (the tell-tale sign the two fields were swapped, not that this is some
+// other record's gate entirely). Anything else — including a null/undefined read — fails closed, never retries.
+function verifyGate({ read, gate_id }) {
+  const r = read ?? null
+  const failed = []
+  if (!r || r.found !== true) failed.push('found')
+  if (!r || r.status !== 'decided') failed.push('status')
+  if (!r || r.option !== 'approve') failed.push('option')
+  const gateOk = !!r && r.gate === 'spec_gate'
+  const idOk = !!r && r.id === gate_id
+  if (!gateOk) failed.push('gate')
+  if (!idOk) failed.push('id')
+  if (!failed.length) return { ok: true, retry: false, failed_fields: [] }
+  const coreOk = !!r && r.found === true && r.status === 'decided' && r.option === 'approve'
+  const onlyIdOrGate = failed.every(f => f === 'id' || f === 'gate')
+  const gateFailingMatchesId = !failed.includes('gate') || (!!r && r.gate === gate_id)
+  const retry = coreOk && onlyIdOrGate && gateFailingMatchesId
+  return { ok: false, retry, failed_fields: failed }
+}
+
+// ---- C14: stray files a run's tasks leave behind outside the artifact store ----
+// Report only — nothing here deletes, moves or edits anything. A path equal to the artifact dir, or nested under
+// '<artifact_dir>/', is excluded (it belongs to this run's own bookkeeping); a path that merely shares the prefix
+// TEXT (e.g. '.artifactsX/a' against artifact_dir '.artifacts') is not excluded — string-prefix alone is not
+// containment. A path already in the baseline (pre-existing, or this run's own first report) is not new.
+function newStrays({ reported, baseline, artifact_dir }) {
+  const art = String(artifact_dir ?? '.artifacts').replace(/\/+$/, '')
+  const base = new Set(baseline ?? [])
+  const inArtifactDir = (p) => { const s = String(p); return s === art || s.startsWith(`${art}/`) }
+  return (reported ?? []).filter(p => !inArtifactDir(p) && !base.has(p))
+}
 // ---- END fix-loop decisions ----
+
+// C15: the billed/output ratio this run converts every billed budget with (see billedPerOutput above).
+const RATIO = billedPerOutput(A.billed_per_output)
 
 // =====================================================================
 // ---- Spec Gate check: a high-risk spec may not be built on the caller's word ----
@@ -957,8 +1044,11 @@ function isSafeMemoryRef(ref) {
 // never looked. A pending spec built exactly as readily as an approved one — a check that passes by default, which
 // is the one shape the operating conventions forbid. The gate FILE is the signature, never args (the Phase 3
 // convention, and the same guard /build-reentry puts on the sev1 page).
-const GateCheck = { type: 'object', additionalProperties: false, required: ['found', 'status', 'gate', 'option'],
-  properties: { found: { type: 'boolean' }, status: { type: 'string' }, gate: { type: 'string' },
+// C12: id is the gate RECORD's own id (the gate_id this check verifies against); gate is that record's gate TYPE
+// (e.g. "spec_gate") — a k9-class run miscopied one into the other's field, which verifyGate (fix-loop decisions,
+// above) now catches and retries once rather than silently passing or silently refusing.
+const GateCheck = { type: 'object', additionalProperties: false, required: ['found', 'status', 'gate', 'option', 'id'],
+  properties: { found: { type: 'boolean' }, status: { type: 'string' }, gate: { type: 'string' }, id: { type: 'string' },
     option: { type: 'string' }, decided_by: { type: 'string' }, decided_at: { type: 'string' }, note: { type: 'string' } } }
 const pendingSpecs = A.specs.filter(s => s.spec?.gate === 'pending')
 if (pendingSpecs.length) {
@@ -966,13 +1056,21 @@ if (pendingSpecs.length) {
     return { refused: true, reason: `${pendingSpecs.length} spec(s) are gate:"pending" (${pendingSpecs.map(s => s.spec.id).join(', ')}) and no gate_id was passed. A high-risk spec is built only after a decided spec_gate, and the decision is read from gates/, not from args.`,
       provenance: stamp('build-implement', 'n/a', 'hotl') }
   }
-  const g = await agent(`Run from the repository root: node substrate/gates.js show ${A.gate.gate_id}. Report found, status, gate,
-       decision.option ("" if none), decision.decided_by, decision.decided_at and decision.note ("" if absent).
-       Copy the values, never interpret them. If the command fails, found=false and the error text in note.`,
-    { label: 'gate:spec_gate', model: MODEL.cheap, ...AT('mechanical'), schema: GateCheck })
-  const ok = g && g.found && g.status === 'decided' && g.gate === 'spec_gate' && g.option === 'approve'
-  if (!ok) {
-    return { refused: true, reason: `spec_gate ${A.gate.gate_id} does not authorise this build: ${JSON.stringify(g ?? { found: false })}. Required: found, status "decided", gate "spec_gate", option "approve".`,
+  // AC-12: exactly one agent() call site, re-invoked at most once — only when verifyGate says the first read's
+  // failure is the known id/gate miscopy (retry: true) — never a second, different call site.
+  let g, verdict
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    g = await agent(`Run from the repository root: node substrate/gates.js show ${A.gate.gate_id}. Report id and gate as
+         TWO SEPARATE fields, never the same value for both: id is the gate RECORD's own id; gate is that record's
+         gate TYPE (e.g. "spec_gate"). Also report found, status, decision.option ("" if none), decision.decided_by,
+         decision.decided_at and decision.note ("" if absent). Copy the values, never interpret them. If the command
+         fails, found=false and the error text in note.`,
+      { label: 'gate:spec_gate', model: MODEL.cheap, ...AT('mechanical'), schema: GateCheck })
+    verdict = verifyGate({ read: g, gate_id: A.gate.gate_id })
+    if (verdict.ok || !verdict.retry) break
+  }
+  if (!verdict.ok) {
+    return { refused: true, reason: `spec_gate ${A.gate.gate_id} does not authorise this build: ${JSON.stringify(g ?? { found: false })}. Failed field(s): ${verdict.failed_fields.join(', ')}. Required: found, status "decided", gate "spec_gate", option "approve", id "${A.gate.gate_id}".`,
       provenance: stamp('build-implement', 'n/a', 'hotl') }
   }
   log(`spec_gate ${A.gate.gate_id} verified: ${g.option} by ${g.decided_by ?? 'unknown'} — ${pendingSpecs.length} gated spec(s) cleared`)
@@ -1027,6 +1125,17 @@ const escalations = []
 const boundaryViolations = []
 // One entry per boundary-repair attempt this run made (AC-13), whatever it concluded. [] when no task strayed.
 const boundaryRepairs = []
+// C15: one { task_id, round, billed_est, budget } entry per round whose booked spend crossed the OUTPUT ceiling
+// (1x) but stayed under the hard-stop (2x) — the run continues past these, so they are report-only.
+const overBudget = []
+// C14: this run's stray-file baseline and dedupe registry (report only — nothing here deletes or moves a file).
+// untrackedBaseline starts from args.untracked_baseline when given (stray_baseline_source 'args'); otherwise the
+// first Test Runner report of the run that carries an untracked array becomes it (source 'first_report'), and if
+// no runner ever reports untracked at all it stays null (source 'none', stray_files stays []).
+let untrackedBaseline = Array.isArray(A.untracked_baseline) ? A.untracked_baseline : null
+let strayBaselineSource = untrackedBaseline ? 'args' : 'none'
+const strayFiles = []
+const strayPathsSeen = new Set()
 const taskDone = {}, resolveTask = {}
 for (const { task } of tasks) taskDone[task.id] = new Promise(r => { resolveTask[task.id] = r })
 
@@ -1139,11 +1248,22 @@ async function runTask({ spec, task, spec_ref }) {
   // needs_from_sibling routing below (AC-16) and the boundary-repair machinery both have ctx.history and
   // ctx.repair_used to read and write from the earliest possible point. ctx.changeSet is provisional here
   // (changeSet0, pre empty-diff-gate, pre canary) and is reassigned as the settled ChangeSet emerges below.
-  const taskTokenCeiling = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
+  // C15: taskCeiling and roundBudget both work in BILLED units — every one of their inputs (work_item_tokens,
+  // TASK_TOKENS, A.budget.round_tokens) is billed. outputCeiling converts each BILLED result to the OUTPUT-token
+  // units ctx.tokens/budget.spent() actually count, at RATIO. taskTokenCeilingBilled is kept on ctx for the
+  // over_budget entry's `budget` field (AC-6: billed, not output).
+  const taskTokenCeilingBilled = taskCeiling({ work_item_tokens: A.work_item_budgets?.[spec.work_item_id]?.tokens,
     tasks_for_work_item: tasksPerWorkItem.get(spec.work_item_id) ?? 1, default_task_tokens: TASK_TOKENS })
-  const roundTokenCeiling = roundBudget({ task_tokens: taskTokenCeiling, k_rounds: K_ROUNDS, round_tokens: A.budget?.round_tokens })
+  // k21d: with no explicit budget.round_tokens the round ceiling IS the task ceiling (k_rounds 0 makes roundBudget
+  // degrade to it). The task/k_rounds default stopped k1i, k7 and k21 in round 1 while each was far under its task
+  // ceiling — round 1 carries the whole first panel and runner (~170k–260k output on k7–k21), later rounds far less.
+  // A caller who wants a tighter per-round guard still passes budget.round_tokens.
+  const roundTokenCeilingBilled = roundBudget({ task_tokens: taskTokenCeilingBilled, k_rounds: A.budget?.round_tokens != null ? K_ROUNDS : 0, round_tokens: A.budget?.round_tokens })
+  const taskTokenCeiling = outputCeiling(taskTokenCeilingBilled, RATIO)
+  const roundTokenCeiling = outputCeiling(roundTokenCeilingBilled, RATIO)
   const ctx = { spec, task, changeSet: changeSet0, testSet, seen: new Set(), round: 0, k_rounds: K_ROUNDS,
                 tokens: 0, last_round_tokens: 0, task_tokens: taskTokenCeiling, round_tokens: roundTokenCeiling,
+                task_tokens_billed: taskTokenCeilingBilled,
                 lens_streaks: {}, grace_used: false,
                 history: [], overruled: [], upheld: [], mode: 'retry', toRun: LENSES, verified: new Set(),
                 // carried: findings resolveRound says are still open (unresolved or upheld) across rounds,
@@ -1318,7 +1438,12 @@ async function runTask({ spec, task, spec_ref }) {
                         ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
                         file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
                         WITHOUT judging whether any of them is correct; that decision is made elsewhere. Omit a package name or a
-                        node: builtin; report only relative paths.`,
+                        node: builtin; report only relative paths.
+                        ALSO run \`git -C ${wt} worktree list\` and take the FIRST path it prints as the MAIN CHECKOUT (never ${wt}
+                        itself). In that main checkout, run \`git status --porcelain --untracked-files=all\` and report untracked:
+                        every untracked path it prints, copied VERBATIM (do not trim, reformat, or judge any of them — that decision
+                        is made elsewhere). This is report only: do NOT delete, move, add, or otherwise touch any file the status
+                        output names.`,
       { label: `run:${task.id}:${tag}`, model: MODEL.cheap, ...AT('mechanical'), schema: TestResults })
 
     const overruledNote = ctx.overruled.length
@@ -1362,6 +1487,24 @@ async function runTask({ spec, task, spec_ref }) {
       correctness: async () => {
         const r = await runP
         if (!r) return null
+        // C14: the FIRST Test Runner report of the run that carries an untracked array becomes this run's baseline
+        // (unless args.untracked_baseline already set one) — it yields no strays itself, since it IS the baseline.
+        // Every later report, from any task, is diffed against it with newStrays (fix-loop decisions, above);
+        // report only, deduped by path across the whole run.
+        if (Array.isArray(r.untracked)) {
+          if (untrackedBaseline == null) {
+            untrackedBaseline = [...r.untracked]
+            strayBaselineSource = 'first_report'
+            ctx.history.push(`${tag}: ${r.untracked.length} untracked path(s) recorded as this run's stray-file baseline`)
+          } else {
+            for (const p of newStrays({ reported: r.untracked, baseline: untrackedBaseline, artifact_dir: ART })) {
+              if (strayPathsSeen.has(p)) continue
+              strayPathsSeen.add(p)
+              strayFiles.push({ round: ctx.round, task_id: task.id, path: p })
+              log(`${task.id} ${tag}: new stray file outside the artifact store and this run's baseline: ${p}`)
+            }
+          }
+        }
         // ---- Tests that escape the TestSet directory (wi-b8, AC-8/AC-9/AC-10): checked BEFORE anything else this
         // round touches — before the validity detector, before any fix: agent — because a test that ran against
         // code outside this task's change (k7, k11, k13) makes every OTHER fact this round reported about it
@@ -1495,6 +1638,14 @@ async function runTask({ spec, task, spec_ref }) {
     ctx.history.push(`${tag} [${toRun.join(',')}]: ${result} (${findings.length} findings${veto_by ? `, veto by ${veto_by}` : ''})`)
     ctx.last_round_tokens = Math.max(0, budget.spent() - roundStartSpend)
     ctx.tokens += ctx.last_round_tokens
+    // C15: booked immediately after ctx.tokens is updated, whatever this round's pass/fail outcome — crossing the
+    // OUTPUT ceiling (1x) while staying under the hard stop (2x) is reported and the run continues; shouldEscalate
+    // (called later, only on a non-pass round) is the sole path to the 2x hard stop itself.
+    if (isOverBudget({ tokens: ctx.tokens, task_tokens: ctx.task_tokens, last_round_tokens: ctx.last_round_tokens, round_tokens: ctx.round_tokens })) {
+      const billed_est = ctx.tokens * RATIO
+      overBudget.push({ task_id: task.id, round: ctx.round, billed_est, budget: ctx.task_tokens_billed })
+      log(`${task.id} ${tag}: over budget — ${ctx.tokens} output tokens booked (billed_est ${billed_est}) against a ${ctx.task_tokens_billed} billed ceiling; continuing under the 2x hard stop`)
+    }
     ctx.lens_streaks = lensStreaks(ctx.lens_streaks, toRun, result === 'pass' ? [] : findings)
 
     // Escalation Packager: code supplies reason, repeats and disputes; the strong model supplies the hypothesis.
@@ -2032,7 +2183,20 @@ return {
     ...(f.canary_source === 'library' && f.canary_id ? { canary_id: f.canary_id } : {}) })),
   escalations,
   starved_items: [],
-  // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.
-  spend: { tokens: Math.max(0, budget.spent() - TOKENS_AT_START), wall_clock_min: 0, human_min: 0 },
+  // C15: one { task_id, round, billed_est, budget } entry per round that crossed the OUTPUT ceiling (1x) but
+  // stayed under the hard stop (2x) — report only, the run continued past every one of these. [] when none did.
+  over_budget: overBudget,
+  // C14: one { round, task_id, path } entry per new stray file this run's tasks left outside the artifact store
+  // and the run's own baseline, deduped by path across every task. [] when no runner ever reported untracked, or
+  // every reported path was accounted for. Report only — nothing here deleted or moved anything.
+  stray_files: strayFiles,
+  // 'args' (args.untracked_baseline was given), 'first_report' (the first runner report that carried an untracked
+  // array became the baseline), or 'none' (no runner ever reported untracked at all this run).
+  stray_baseline_source: strayBaselineSource,
+  // spend.tokens is still the OUTPUT-token delta budget.spent() counts. billed_per_output is the ratio actually
+  // used this run (RATIO); billed_tokens_est is spend.tokens converted to an ESTIMATE of what the ledger will
+  // bill at that ratio, rounded to an integer — the ledger append after the run carries the real, billed figure.
+  spend: { tokens: Math.max(0, budget.spent() - TOKENS_AT_START), wall_clock_min: 0, human_min: 0,
+    billed_per_output: RATIO, billed_tokens_est: Math.round(Math.max(0, budget.spent() - TOKENS_AT_START) * RATIO) },
   provenance: stamp('build-implement', 'n/a', 'hotl'),
 }

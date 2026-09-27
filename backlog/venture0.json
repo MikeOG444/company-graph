@@ -424,5 +424,31 @@
       "run_id": "carry-seed-c13-b7",
       "created_at": "2026-09-26T20:24:03Z"
     }
+  },
+  {
+    "id": "wi-c15-c12-c14-line-guards",
+    "project_id": "venture0",
+    "source": "tooling",
+    "title": "Budget cap in billed tokens (C15), spec-gate id miscopy (C12), stray-file report (C14 remainder)",
+    "intent": "Three small defects in build-implement.js, ONE task.\n(1) C15 — the budget cap counts output tokens only. budget.spent() (the runtime's shared counter) sees output tokens; the ledger bills input+output. Measured billed/output ratio across ledger build-implement runs: 2.5–9.0, 3.5–4.6 on k7–k19; k19 was given 600k and billed 3.1M while the script saw 675k, so the cap never fired. Fix: every token budget in args (work_item_budgets[*].tokens, budget.task_tokens, budget.round_tokens) is in BILLED units. A pure function in the '// ---- BEGIN/END fix-loop decisions ----' block converts billed to the output units budget.spent() counts: outputCeiling(billed, ratio) = floor(billed / ratio), ratio = args.billed_per_output when a positive number, else a named default constant 4 (comment cites the ledger measurement). The default task ceiling (TASK_TOKENS, today 250000 output) becomes 1000000 billed so a caller passing nothing sees the same effective number. The HARD stop (escalation reason 'budget', existing path) fires at TWICE the task budget — the point at which the operating rule (HANDOFF §6) says the human must be asked; crossing 1× only records an over_budget entry { task_id, round, billed_est, budget } in the run output and logs it, and the run continues. The run output's spend gains billed_tokens_est (output delta × ratio) and billed_per_output (the ratio used); spend.tokens keeps its meaning (output tokens) so existing consumers are unchanged.\n(2) C12 — the spec-gate check's mechanical reader copied the gate record's id ('k8-spec_gate') into gate, and a correctly approved build refused (run k9). GateCheck has no id field. Fix in build-implement.js only: add a required id to its GateCheck schema; the gate:spec_gate prompt asks for id and gate as separate fields; verification additionally requires g.id === A.gate.gate_id. When the only failure is the known miscopy (g.gate equals A.gate.gate_id or g.id is missing/wrong while every other field verifies), re-read ONCE through the same agent() call site (a loop, no new site) and refuse only if the second read still fails. Still fails closed on anything else; the refusal reason names which field failed. Put the verification decision in a pure function in the fix-loop block (e.g. verifyGate({ read, gate_id }) -> { ok, retry, failed_fields }).\n(3) C14 remainder — nothing notices files an agent leaves in the MAIN checkout. The Test Runner prompt (run:${task.id}:${tag}) additionally runs git status --porcelain --untracked-files=all in the main checkout (the first path printed by git -C <worktree> worktree list) and reports every untracked path, verbatim, as untracked: string[] on TestResults (optional, additive). A pure function in the fix-loop block, newStrays({ reported, baseline, artifact_dir }), returns the reported paths that are outside the artifact dir and not in baseline. Baseline: args.untracked_baseline (string[], the caller's git status at launch) when given; otherwise the first runner report of the run, recorded as baseline_source 'first_report'. The run output gains stray_files: [{ round, task_id, path }] deduped by path across tasks, and a log line per new stray. Report only: nothing is deleted or moved.\nTests belong to the Test Author (substrate/test/ is not a touched surface). Use the sentinel idiom (substrate/test/extract-fixloop.js) for the pure functions and substrate/test/b5-wiring-helpers.js for wiring. Do not add any new agent() call site. Do not change other workflows' GateCheck schemas, lens verdict derivation, judges, escapingImports, widenTestsRef or testValidity.",
+    "priority": 1,
+    "deferred_iterations": 0,
+    "budget": {
+      "tokens": 1500000,
+      "wall_clock_min": 70
+    },
+    "surfaces": [
+      {
+        "kind": "path",
+        "ref": ".claude/workflows/build-implement.js"
+      }
+    ],
+    "provenance": {
+      "node": "backlog_seeder",
+      "executor": "ai_agent",
+      "method": "direct_driver",
+      "run_id": "carry-seed-c15-c12-c14",
+      "created_at": "2026-09-27T02:56:15Z"
+    }
   }
 ]
