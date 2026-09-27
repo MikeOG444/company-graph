@@ -5,3 +5,8 @@ node_modules/
 # Toy venture worktrees and scratch
 toy/.git/
 *.log
+
+# Local secrets and config (template: .env.example)
+.env
+.env.*
+!.env.example
