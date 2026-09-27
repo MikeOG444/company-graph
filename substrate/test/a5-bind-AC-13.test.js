@@ -115,6 +115,12 @@ const EXTENSIONS = [
     why: 'the Test Author repair of a TestSet file whose imports climb out of the TestSet directory',
     sites: [{ label: '`testfix:${task.id}:escape:${file}`', model: 'MODEL.mid', schema: 'TestRepair' }],
     structure: { parallel: +1 } },
+  { by: 'spec-wi-b1-b2-memory-to-build (k19d)', file: 'build-spec.js',
+    why: 'the one read-only memory-roll read, only when args.memory_ref is set, feeding the Decomposer its patterns',
+    sites: [{ label: "'memory:read'", model: 'MODEL.cheap', schema: 'MemoryExtraction' }] },
+  { by: 'spec-wi-b1-b2-memory-to-build (k19d)', file: 'build-implement.js',
+    why: 'the one read-only memory-roll read, only when args.memory_ref is set, feeding selectCanary its library',
+    sites: [{ label: "'memory:read'", model: 'MODEL.cheap', schema: 'MemoryExtraction' }] },
 ]
 const expectedSites = (file) => [...(BASELINE[file] ?? []), ...EXTENSIONS.filter(e => e.file === file).flatMap(e => e.sites)]
 const expectedStructure = (file, base) => {

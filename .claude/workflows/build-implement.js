@@ -28,6 +28,13 @@ export const meta = {
 //         (r5's adjudication defect) and for Maintain. A re-run of an already-merged change is otherwise a zero-byte diff.
 //   agent_types?: false — drops every agentType binding (a session that predates .claude/agents/ registering at all).
 //   missing_agent_types?: [name] — names the agentTypes THIS run's runtime has not yet registered; AT() drops only those.
+//   memory_ref?: OPTIONAL. A repository-relative path to a stored memory-roll run file whose result.roll (or result)
+//         is a MemoryRoll. When present, one cheap read-only agent reads it ONCE per run — before the per-task
+//         pipeline, never once per task — and its canaries feed the pure selectCanary (fix-loop decisions sentinel
+//         block) that deterministically picks, per task, a library canary whose mutation names a path inside that
+//         task's owned surfaces. An explicit args.canary always wins over the library. Absent, unreadable, empty or
+//         malformed — this whole half degrades SILENTLY: no agent call, no library canary is ever injected, and
+//         every task's canary_source records 'none' (or 'args' where args.canary matched) exactly as before.
 // returns: EvidenceBundle (see contracts.schema.json)
 //
 // Human touchpoints: none inside this run. Escalations come back in the bundle;
@@ -153,6 +160,11 @@ const TestValidityEntry = { type: 'object', additionalProperties: false, require
 // addition to its original use in the fix loop below. Declared once, here, so every caller shares one definition.
 const TestRepair = { type: 'object', additionalProperties: false, required: ['tests_ref', 'criteria_coverage'],
   properties: { tests_ref: { type: 'string' }, criteria_coverage: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } } }
+// Memory to Build (B2): the read-only extraction's own return shape. Loose item shape on purpose — the agent's
+// job is to copy a MemoryRoll's canaries VERBATIM; selectCanary below (fix-loop decisions block) is what
+// validates and filters the individual canary objects it actually needs fields from.
+const MemoryExtraction = { type: 'object', additionalProperties: false, required: ['canaries'],
+  properties: { canaries: { type: 'array', items: { type: 'object' } } } }
 
 // ---- pure-code edges ----
 const dedupe = (fs) => [...new Map(fs.map(f => [f.dedupe_key, f])).values()]
@@ -523,11 +535,18 @@ function widenTestsRef(current, repaired, artifact_dir) {
   // must never become the TestSet — on k17 it did, the escape check then flagged the repo's legitimate
   // '../lib/...' imports, and fixers rewrote four repo tests. Repairs on the branch are carried by the rediff.
   const art = String(artifact_dir ?? '.artifacts').replace(/\/+$/, '')
-  const underArt = (p) => { const s = String(p); return s === art || s.startsWith(art + '/') || s.includes('/' + art + '/') }
+  // k19d: and only the TestSet STORE (<art>/tests/) counts. A task worktree also lives under <art> (worktrees/), and
+  // on k19 a Test Author's copy on the task branch became the TestSet, so each round ran just the last file touched.
+  const tests = `${art}/tests/`
+  const inStore = (p) => { const s = String(p); return s.startsWith(tests) || s.includes('/' + tests) }
   if (!current) return repaired
-  if (!underArt(repaired)) return current
-  const dir = String(current).replace(/\/+$/, '')
-  return repaired === current || String(repaired).startsWith(dir + '/') ? current : repaired
+  if (!inStore(repaired)) return current
+  if (repaired === current || String(repaired).startsWith(String(current).replace(/\/+$/, '') + '/')) return current
+  // current may be a single file (b8 AC-5): a repair to a sibling in the same TestSet directory widens the run to
+  // that directory rather than swapping one file for another.
+  const dir = testSetDirOf(current)
+  if (dir !== String(current).replace(/\/+$/, '') && String(repaired).startsWith(dir + '/')) return dir
+  return repaired
 }
 
 function resolveRound({ findings, carried_in, deferred, repairs, rulings, tests_ref, artifact_dir }) {
@@ -844,6 +863,65 @@ function anchorAtArtifacts(p, artifact_dir) {
   return i === -1 ? r : r.slice(i)
 }
 
+// ---- Memory to Build (B2): selectCanary, pure script code (CLAUDE.md rule 3) that deterministically picks ONE
+// library canary for a task from the canaries a memory-read agent (below, outside this block) copied verbatim
+// from a stored MemoryRoll. No Math.random, no Date, no runtime handle of any kind — just run_id and task.id,
+// both plain values passed in, exactly like every other decision in this block.
+
+// A small, deterministic, non-negative hash of a string (FNV-1a, 32-bit). Never Math.random or Date — the same
+// string always yields the same number, which is the whole point: selectCanary must reproduce its own pick.
+function hashString(s) {
+  let h = 2166136261
+  const str = String(s ?? '')
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+// Path-like tokens inside a canary's mutation text (a multi-segment path, e.g. "toy/src/app.js" inside "in
+// toy/src/app.js, replace..."). Deliberately permissive — a false positive here only makes a canary eligible
+// that a human review (HOTL) can still catch; a false negative would make selectCanary needlessly conservative.
+const CANARY_PATH_RE = /\.{0,2}\/?(?:[A-Za-z0-9_.\-]+\/)+[A-Za-z0-9_.\-]*/g
+function mutationPaths(mutation) {
+  const found = []
+  for (const m of String(mutation ?? '').matchAll(CANARY_PATH_RE)) {
+    const raw = m[0].replace(/^[`"'(\[]+/, '').replace(/[`"')\],.;:]+$/, '')
+    if (raw) found.push(raw)
+  }
+  return found
+}
+
+// Picks ONE canary from `canaries` whose mutation names a path inside task.owned_surfaces (withinOwned, from
+// this same block), using a deterministic hash of run_id + ':' + task.id modulo the count of ELIGIBLE canaries
+// — so the same run_id/task.id always pick the same canary, and a different run_id can pick a different one
+// among the eligible set. Ignores an entry missing id or mutation, or whose mutation is not a string (AC-13).
+// Returns null, never throws, when canaries is not a non-empty array or none of the mutations names an owned
+// path (AC-11) — an explicit canary passed to the run always wins over this and is decided by the caller, not here.
+function selectCanary({ canaries, task, run_id }) {
+  const ownedRefs = (task?.owned_surfaces ?? []).map(s => s.ref)
+  const list = Array.isArray(canaries) ? canaries : []
+  const eligible = list.filter(c =>
+    c && typeof c === 'object' && typeof c.id === 'string' && typeof c.mutation === 'string' &&
+    mutationPaths(c.mutation).some(p => withinOwned(p, ownedRefs, [])))
+  if (!eligible.length) return null
+  const idx = hashString(`${run_id}:${task?.id}`) % eligible.length
+  return eligible[idx]
+}
+
+// k19d: the Test Runner reports an import's file RELATIVE TO THE TESTSET it ran ('x.test.js', 'sub/y.js'), not
+// from the repo root. On k19 every such bare name resolved against '' — so './helpers.js' read as escaping, every
+// round was declared invalid, and the escape repair was pointed at ${worktree}/x.test.js, where the Test Author
+// then wrote the TestSet onto the task branch. A file already under the TestSet directory is kept (anchored at the
+// artifact dir); anything else is taken relative to that directory.
+function testSetFile(tests_ref, file, artifact_dir) {
+  const dir = anchorAtArtifacts(testSetDirOf(tests_ref), artifact_dir)
+  const f = anchorAtArtifacts(file, artifact_dir)
+  if (!dir || f === dir || f.startsWith(`${dir}/`)) return f
+  return resolveSpecifier(dir, f)
+}
+
 function escapingImports({ tests_ref, imports, artifact_dir }) {
   const dir = anchorAtArtifacts(testSetDirOf(tests_ref), artifact_dir)
   const out = []
@@ -853,11 +931,22 @@ function escapingImports({ tests_ref, imports, artifact_dir }) {
     if (typeof file !== 'string' || !file) continue
     if (typeof specifier !== 'string' || !specifier) continue
     if (!(specifier.startsWith('./') || specifier.startsWith('../'))) continue
-    const resolved = anchorAtArtifacts(resolveSpecifier(dirOf(file), specifier), artifact_dir)
+    const resolved = anchorAtArtifacts(resolveSpecifier(dirOf(testSetFile(tests_ref, file, artifact_dir)), specifier), artifact_dir)
     const within = resolved === dir || (dir && resolved.startsWith(`${dir}/`))
     if (!within) out.push({ file, specifier })
   }
   return out
+}
+
+// A memory_ref is a repository-relative path (e.g. ledger/runs/run-1.json), never an absolute path, a home-dir
+// reference, a '..' traversal, or anything containing characters that have no business in a path — the latter
+// closes off free-text payloads riding along in what is supposed to be a filename before it ever reaches the
+// memory-read prompt. Anything else is treated exactly like a missing memory_ref (zero added tokens, identical behavior).
+function isSafeMemoryRef(ref) {
+  if (typeof ref !== 'string' || ref.length === 0) return false
+  if (/^[/~]/.test(ref) || /^[A-Za-z]:[\\/]/.test(ref)) return false
+  if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
+  return /^[A-Za-z0-9_.\-/]+$/.test(ref)
 }
 // ---- END fix-loop decisions ----
 
@@ -910,6 +999,25 @@ log(`${tasks.length} tasks across ${A.specs.length} specs`)
 // tasks in THIS run. Absent work_item_budgets, taskCeiling falls back to TASK_TOKENS untouched — additive only.
 const tasksPerWorkItem = new Map()
 for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerWorkItem.get(spec.work_item_id) ?? 0) + 1)
+
+// ---- Memory to Build (B2): optional args.memory_ref, read ONCE per run — before the per-task pipeline, never
+// once per task, and never at all when memory_ref is absent (zero added tokens). The agent is read-only and
+// never judges: it copies canaries verbatim from the stored roll. selectCanary (fix-loop decisions, above) then
+// picks at most one per task, deterministically, at the canary-injection step below. A missing, unreadable,
+// empty or malformed roll leaves libraryCanaries === [], which keeps every task's canary behavior identical to
+// today's (args.canary only, canary_source 'none' otherwise).
+let libraryCanaries = []
+if (A.memory_ref && isSafeMemoryRef(A.memory_ref)) {
+  const mem = await agent(
+    `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
+     if present, else result, as a MemoryRoll. Return its canaries EXACTLY as found there, verbatim — never judge,
+     filter, rank, summarize or alter them in any way. If the file is missing, unreadable, empty, or not shaped
+     like a MemoryRoll, return canaries: [] rather than guessing. Do not create, edit or delete any file, and do
+     not run any command that changes the repository — you read one file and report its contents, nothing else.`,
+    { label: 'memory:read', model: MODEL.cheap, ...AT('memory-analyst'), schema: MemoryExtraction })
+    .catch(() => null)   // Memory is never on a critical path: a failed read is the same as no memory_ref
+  libraryCanaries = Array.isArray(mem?.canaries) ? mem.canaries : []
+}
 
 const panelResults = []
 const escalations = []
@@ -1117,11 +1225,31 @@ async function runTask({ spec, task, spec_ref }) {
   }
 
   let changeSet1 = cs
+  // Canary source (B2): an explicit args.canary always wins over the library (AC-14); otherwise, when a memory
+  // roll was read, selectCanary deterministically picks at most one eligible library canary for this task
+  // (AC-15); otherwise there is no canary at all (AC-16/AC-17). Recorded on ctx so every later return of this
+  // task (all of them spread `...ctx`) carries it into the EvidenceBundle assembled at Integrate/Evidence.
+  let canaryMutation = null
   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
-    log(`canary: injecting a deliberate defect into ${task.id}`)
+    ctx.canary_source = 'args'
+    canaryMutation = A.canary.mutation
+  } else {
+    const picked = libraryCanaries.length ? selectCanary({ canaries: libraryCanaries, task, run_id: A.run_id }) : null
+    if (picked) {
+      ctx.canary_source = 'library'
+      ctx.canary_id = picked.id
+      canaryMutation = picked.mutation
+    } else {
+      ctx.canary_source = 'none'
+    }
+  }
+  if (canaryMutation) {
+    log(`canary: injecting a deliberate defect into ${task.id} (source ${ctx.canary_source}${ctx.canary_id ? `, ${ctx.canary_id}` : ''})`)
+    // Same existing canary mutation agent, unchanged prompt wording, schema and label pattern — only the
+    // mutation TEXT source differs (args.canary.mutation vs a selected library canary's mutation).
     const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch ${branch})
                                  apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
-                                 the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
+                                 the code, or comments; the verifiers must not be able to tell): ${canaryMutation}
                                  Then rewrite the cumulative diff vs ${changeSet1.base_commit} to ${changeSet1.diff_ref} and return the ChangeSet unchanged
                                  except notes = "canary" and diff_bytes = the new byte size of that file.
                                  ChangeSet: ${JSON.stringify(changeSet1)}`,
@@ -1183,6 +1311,9 @@ async function runTask({ spec, task, spec_ref }) {
     // Test Runner: mechanical agent (script cannot run shell). Only Correctness waits on it; skipped when Correctness is not re-run.
     const runP = !toRun.includes('correctness') ? null : agent(`In worktree ${wt} the change is already committed on branch ${branch}. Run the tests at ${ctx.testSet.tests_ref}
                         against the app at ${wt}/${APP}/ (npm ci there first if node_modules is missing). ${A.run_hint ?? ''}
+                        Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or
+                        write any file into the main checkout; every file you touch stays inside ${wt} (or the artifact store paths named
+                        below).
                         Write results (per-test pass/fail and failure output) to ${ART}/results/${task.id}.r${ctx.round}.json and return the summary.
                         ALSO report imports: every relative import or require specifier (one starting with './' or '../') found in every
                         file under the TestSet at ${ctx.testSet.tests_ref}, one { file, specifier } entry per specifier — report them
@@ -1245,7 +1376,7 @@ async function runTask({ spec, task, spec_ref }) {
           // Existing testfix: path, reused exactly (testRepairTarget, label beginning testfix:${task.id}:,
           // AT('test-author'), TestRepair schema) — same repair path a test_defect uses below.
           const repairs = (await parallel(escapingFiles.map(file => () => {
-            const target = testRepairTarget({ finding: { location: file }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
+            const target = testRepairTarget({ finding: { location: testSetFile(ctx.testSet.tests_ref, file, ART) }, tests_ref: ctx.testSet.tests_ref, artifact_dir: ART, worktree: wt })
             const targetNote = target.source === 'finding_location'
               ? `That file already lives on branch ${branch} inside worktree ${wt} — edit it there and commit the change (it is not in the artifact TestSet).`
               : `Write it under the TestSet directory (create the file there if it does not exist yet).`
@@ -1253,11 +1384,14 @@ async function runTask({ spec, task, spec_ref }) {
                    ${ctx.testSet.tests_ref} (specifier(s): ${JSON.stringify(specifiersOf(file))}) — it may have run against code outside
                    this task's own change rather than testing it. Repair the test at ${target.ref} so every relative import/require stays
                    inside the TestSet directory: never use a relative path that climbs out of it; do not read or modify the implementation.
-                   A TestSet lands in substrate/test/ at run time, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
-                   those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js'. A test that starts a local HTTP server
+                   A TestSet lands in substrate/test/ at integration, beside helpers.js, fixloop-helpers.js and extract-fixloop.js, so import
+                   those as './helpers.js', './fixloop-helpers.js' and './extract-fixloop.js' — and if the TestSet lacks a helper it
+                   needs, COPY that helper into the TestSet directory. Never write the test or a helper into the worktree's
+                   substrate/test/ yourself; the lander does that. A test that starts a local HTTP server
                    in-process must drive the CLI with an async child process, never spawnSync. ${targetNote} If the import is correct and
-                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and
-                   the criteria the tests now cover.`,
+                   this is wrong, change nothing and set notes to "DISPUTE: <why>". Run every command with ${wt} as your current directory
+                   — the task worktree, never the main checkout. Never copy or write any file into the main checkout. Return tests_ref
+                   (the path you wrote or edited) and the criteria the tests now cover.`,
               { label: `testfix:${task.id}:escape:${file}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
               .then(p => p && { p, target })
           }))).filter(Boolean)
@@ -1319,7 +1453,9 @@ async function runTask({ spec, task, spec_ref }) {
                      requires an exact literal the Spec never quotes, or fails the same way on the task's base commit while not describing
                      the criterion's behaviour. Repair the test at ${target.ref} so it asserts exactly what ${specText} says; do not read or
                      modify the implementation. ${targetNote} If the test is right and this classification is wrong, change nothing and set
-                     notes to "DISPUTE: <why>". Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+                     notes to "DISPUTE: <why>". Run every command with ${wt} as your current directory — the task worktree, never the
+                     main checkout. Never copy or write any file into the main checkout. Return tests_ref (the path you wrote or edited)
+                     and the criteria the tests now cover.`,
                 { label: `testfix:${task.id}:validity:${dt.test}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair })
                 .then(p => p && { dt, p, target })
             }))).filter(Boolean)
@@ -1461,6 +1597,8 @@ async function runTask({ spec, task, spec_ref }) {
           return agent(`A verifier found a defect in the TESTS you wrote from the spec, not in the implementation. Location: ${f.location}. Evidence: ${f.evidence}.
              Re-read the spec (${specText}). Repair the test at ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation.
              ${targetNote} If the test is right and the finding is wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''}
+             Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or write
+             any file into the main checkout.
              Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
             { label: `testfix:${task.id}:${f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f, p, kind: 'test', target })
         })()
@@ -1477,6 +1615,8 @@ async function runTask({ spec, task, spec_ref }) {
              Stay inside owned surfaces ${JSON.stringify(task.owned_surfaces)}. Commit the fix on branch ${branch}.
              Write the incremental diff of your commit to ${ART}/diffs/${task.id}.r${ctx.round}.${f.id}.patch and return it as diff_ref.
              Do not modify tests under ${ART}/tests/.
+             Run every command with ${wt} as your current directory — the task worktree, never the main checkout. Never copy or write
+             any file into the main checkout.
              Spec goal: ${spec.goal} Out of scope — never add any of these to satisfy a finding: ${JSON.stringify(spec.out_of_scope ?? [])}.
              FIRST reproduce the finding empirically (run the code, a request, or the test it cites); lenses are read-only and can
              only assert runtime behavior, you can check it. If it does not reproduce, or it objects to behavior the spec requires, or
@@ -1510,7 +1650,9 @@ async function runTask({ spec, task, spec_ref }) {
         return agent(`A code Fixer determined this finding is really a defect in the TESTS, not the implementation (its own reasoning: ${x.p.notes}).
                Location: ${x.f.location}. Evidence: ${x.f.evidence}. Re-read the spec (${specText}). Repair the test at ${target.ref}
                so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test is right and the finding is
-               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
+               wrong, change nothing and set notes to "DISPUTE: <why>". ${A.test_hint ?? ''} Run every command with ${wt} as your current
+               directory — the task worktree, never the main checkout. Never copy or write any file into the main checkout. Return
+               tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
           { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
       }))).filter(Boolean)
     }
@@ -1538,8 +1680,9 @@ async function runTask({ spec, task, spec_ref }) {
                implementation to fit the test's own text, so the fix was refused. Location: ${x.f.location}. Evidence: ${x.f.evidence}.
                Fixer's own rationale: ${x.p.behaviour_rationale ?? '(none given)'}. Re-read the spec (${specText}). Repair the test at
                ${target.ref} so it asserts exactly what the spec says; do not read or modify the implementation. ${targetNote} If the test
-               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Return tests_ref (the path you wrote
-               or edited) and the criteria the tests now cover.`,
+               is right and this finding is wrong, change nothing and set notes to "DISPUTE: <why>". Run every command with ${wt} as your
+               current directory — the task worktree, never the main checkout. Never copy or write any file into the main checkout.
+               Return tests_ref (the path you wrote or edited) and the criteria the tests now cover.`,
           { label: `testfix:${task.id}:${x.f.id}`, model: MODEL.mid, ...AT('test-author'), schema: TestRepair }).then(p => p && { f: x.f, p, target })
       }))).filter(Boolean)
       refusedRepairs.forEach(x => { if (fixOutcome(x.p.notes) !== 'dispute') ctx.repairedTests.push(x.target) })
@@ -1741,6 +1884,8 @@ async function runTask({ spec, task, spec_ref }) {
                  task's own work, not the merged history. Then write the cumulative diff vs that base_commit (git diff <that sha>...HEAD, run
                  inside the worktree) to ${ART}/diffs/${task.id}.repair.patch and return that path as diff_ref; ALSO report diff_bytes: the exact
                  byte size of that file (wc -c), honestly 0 if empty. worktree = "${repairWt}".
+                 Run every command with ${repairWt} as your current directory — the task worktree, never the main checkout. Never copy
+                 or write any file into the main checkout.
                  Sibling tasks in this same spec, and the surfaces each one owns (never write inside any of them):
                  ${JSON.stringify(siblingSurfaces)}. Task: ${JSON.stringify(task)}. ${specText}.`,
       { label: `impl:${task.id}:repair`, model: MODEL.mid, ...AT('implementer'), schema: ChangeSet })
@@ -1879,6 +2024,12 @@ return {
   // One entry per owned-surfaces boundary repair attempt this run made (AC-13 of spec-wi-b5-sibling-value-repair).
   // [] when no task strayed.
   boundary_repairs: boundaryRepairs,
+  // One entry per task this run reached (B2, Memory to Build): canary_source is 'args' when args.canary matched
+  // this task, 'library' when a memory-roll canary was selected instead (selectCanary, fix-loop decisions block),
+  // or 'none' otherwise — including every task that never reached the canary step at all (skipped on a failed
+  // dependency, or refused on an empty diff before ctx even existed). canary_id is present only for 'library'.
+  canaries: finished.map(f => ({ task_id: f.task.id, canary_source: f.canary_source ?? 'none',
+    ...(f.canary_source === 'library' && f.canary_id ? { canary_id: f.canary_id } : {}) })),
   escalations,
   starved_items: [],
   // Output tokens only, shared pool for the turn; the ledger append after the run carries the runtime's real figure.

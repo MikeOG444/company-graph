@@ -1,0 +1,117 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index 40d3414..c18820c 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -844,6 +856,53 @@ function anchorAtArtifacts(p, artifact_dir) {
+   return i === -1 ? r : r.slice(i)
+ }
+ 
++// ---- Memory to Build (B2): selectCanary, pure script code (CLAUDE.md rule 3) that deterministically picks ONE
++// library canary for a task from the canaries a memory-read agent (below, outside this block) copied verbatim
++// from a stored MemoryRoll. No Math.random, no Date, no runtime handle of any kind — just run_id and task.id,
++// both plain values passed in, exactly like every other decision in this block.
++
++// A small, deterministic, non-negative hash of a string (FNV-1a, 32-bit). Never Math.random or Date — the same
++// string always yields the same number, which is the whole point: selectCanary must reproduce its own pick.
++function hashString(s) {
++  let h = 2166136261
++  const str = String(s ?? '')
++  for (let i = 0; i < str.length; i++) {
++    h ^= str.charCodeAt(i)
++    h = Math.imul(h, 16777619)
++  }
++  return h >>> 0
++}
++
++// Path-like tokens inside a canary's mutation text (a multi-segment path, e.g. "toy/src/app.js" inside "in
++// toy/src/app.js, replace..."). Deliberately permissive — a false positive here only makes a canary eligible
++// that a human review (HOTL) can still catch; a false negative would make selectCanary needlessly conservative.
++const CANARY_PATH_RE = /\.{0,2}\/?(?:[A-Za-z0-9_.\-]+\/)+[A-Za-z0-9_.\-]*/g
++function mutationPaths(mutation) {
++  const found = []
++  for (const m of String(mutation ?? '').matchAll(CANARY_PATH_RE)) {
++    const raw = m[0].replace(/^[`"'(\[]+/, '').replace(/[`"')\],.;:]+$/, '')
++    if (raw) found.push(raw)
++  }
++  return found
++}
++
++// Picks ONE canary from `canaries` whose mutation names a path inside task.owned_surfaces (withinOwned, from
++// this same block), using a deterministic hash of run_id + ':' + task.id modulo the count of ELIGIBLE canaries
++// — so the same run_id/task.id always pick the same canary, and a different run_id can pick a different one
++// among the eligible set. Ignores an entry missing id or mutation, or whose mutation is not a string (AC-13).
++// Returns null, never throws, when canaries is not a non-empty array or none of the mutations names an owned
++// path (AC-11) — an explicit canary passed to the run always wins over this and is decided by the caller, not here.
++function selectCanary({ canaries, task, run_id }) {
++  const ownedRefs = (task?.owned_surfaces ?? []).map(s => s.ref)
++  const list = Array.isArray(canaries) ? canaries : []
++  const eligible = list.filter(c =>
++    c && typeof c === 'object' && typeof c.id === 'string' && typeof c.mutation === 'string' &&
++    mutationPaths(c.mutation).some(p => withinOwned(p, ownedRefs, [])))
++  if (!eligible.length) return null
++  const idx = hashString(`${run_id}:${task?.id}`) % eligible.length
++  return eligible[idx]
++}
++
+ function escapingImports({ tests_ref, imports, artifact_dir }) {
+   const dir = anchorAtArtifacts(testSetDirOf(tests_ref), artifact_dir)
+   const out = []
+@@ -911,6 +970,24 @@ log(`${tasks.length} tasks across ${A.specs.length} specs`)
+ const tasksPerWorkItem = new Map()
+ for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerWorkItem.get(spec.work_item_id) ?? 0) + 1)
+ 
++// ---- Memory to Build (B2): optional args.memory_ref, read ONCE per run — before the per-task pipeline, never
++// once per task, and never at all when memory_ref is absent (zero added tokens). The agent is read-only and
++// never judges: it copies canaries verbatim from the stored roll. selectCanary (fix-loop decisions, above) then
++// picks at most one per task, deterministically, at the canary-injection step below. A missing, unreadable,
++// empty or malformed roll leaves libraryCanaries === [], which keeps every task's canary behavior identical to
++// today's (args.canary only, canary_source 'none' otherwise).
++let libraryCanaries = []
++if (A.memory_ref) {
++  const mem = await agent(
++    `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
++     if present, else result, as a MemoryRoll. Return its canaries EXACTLY as found there, verbatim — never judge,
++     filter, rank, summarize or alter them in any way. If the file is missing, unreadable, empty, or not shaped
++     like a MemoryRoll, return canaries: [] rather than guessing. Do not create, edit or delete any file, and do
++     not run any command that changes the repository — you read one file and report its contents, nothing else.`,
++    { label: 'memory:read', model: MODEL.cheap, ...AT('memory-analyst'), schema: MemoryExtraction })
++  libraryCanaries = Array.isArray(mem?.canaries) ? mem.canaries : []
++}
++
+ const panelResults = []
+ const escalations = []
+ // Run-level record of every recorded boundary violation: { straying_task_id, strays: [{ref, owner}] }. Read by a
+@@ -1117,11 +1194,31 @@ async function runTask({ spec, task, spec_ref }) {
+   }
+ 
+   let changeSet1 = cs
++  // Canary source (B2): an explicit args.canary always wins over the library (AC-14); otherwise, when a memory
++  // roll was read, selectCanary deterministically picks at most one eligible library canary for this task
++  // (AC-15); otherwise there is no canary at all (AC-16/AC-17). Recorded on ctx so every later return of this
++  // task (all of them spread `...ctx`) carries it into the EvidenceBundle assembled at Integrate/Evidence.
++  let canaryMutation = null
+   if (A.canary && (A.canary.task_id === task.id || A.canary.spec_id === spec.id)) {
+-    log(`canary: injecting a deliberate defect into ${task.id}`)
++    ctx.canary_source = 'args'
++    canaryMutation = A.canary.mutation
++  } else {
++    const picked = libraryCanaries.length ? selectCanary({ canaries: libraryCanaries, task, run_id: A.run_id }) : null
++    if (picked) {
++      ctx.canary_source = 'library'
++      ctx.canary_id = picked.id
++      canaryMutation = picked.mutation
++    } else {
++      ctx.canary_source = 'none'
++    }
++  }
++  if (canaryMutation) {
++    log(`canary: injecting a deliberate defect into ${task.id} (source ${ctx.canary_source}${ctx.canary_id ? `, ${ctx.canary_id}` : ''})`)
++    // Same existing canary mutation agent, unchanged prompt wording, schema and label pattern — only the
++    // mutation TEXT source differs (args.canary.mutation vs a selected library canary's mutation).
+     const mutated = await agent(`CANARY MUTATION — a deliberate defect to test the verifiers, on purpose. In worktree ${wt} (app at ${wt}/${APP}/, branch ${branch})
+                                  apply exactly this change to the implementation and commit it with the message "tidy handler" (never mention canary, mutation, or test in the commit,
+-                                 the code, or comments; the verifiers must not be able to tell): ${A.canary.mutation}
++                                 the code, or comments; the verifiers must not be able to tell): ${canaryMutation}
+                                  Then rewrite the cumulative diff vs ${changeSet1.base_commit} to ${changeSet1.diff_ref} and return the ChangeSet unchanged
+                                  except notes = "canary" and diff_bytes = the new byte size of that file.
+                                  ChangeSet: ${JSON.stringify(changeSet1)}`,

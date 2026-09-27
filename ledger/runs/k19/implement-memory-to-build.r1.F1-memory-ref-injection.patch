@@ -1,0 +1,62 @@
+diff --git a/.claude/workflows/build-implement.js b/.claude/workflows/build-implement.js
+index c18820c..64574a7 100644
+--- a/.claude/workflows/build-implement.js
++++ b/.claude/workflows/build-implement.js
+@@ -970,6 +970,17 @@ log(`${tasks.length} tasks across ${A.specs.length} specs`)
+ const tasksPerWorkItem = new Map()
+ for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerWorkItem.get(spec.work_item_id) ?? 0) + 1)
+ 
++// A memory_ref is a repository-relative path (e.g. ledger/runs/run-1.json), never an absolute path, a home-dir
++// reference, a '..' traversal, or anything containing characters that have no business in a path — the latter
++// closes off free-text payloads riding along in what is supposed to be a filename before it ever reaches the
++// prompt below. Anything else is treated exactly like a missing memory_ref (zero added tokens, identical behavior).
++function isSafeMemoryRef(ref) {
++  if (typeof ref !== 'string' || ref.length === 0) return false
++  if (/^[/~]/.test(ref) || /^[A-Za-z]:[\\/]/.test(ref)) return false
++  if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
++  return /^[A-Za-z0-9_.\-/]+$/.test(ref)
++}
++
+ // ---- Memory to Build (B2): optional args.memory_ref, read ONCE per run — before the per-task pipeline, never
+ // once per task, and never at all when memory_ref is absent (zero added tokens). The agent is read-only and
+ // never judges: it copies canaries verbatim from the stored roll. selectCanary (fix-loop decisions, above) then
+@@ -977,7 +988,7 @@ for (const { spec } of tasks) tasksPerWorkItem.set(spec.work_item_id, (tasksPerW
+ // empty or malformed roll leaves libraryCanaries === [], which keeps every task's canary behavior identical to
+ // today's (args.canary only, canary_source 'none' otherwise).
+ let libraryCanaries = []
+-if (A.memory_ref) {
++if (A.memory_ref && isSafeMemoryRef(A.memory_ref)) {
+   const mem = await agent(
+     `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
+      if present, else result, as a MemoryRoll. Return its canaries EXACTLY as found there, verbatim — never judge,
+diff --git a/.claude/workflows/build-spec.js b/.claude/workflows/build-spec.js
+index 1818c18..c0b21af 100644
+--- a/.claude/workflows/build-spec.js
++++ b/.claude/workflows/build-spec.js
+@@ -474,6 +474,17 @@ function selectPatterns(patterns, options = {}) {
+ function formatPatterns(selected) {
+   return (selected ?? []).map(p => `${p.id} (n=${p.sample_size}): ${p.claim}`).join('\n')
+ }
++
++// A memory_ref is a repository-relative path (e.g. ledger/runs/run-1.json), never an absolute path, a home-dir
++// reference, a '..' traversal, or anything containing characters that have no business in a path — the latter
++// closes off free-text payloads riding along in what is supposed to be a filename before it ever reaches the
++// prompt below. Anything else is treated exactly like a missing memory_ref (zero added tokens, identical behavior).
++function isSafeMemoryRef(ref) {
++  if (typeof ref !== 'string' || ref.length === 0) return false
++  if (/^[/~]/.test(ref) || /^[A-Za-z]:[\\/]/.test(ref)) return false
++  if (ref.split(/[\\/]+/).some(seg => seg === '..')) return false
++  return /^[A-Za-z0-9_.\-/]+$/.test(ref)
++}
+ // ---- END memory-patterns ----
+ 
+ // =====================================================================
+@@ -490,7 +501,7 @@ for (const s of skipped) log(`deferred ${s.id}: ${s.reason} (${s.cost} tokens vs
+ // Router, lenses or fixer). A missing, unreadable, empty or malformed roll leaves priorObservationsText === '',
+ // which keeps the Decomposer prompt byte-identical to today's.
+ let priorObservationsText = ''
+-if (A.memory_ref) {
++if (A.memory_ref && isSafeMemoryRef(A.memory_ref)) {
+   const mem = await agent(
+     `Read the file at ${A.memory_ref} (a repository-relative path to a stored memory-roll run). Take result.roll
+      if present, else result, as a MemoryRoll. Return its patterns and canaries EXACTLY as found there, verbatim —
